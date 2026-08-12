@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Privacy policy for the LinkShelf Chrome extension." />
+    <title>Privacy Policy — LinkShelf</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="nav" aria-label="Primary navigation">
+        <a class="brand" href="./" aria-label="LinkShelf home">
+          <span class="logo" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>LinkShelf</span>
+        </a>
+        <div class="nav-links">
+          <a href="./">Home</a>
+          <a href="privacy-policy.html" aria-current="page">Privacy</a>
+          <a href="support.html">Support</a>
+          <a href="https://github.com/AliShaab-an/linkshelf">GitHub</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="page content-page">
+      <p class="eyebrow">Effective August 11, 2026</p>
+      <h1>Privacy Policy</h1>
+      <p class="lead">
+        LinkShelf is a local-first Chrome extension for parking, organizing, revisiting, searching,
+        and managing the lifecycle of links chosen by the user.
+      </p>
+
+      <article class="content-card">
+        <h2>Data LinkShelf handles</h2>
+        <p>LinkShelf processes the following information only to provide its visible features:</p>
+        <ul>
+          <li>Titles, URLs, favicons, pin state, and original position of tabs the user chooses to park.</li>
+          <li>Project names, notes, reminder dates, and settings entered by the user.</li>
+          <li>Chrome bookmark titles and URLs for local search, duplicate detection, and user-requested bookmark creation.</li>
+          <li>Local records describing whether a saved link was parked, restored, bookmarked, archived, or removed.</li>
+        </ul>
+        <p>This information may constitute browsing activity and user-generated content under Chrome Web Store policy.</p>
+
+        <h2>Local storage and transmission</h2>
+        <p>
+          LinkShelf stores its own data in <code>chrome.storage.local</code> on the user's device.
+          LinkShelf does not operate a server and does not transmit browsing activity, bookmarks,
+          notes, reminders, settings, analytics, or other user data to the developer or third parties.
+        </p>
+        <p>
+          LinkShelf does not sell data, use data for advertising, allow humans to read user data, or
+          use user data for creditworthiness or lending purposes. Its use of information obtained from
+          Chrome APIs complies with the Chrome Web Store User Data Policy, including the Limited Use requirements.
+        </p>
+
+        <h2>Chrome permissions</h2>
+        <ul>
+          <li><strong>Tabs:</strong> read tabs selected by the user, close them after successful storage, and restore them later.</li>
+          <li><strong>Bookmarks:</strong> search bookmark titles and URLs and create a bookmark when explicitly requested.</li>
+          <li><strong>Storage:</strong> keep LinkShelf projects, links, sessions, reminders, settings, and lifecycle history locally.</li>
+          <li><strong>Alarms and notifications:</strong> schedule and display reminders created by the user.</li>
+          <li><strong>Side panel and active tab:</strong> provide the extension interface and current-tab parking workflow.</li>
+        </ul>
+        <p>LinkShelf does not request broad website host access and does not inject scripts into webpages.</p>
+
+        <h2>Export, import, retention, and deletion</h2>
+        <p>
+          Users can export LinkShelf-owned data to a JSON file. Exported files may contain sensitive
+          URLs and notes and are controlled by the user after download. Import reads only a file
+          explicitly selected by the user, validates it before writing, and never modifies native
+          Chrome bookmarks.
+        </p>
+        <p>
+          Data remains on the device until the user changes or removes records, replaces data through
+          a confirmed import, clears the extension's storage, or uninstalls the extension. Removed
+          links retain a lightweight local lifecycle record; users can clear all extension data through
+          Chrome's extension controls.
+        </p>
+
+        <h2>Security</h2>
+        <p>
+          LinkShelf validates stored and imported data against a strict schema. Tabs close only after
+          successful persistence. Import uses validation and rollback protection. Because LinkShelf
+          sends no user data over a network, there is no extension-operated data transmission to encrypt.
+        </p>
+
+        <h2>Changes</h2>
+        <p>
+          Material changes to these practices will be disclosed in the extension and this policy before
+          updated data handling begins.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          For privacy questions, support requests, or data-handling concerns, email
+          <a href="mailto:ali.shaaban2002@gmail.com">ali.shaaban2002@gmail.com</a>.
+        </p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <p>&copy; 2026 LinkShelf.</p>
+        <p><a href="support.html">Get support</a></p>
+      </div>
+    </footer>
+  </body>
+</html>
