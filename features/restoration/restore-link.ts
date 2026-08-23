@@ -8,6 +8,7 @@ export interface RestoreLinkDependencies {
   getLink(linkId: string): Promise<SavedLink | undefined>;
   openTab(url: string): Promise<void>;
   markLinkRestored(linkId: string): Promise<SavedLink>;
+  markAsRestored: boolean;
 }
 
 export async function executeRestoreLink(
@@ -68,24 +69,27 @@ export async function executeRestoreLink(
     };
   }
 
-  try {
-    await dependencies.markLinkRestored(link.id);
-  } catch (error) {
-    console.error('The tab opened but its saved state could not be updated:', error);
+  if (dependencies.markAsRestored) {
+    try {
+      await dependencies.markLinkRestored(link.id);
+    } catch (error) {
+      console.error('The tab opened but its saved state could not be updated:', error);
 
-    return {
-      success: false,
-      opened: true,
-      error: {
-        code: 'STORAGE_FAILED',
-        message: 'The tab opened, but the link is still parked because storage failed.',
-      },
-    };
+      return {
+        success: false,
+        opened: true,
+        error: {
+          code: 'STORAGE_FAILED',
+          message: 'The tab opened, but the link is still parked because storage failed.',
+        },
+      };
+    }
   }
 
   return {
     success: true,
     linkId: link.id,
     opened: true,
+    restored: dependencies.markAsRestored,
   };
 }

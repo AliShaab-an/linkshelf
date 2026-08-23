@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SavedLink } from '@/domain/schemas';
 import {
   archiveLink,
@@ -18,7 +18,8 @@ import { NativeBookmarkCard } from './NativeBookmarkCard';
 import { RemoveLinkDialog } from './RemoveLinkDialog';
 import { SavedLinkCard } from './SavedLinkCard';
 
-export function SearchSection() {
+export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<LinkSearchResult[]>([]);
   const [bookmarks, setBookmarks] = useState<NativeBookmarkResult[]>([]);
@@ -33,6 +34,10 @@ export function SearchSection() {
   const [selectedFolderId, setSelectedFolderId] = useState('');
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [duplicate, setDuplicate] = useState<NativeBookmarkResult | undefined>();
+
+  useEffect(() => {
+    if (focusRequestId) searchInputRef.current?.focus();
+  }, [focusRequestId]);
 
   useEffect(() => {
     const normalizedQuery = query.trim();
@@ -86,7 +91,8 @@ export function SearchSection() {
     try {
       const response = await restoreLink(link.id);
       if (!response.success) throw new Error(response.error.message);
-      removeResult(link.id); setMessage(`Restored “${link.title}”.`);
+      if (response.restored) removeResult(link.id);
+      setMessage(response.restored ? `Restored “${link.title}”.` : `Opened a copy of “${link.title}”; it remains parked.`);
     } catch (caughtError) {
       setError(errorMessage(caughtError, 'LinkShelf could not restore this link.'));
     } finally { setWorkingId(null); }
@@ -161,7 +167,7 @@ export function SearchSection() {
         <p className="mt-1 text-sm text-slate-500">Search LinkShelf links and native Chrome bookmarks by title, URL, note, or project.</p>
       </div>
       <label className="sr-only" htmlFor="link-search">Search saved links</label>
-      <input id="link-search" type="search" autoFocus className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="React docs, client project, example.com..." value={query} onChange={(event) => setQuery(event.target.value)} />
+      <input ref={searchInputRef} id="link-search" type="search" autoFocus className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="React docs, client project, example.com..." value={query} onChange={(event) => setQuery(event.target.value)} />
       <div className="mt-2 flex justify-between text-xs text-slate-500"><span>{isSearching ? 'Searching...' : query.trim() ? `${resultCount} result${resultCount === 1 ? '' : 's'}` : 'Type to search'}</span><span>Stored locally</span></div>
 
       {bookmarkCandidate && <div className="mt-4"><BookmarkLinkDialog link={bookmarkCandidate} folders={bookmarkFolders} selectedFolderId={selectedFolderId} duplicate={duplicate} isLoadingFolders={isLoadingFolders} isSaving={workingId === bookmarkCandidate.id} onSelectFolder={setSelectedFolderId} onCancel={() => setBookmarkCandidate(null)} onConfirm={() => void confirmBookmark()} onOpenDuplicate={() => duplicate && void handleOpen(duplicate)} /></div>}

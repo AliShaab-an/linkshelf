@@ -69,6 +69,21 @@ export function ReviewSection() {
     } finally { setWorkingId(null); }
   }
 
+  async function restoreReviewLink(link: SavedLink) {
+    setWorkingId(link.id); setError(null); setMessage(null);
+    try {
+      const response = await restoreLink(link.id);
+      if (!response.success) throw new Error(response.error.message);
+      if (response.restored) {
+        finish(link, `Restored “${link.title}”.`);
+      } else {
+        setMessage(`Opened a copy of “${link.title}”; it remains parked.`);
+      }
+    } catch (caughtError) {
+      setError(toMessage(caughtError, 'LinkShelf could not restore this link.'));
+    } finally { setWorkingId(null); }
+  }
+
   async function confirmRemove() {
     if (!removeCandidate) return;
     const link = removeCandidate;
@@ -152,7 +167,7 @@ export function ReviewSection() {
       {isLoading && <SkeletonCards />}
       {!isLoading && !error && links.length === 0 && <EmptyState title="Review queue is clear">Parked links will appear here when they need a decision.</EmptyState>}
       <div className="space-y-3">
-        {links.map((link) => <SavedLinkCard key={link.id} link={link} projectName={projects.find((project) => project.id === link.projectId)?.name} isRestoring={workingId === link.id} onRestore={() => void runLinkAction(link, () => restoreLink(link.id), `Restored “${link.title}”.`)} onBookmark={() => void startBookmarking(link)} onMove={() => startMoving(link)} onArchive={() => void runLinkAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`)} onRemove={() => setRemoveCandidate(link)} />)}
+        {links.map((link) => <SavedLinkCard key={link.id} link={link} projectName={projects.find((project) => project.id === link.projectId)?.name} isRestoring={workingId === link.id} onRestore={() => void restoreReviewLink(link)} onBookmark={() => void startBookmarking(link)} onMove={() => startMoving(link)} onArchive={() => void runLinkAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`)} onRemove={() => setRemoveCandidate(link)} />)}
       </div>
     </>
   );

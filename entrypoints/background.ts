@@ -15,6 +15,7 @@ import {
   isImportDataMessage,
   isParkCurrentTabMessage,
   isParkSelectedTabsMessage,
+  isPreviewImportDataMessage,
   isOpenBookmarkMessage,
   isRenameProjectMessage,
   isRemoveLinkMessage,
@@ -25,6 +26,7 @@ import {
   isSearchLinksMessage,
   isUnarchiveLinkMessage,
   isUpdateSettingsMessage,
+  type RestoreMode,
 } from '@/messaging/contracts';
 import { executeBookmarkLink } from '@/features/bookmarks/bookmark-link';
 import {
@@ -43,7 +45,16 @@ import {
 import { executeRestoreLink } from '@/features/restoration/restore-link';
 import { executeRestoreProject } from '@/features/restoration/restore-project';
 import { executeRestoreSession } from '@/features/restoration/restore-session';
+import type { RestoreTabOutcome } from '@/features/restoration/restore-collection';
 import type { SavedLink } from '@/domain/schemas';
+import {
+  SIDE_PANEL_INTENTS_KEY,
+  type SidePanelNavigationIntent,
+} from '@/domain/side-panel';
+import {
+  executeSidePanelCommand,
+  isPanelCommand,
+} from '@/features/commands/side-panel-commands';
 import { ChromeStorageAdapter } from '@/storage/storage-adapter';
 import {
   DuplicateProjectNameError,
@@ -57,6 +68,49 @@ import {
 
 export default defineBackground(() => {
   const repository = new LinkShelfRepository(new ChromeStorageAdapter());
+  const openPanelWindows = new Set<number>();
+  const knownPanelWindows = new Set<number>();
+  type PanelEvent = {
+    addListener(listener: (info: { windowId: number }) => void): void;
+  };
+  type SidePanelApi = {
+    open(options: { windowId: number }): Promise<void>;
+    close?: (options: { windowId: number }) => Promise<void>;
+    onOpened?: PanelEvent;
+    onClosed?: PanelEvent;
+  };
+  const sidePanelApi = browser.sidePanel as unknown as SidePanelApi;
+  const supportsPanelLifecycle = Boolean(
+    sidePanelApi.close && sidePanelApi.onOpened && sidePanelApi.onClosed,
+  );
+
+  if (supportsPanelLifecycle) {
+    sidePanelApi.onOpened!.addListener(({ windowId }) => {
+      knownPanelWindows.add(windowId);
+      openPanelWindows.add(windowId);
+    });
+    sidePanelApi.onClosed!.addListener(({ windowId }) => {
+      knownPanelWindows.add(windowId);
+      openPanelWindows.delete(windowId);
+    });
+  }
+
+  async function setSidePanelIntent(
+    windowId: number,
+    intent: SidePanelNavigationIntent,
+  ) {
+    const stored = await browser.storage.session.get(SIDE_PANEL_INTENTS_KEY);
+    const current = stored[SIDE_PANEL_INTENTS_KEY];
+    const intents = current && typeof current === 'object'
+      ? current as Record<string, unknown>
+      : {};
+    await browser.storage.session.set({
+      [SIDE_PANEL_INTENTS_KEY]: {
+        ...intents,
+        [String(windowId)]: intent,
+      },
+    });
+  }
 
   async function showReminderNotification(link: SavedLink) {
     const database = await repository.getDatabase();
@@ -140,6 +194,42 @@ export default defineBackground(() => {
       await repository.getReminderLinks(),
       browser.alarms,
     );
+  }
+
+  async function createCollectionTabOpener(
+    mode: RestoreMode,
+  ): Promise<(url: string) => Promise<RestoreTabOutcome>> {
+    const targetWindow = await browser.windows.getLastFocused();
+    const windowId = targetWindow.id;
+    const existingTabs = windowId === undefined
+      ? []
+      : await browser.tabs.query({ windowId });
+    let nextIndex = existingTabs.length;
+
+    return async (url: string) => {
+      const tab = await browser.tabs.create({
+        url,
+        active: false,
+        windowId,
+        index: nextIndex,
+      });
+      nextIndex += 1;
+
+      if (mode === 'normal' || tab.id === undefined) {
+        return { discarded: false, fallback: mode === 'unloaded' };
+      }
+
+      try {
+        const discarded = await browser.tabs.discard(tab.id);
+        if (discarded?.discarded) {
+          return { discarded: true, fallback: false };
+        }
+      } catch (error) {
+        console.warn('Chrome could not discard a restored tab:', error);
+      }
+
+      return { discarded: false, fallback: true };
+    };
   }
 
   async function showKeyboardResult(title: string, message: string) {
@@ -235,6 +325,41 @@ export default defineBackground(() => {
   });
 
   browser.commands.onCommand.addListener((command, tab) => {
+    if (isPanelCommand(command)) {
+      void (async () => {
+        const windowId = tab?.windowId ?? (await browser.windows.getLastFocused()).id;
+        if (windowId === undefined) {
+          throw new Error('Chrome did not provide a window for the side panel.');
+        }
+        await executeSidePanelCommand(command, windowId, {
+          isOpen: (candidateWindowId) => supportsPanelLifecycle && knownPanelWindows.has(candidateWindowId)
+            ? openPanelWindows.has(candidateWindowId)
+            : undefined,
+          open: async (candidateWindowId) => {
+            await sidePanelApi.open({ windowId: candidateWindowId });
+            if (supportsPanelLifecycle) {
+              knownPanelWindows.add(candidateWindowId);
+              openPanelWindows.add(candidateWindowId);
+            }
+          },
+          close: async (candidateWindowId) => {
+            if (!sidePanelApi.close) {
+              await sidePanelApi.open({ windowId: candidateWindowId });
+              return;
+            }
+            await sidePanelApi.close({ windowId: candidateWindowId });
+            knownPanelWindows.add(candidateWindowId);
+            openPanelWindows.delete(candidateWindowId);
+          },
+          setIntent: setSidePanelIntent,
+          createRequestId: () => crypto.randomUUID(),
+        });
+      })().catch((error) => {
+        console.error('LinkShelf could not handle the side-panel shortcut:', error);
+      });
+      return;
+    }
+
     if (command !== 'park-current-tab') return;
 
     void (async () => {
@@ -314,7 +439,11 @@ export default defineBackground(() => {
 
     if (isImportDataMessage(message)) {
       void repository
-        .importBackup(message.payload.backup, message.payload.mode)
+        .importBackup(
+          message.payload.backup,
+          message.payload.mode,
+          message.payload.revisionToken,
+        )
         .then(async (result) => {
           await synchronizeReminderAlarms();
           sendResponse({ success: true, result });
@@ -327,6 +456,24 @@ export default defineBackground(() => {
               message: error instanceof Error
                 ? error.message
                 : 'LinkShelf could not import this backup.',
+            },
+          });
+        });
+      return true;
+    }
+
+    if (isPreviewImportDataMessage(message)) {
+      void repository
+        .previewImportBackup(message.payload.backup, message.payload.mode)
+        .then((preview) => sendResponse({ success: true, preview }))
+        .catch((error) => {
+          console.error('Failed to preview LinkShelf import:', error);
+          sendResponse({
+            success: false,
+            error: {
+              message: error instanceof Error
+                ? error.message
+                : 'LinkShelf could not inspect this backup.',
             },
           });
         });
@@ -644,13 +791,15 @@ export default defineBackground(() => {
     }
 
     if (isRestoreLinkMessage(message)) {
-      void executeRestoreLink(message, {
-        getLink: (linkId) => repository.getLink(linkId),
-        openTab: async (url) => {
-          await browser.tabs.create({ url, active: true });
-        },
-        markLinkRestored: (linkId) => repository.markLinkRestored(linkId),
-      })
+      void repository.getSettings()
+        .then((settings) => executeRestoreLink(message, {
+          getLink: (linkId) => repository.getLink(linkId),
+          openTab: async (url) => {
+            await browser.tabs.create({ url, active: true });
+          },
+          markLinkRestored: (linkId) => repository.markLinkRestored(linkId),
+          markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
+        }))
         .then(async (response) => {
           if (response.success) {
             await browser.alarms.clear(reminderAlarmName(response.linkId));
@@ -678,14 +827,16 @@ export default defineBackground(() => {
     }
 
     if (isRestoreSessionMessage(message)) {
-      void executeRestoreSession(message, {
+      void Promise.all([
+        repository.getSettings(),
+        createCollectionTabOpener('normal'),
+      ]).then(([settings, openTab]) => executeRestoreSession(message, {
         getParkedLinks: (sessionId) =>
           repository.getParkedLinksBySession(sessionId),
-        openTab: async (url) => {
-          await browser.tabs.create({ url, active: false });
-        },
+        openTab,
         markLinkRestored: (linkId) => repository.markLinkRestored(linkId),
-      })
+        markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
+      }))
         .then(async (response) => {
           await reconcileReminderAlarms(
             await repository.getReminderLinks(),
@@ -709,16 +860,18 @@ export default defineBackground(() => {
     }
 
     if (isRestoreProjectMessage(message)) {
-      void executeRestoreProject(message, {
+      void Promise.all([
+        repository.getSettings(),
+        createCollectionTabOpener(message.payload.mode),
+      ]).then(([settings, openTab]) => executeRestoreProject(message, {
         getParkedLinks: async (projectId) =>
           (await repository.getParkedSessionGroups(projectId)).flatMap(
             (group) => group.links,
           ),
-        openTab: async (url) => {
-          await browser.tabs.create({ url, active: false });
-        },
+        openTab,
         markLinkRestored: (linkId) => repository.markLinkRestored(linkId),
-      })
+        markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
+      }))
         .then(async (response) => {
           await reconcileReminderAlarms(
             await repository.getReminderLinks(),

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { SavedLink } from '@/domain/schemas';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { DisplayDensity, SavedLink } from '@/domain/schemas';
 import { Icon } from './ui/Icon';
 
 export function formatLinkDate(value: string): string {
@@ -8,9 +8,11 @@ export function formatLinkDate(value: string): string {
 
 interface SavedLinkCardProps {
   link: SavedLink;
+  note?: string;
   projectName?: string;
   isDue?: boolean;
   showStatus?: boolean;
+  density?: DisplayDensity;
   isRestoring: boolean;
   onRestore?: () => void;
   onArchive?: () => void;
@@ -20,7 +22,7 @@ interface SavedLinkCardProps {
   onRemove?: () => void;
 }
 
-export function SavedLinkCard({ link, projectName, isDue = false, showStatus = false, isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
+export function SavedLinkCard({ link, note = link.note, projectName, isDue = false, showStatus = false, density = 'comfortable', isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const secondaryActions = Boolean(onMove || onArchive || onUnarchive || onRemove);
   const favicon = link.faviconUrl;
@@ -30,9 +32,11 @@ export function SavedLinkCard({ link, projectName, isDue = false, showStatus = f
     callback?.();
   }
 
-  return <article className={`relative rounded-2xl border bg-white p-4 shadow-sm shadow-slate-200/60 transition hover:-translate-y-px hover:shadow-md ${isDue ? 'border-amber-300' : 'border-slate-200'}`}>
+  const compact = density === 'compact';
+
+  return <article className={`relative border bg-white shadow-sm shadow-slate-200/60 transition hover:-translate-y-px hover:shadow-md ${compact ? 'rounded-xl p-3' : 'rounded-2xl p-4'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}>
     <div className="flex items-start gap-3">
-      <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-sm font-extrabold text-slate-500">
+      <div className={`flex shrink-0 items-center justify-center overflow-hidden bg-slate-100 text-sm font-extrabold text-slate-500 ${compact ? 'size-8 rounded-lg' : 'size-10 rounded-xl'}`}>
         {favicon ? <img src={favicon} alt="" className="size-5"/> : link.domain.charAt(0).toUpperCase()}
       </div>
       <div className="min-w-0 flex-1">
@@ -47,9 +51,9 @@ export function SavedLinkCard({ link, projectName, isDue = false, showStatus = f
         <p className={`mt-1.5 text-xs ${isDue ? 'font-semibold text-amber-700' : 'text-slate-400'}`}>{isDue && link.reminderAt ? `Reminder ${formatLinkDate(link.reminderAt)}` : link.status === 'archived' ? `Archived ${formatLinkDate(link.archivedAt ?? link.updatedAt)}` : `Parked ${formatLinkDate(link.createdAt)}`}</p>
       </div>
     </div>
-    {link.note && <p className="mt-3 line-clamp-3 whitespace-pre-wrap break-words rounded-xl bg-slate-50 px-3 py-2.5 text-sm leading-5 text-slate-600" dir="auto">{link.note}</p>}
+    {note && <NotePreview note={note} />}
 
-    <div className="mt-3 flex items-center gap-2">
+    <div className={`${compact ? 'mt-2' : 'mt-3'} flex items-center gap-2`}>
       {onRestore && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-45" disabled={isRestoring} onClick={onRestore}><Icon name="undo"/>{isRestoring ? 'Working...' : 'Restore'}</button>}
       {onBookmark && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-45" disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark"/>Keep</button>}
       {secondaryActions && <button type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" aria-label="More link actions" aria-expanded={isMenuOpen} disabled={isRestoring} onClick={() => setIsMenuOpen((open) => !open)}><Icon name="more"/></button>}
@@ -62,6 +66,24 @@ export function SavedLinkCard({ link, projectName, isDue = false, showStatus = f
       {onRemove && <MenuButton danger onClick={() => action(onRemove)}>Remove</MenuButton>}
     </div>}
   </article>;
+}
+
+function NotePreview({ note }: { note: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [canExpand, setCanExpand] = useState(false);
+  const noteRef = useRef<HTMLParagraphElement>(null);
+  const noteId = useId();
+
+  useEffect(() => setExpanded(false), [note]);
+  useLayoutEffect(() => {
+    if (expanded || !noteRef.current) return;
+    setCanExpand(noteRef.current.scrollHeight > noteRef.current.clientHeight + 1);
+  }, [expanded, note]);
+
+  return <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5">
+    <p ref={noteRef} id={noteId} className={`${expanded ? '' : 'line-clamp-2'} whitespace-pre-wrap break-words text-sm leading-5 text-slate-600`} dir="auto">{note}</p>
+    {canExpand && <button type="button" className="mt-1 text-xs font-semibold text-blue-700 hover:text-blue-800" aria-controls={noteId} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show more'}</button>}
+  </div>;
 }
 
 function MenuButton({ children, danger = false, onClick }: { children: string; danger?: boolean; onClick(): void }) {

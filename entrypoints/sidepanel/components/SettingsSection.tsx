@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react';
 import {
-  LinkShelfBackupSchema,
+  parseSupportedLinkShelfBackup,
   type LinkShelfBackup,
   type Project,
   type Settings,
 } from '@/domain/schemas';
-import { exportData, getSettings, importData, updateSettings } from '@/messaging/contracts';
+import { MAX_BACKUP_BYTES } from '@/domain/constants';
+import type { ImportBackupPreview, ImportMode } from '@/storage/repository';
+import {
+  exportData,
+  getSettings,
+  importData,
+  previewImportData,
+  updateSettings,
+} from '@/messaging/contracts';
 
-const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
-
-type EditableSettings = Pick<Settings, 'defaultProjectId' | 'includePinnedTabsByDefault' | 'confirmBeforeBulkClose' | 'notificationsEnabled' | 'defaultRestoreBehavior'>;
+type EditableSettings = Pick<Settings, 'defaultProjectId' | 'includePinnedTabsByDefault' | 'confirmBeforeBulkClose' | 'notificationsEnabled' | 'defaultRestoreBehavior' | 'displayDensity' | 'defaultRestoreMode'>;
 
 export function SettingsSection() {
   const [settings, setSettings] = useState<EditableSettings | null>(null);
@@ -18,12 +24,13 @@ export function SettingsSection() {
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
   const [importBackup, setImportBackup] = useState<LinkShelfBackup | null>(null);
   const [importFileName, setImportFileName] = useState('');
-  const [pendingImportMode, setPendingImportMode] = useState<'merge' | 'replace' | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportBackupPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [parkShortcut, setParkShortcut] = useState('Alt+Shift+P');
+  const [shortcuts, setShortcuts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     void getSettings()
@@ -35,10 +42,9 @@ export function SettingsSection() {
       .catch((caughtError) => setError(toMessage(caughtError, 'LinkShelf could not load settings.')))
       .finally(() => setIsLoading(false));
 
-    void browser.commands.getAll().then((commands) => {
-      const command = commands.find((candidate) => candidate.name === 'park-current-tab');
-      setParkShortcut(command?.shortcut || 'Not assigned');
-    });
+    void browser.commands.getAll().then((commands) => setShortcuts(
+      Object.fromEntries(commands.map((command) => [command.name ?? '', command.shortcut || 'Not assigned'])),
+    ));
   }, []);
 
   function patch<K extends keyof EditableSettings>(key: K, value: EditableSettings[K]) {
@@ -78,7 +84,7 @@ export function SettingsSection() {
   }
 
   async function selectBackup(file: File | undefined) {
-    setImportBackup(null); setPendingImportMode(null); setError(null); setMessage(null);
+    setImportBackup(null); setImportPreview(null); setError(null); setMessage(null);
     if (!file) return;
     if (file.size > MAX_BACKUP_BYTES) {
       setError('This backup is larger than the 5 MB import limit.');
@@ -87,30 +93,38 @@ export function SettingsSection() {
 
     try {
       const parsedJson = JSON.parse(await file.text()) as unknown;
-      const parsedBackup = LinkShelfBackupSchema.safeParse(parsedJson);
-      if (!parsedBackup.success) {
-        throw new Error('This file is not a valid LinkShelf backup or uses an unsupported schema version.');
-      }
-      setImportBackup(parsedBackup.data);
+      setImportBackup(parseSupportedLinkShelfBackup(parsedJson));
       setImportFileName(file.name);
     } catch (caughtError) {
       setError(toMessage(caughtError, 'LinkShelf could not read this backup file.'));
     }
   }
 
+  async function chooseImportMode(mode: ImportMode) {
+    if (!importBackup || isPreviewing) return;
+    setIsPreviewing(true); setImportPreview(null); setError(null); setMessage(null);
+    try {
+      const response = await previewImportData(importBackup, mode);
+      if (!response.success) throw new Error(response.error.message);
+      setImportPreview(response.preview);
+    } catch (caughtError) {
+      setError(toMessage(caughtError, 'LinkShelf could not prepare an import summary.'));
+    } finally { setIsPreviewing(false); }
+  }
+
   async function confirmImport() {
-    if (!importBackup || !pendingImportMode) return;
-    const mode = pendingImportMode;
+    if (!importBackup || !importPreview || importPreview.conflicts > 0) return;
+    const mode = importPreview.mode;
     setIsImporting(true); setError(null); setMessage(null);
     try {
-      const response = await importData(importBackup, mode);
+      const response = await importData(importBackup, mode, importPreview.revisionToken);
       if (!response.success) throw new Error(response.error.message);
       const refreshed = await getSettings();
       if (refreshed.success) {
         setSettings(refreshed.settings);
         setProjects(refreshed.projects);
       }
-      setImportBackup(null); setPendingImportMode(null); setImportFileName('');
+      setImportBackup(null); setImportPreview(null); setImportFileName('');
       setMessage(
         mode === 'replace'
           ? `Backup restored: ${response.result.linksAdded} links loaded.`
@@ -133,15 +147,36 @@ export function SettingsSection() {
       {isLoading && <p className="rounded-xl bg-white p-4 text-sm text-slate-500">Loading settings...</p>}
       {settings && <div className="space-y-4">
         <section className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-700 to-blue-800 p-4 text-white shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Keyboard shortcut</p>
-          <div className="mt-2 flex items-center justify-between gap-3"><div><h3 className="font-bold">Park current tab</h3><p className="mt-1 text-sm text-blue-100">Uses your default project and closes only after saving.</p></div><kbd className="shrink-0 rounded-lg border border-white/25 bg-white/15 px-2.5 py-1.5 text-xs font-bold shadow-inner">{parkShortcut}</kbd></div>
-          <button type="button" className="mt-4 w-full rounded-xl bg-white/15 px-3 py-2 text-sm font-bold text-white hover:bg-white/25" onClick={() => void browser.tabs.create({ url: 'chrome://extensions/shortcuts', active: true })}>Change keyboard shortcut</button>
+          <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Keyboard shortcuts</p>
+          <div className="mt-3 space-y-2">{[
+            ['park-current-tab', 'Park current tab'],
+            ['toggle-side-panel', 'Open or close LinkShelf'],
+            ['open-search', 'Open Search'],
+            ['open-today', 'Open Today'],
+          ].map(([name, label]) => <div key={name} className="flex items-center justify-between gap-3"><span className="text-sm font-semibold">{label}</span><kbd className="shrink-0 rounded-lg border border-white/25 bg-white/15 px-2.5 py-1.5 text-xs font-bold shadow-inner">{shortcuts[name] ?? 'Loading...'}</kbd></div>)}</div>
+          <button type="button" className="mt-4 w-full rounded-xl bg-white/15 px-3 py-2 text-sm font-bold text-white hover:bg-white/25" onClick={() => void browser.tabs.create({ url: 'chrome://extensions/shortcuts', active: true })}>Manage keyboard shortcuts</button>
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="font-semibold">Parking and restoration</h3>
           <label className="mt-4 block text-sm font-medium" htmlFor="default-project">Default project</label>
           <select id="default-project" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={settings.defaultProjectId} onChange={(event) => patch('defaultProjectId', event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
+          <label className="mt-4 block text-sm font-medium" htmlFor="restore-behavior">After restoring a link</label>
+          <select id="restore-behavior" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={settings.defaultRestoreBehavior} onChange={(event) => patch('defaultRestoreBehavior', event.target.value as Settings['defaultRestoreBehavior'])}>
+            <option value="restore-and-remove">Mark it restored</option>
+            <option value="open-copy">Keep it parked</option>
+          </select>
+          <p className="mt-1 text-xs text-slate-500">This applies to normal and unloaded restoration.</p>
+          <label className="mt-4 block text-sm font-medium" htmlFor="default-restore-mode">Default project restoration</label>
+          <select id="default-restore-mode" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={settings.defaultRestoreMode} onChange={(event) => patch('defaultRestoreMode', event.target.value as Settings['defaultRestoreMode'])}>
+            <option value="normal">Restore normally</option>
+            <option value="unloaded">Restore unloaded</option>
+          </select>
+          <label className="mt-4 block text-sm font-medium" htmlFor="display-density">Project display density</label>
+          <select id="display-density" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={settings.displayDensity} onChange={(event) => patch('displayDensity', event.target.value as Settings['displayDensity'])}>
+            <option value="comfortable">Comfortable</option>
+            <option value="compact">Compact</option>
+          </select>
           <Toggle label="Chrome notifications" description="Due reminders still appear in Today when notifications are off." checked={settings.notificationsEnabled} onChange={(value) => patch('notificationsEnabled', value)} />
           <p className="mt-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">Bulk parking always requires confirmation, and pinned tabs stay excluded by default while the related advanced preferences are being completed.</p>
           <button type="button" className="mt-4 w-full rounded-lg bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={isSaving} onClick={() => void save()}>{isSaving ? 'Saving...' : 'Save settings'}</button>
@@ -165,19 +200,28 @@ export function SettingsSection() {
             <p className="font-semibold">{importFileName}</p>
             <p className="mt-1 text-xs">Exported {new Date(importBackup.exportedAt).toLocaleString()}</p>
             <dl className="mt-3 grid grid-cols-3 gap-2 text-center"><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Projects</dt><dd className="font-bold">{importBackup.database.projects.length}</dd></div><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Sessions</dt><dd className="font-bold">{importBackup.database.sessions.length}</dd></div><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Links</dt><dd className="font-bold">{importBackup.database.links.length}</dd></div></dl>
-            <div className="mt-3 flex gap-2"><button type="button" className="flex-1 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white" onClick={() => setPendingImportMode('merge')}>Merge</button><button type="button" className="flex-1 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700" onClick={() => setPendingImportMode('replace')}>Replace all</button></div>
+            <dl className="mt-2 grid grid-cols-2 gap-2 text-center"><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Notes</dt><dd className="font-bold">{importBackup.database.sessions.filter((session) => !!session.note?.trim()).length + importBackup.database.links.filter((link) => !!link.note?.trim()).length}</dd></div><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Reminders</dt><dd className="font-bold">{importBackup.database.links.filter((link) => link.reminderAt !== undefined).length}</dd></div></dl>
+            <p className="mt-2 text-xs text-blue-800">{importBackup.database.links.filter((link) => link.status === 'parked').length} parked · {importBackup.database.links.filter((link) => link.status === 'archived').length} archived · {importBackup.database.links.filter((link) => link.status === 'restored' || link.status === 'removed').length} history</p>
+            <div className="mt-3 flex gap-2"><button type="button" className="flex-1 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={isPreviewing} onClick={() => void chooseImportMode('merge')}>{isPreviewing ? 'Checking...' : 'Merge'}</button><button type="button" className="flex-1 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={isPreviewing} onClick={() => void chooseImportMode('replace')}>Replace all</button></div>
           </div>}
 
-          {importBackup && pendingImportMode && <div className={`mt-3 rounded-lg border p-3 ${pendingImportMode === 'replace' ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50'}`} role="alertdialog" aria-labelledby="confirm-import-title">
-            <h4 id="confirm-import-title" className="font-semibold">Confirm {pendingImportMode} import</h4>
-            <p className="mt-1 text-sm text-slate-700">{pendingImportMode === 'replace' ? 'This replaces all current LinkShelf projects, sessions, links, reminders, and settings. A rollback snapshot is used if writing fails.' : 'Current records stay unchanged. New backup records are added, and matching record IDs are skipped.'}</p>
-            <div className="mt-3 flex gap-2"><button type="button" className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${pendingImportMode === 'replace' ? 'bg-red-700' : 'bg-slate-900'}`} disabled={isImporting} onClick={() => void confirmImport()}>{isImporting ? 'Importing...' : `Confirm ${pendingImportMode}`}</button><button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={isImporting} onClick={() => setPendingImportMode(null)}>Cancel</button></div>
+          {importBackup && importPreview && <div className={`mt-3 rounded-lg border p-3 ${importPreview.mode === 'replace' ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50'}`} role="alertdialog" aria-labelledby="confirm-import-title">
+            <h4 id="confirm-import-title" className="font-semibold">Confirm {importPreview.mode} import</h4>
+            <p className="mt-1 text-sm text-slate-700">{importPreview.mode === 'replace' ? `This will replace ${importPreview.current.projects} current projects, ${importPreview.current.sessions} sessions, and ${importPreview.current.links} links, including current settings.` : `This will add ${importPreview.projectsAdded} projects, ${importPreview.sessionsAdded} sessions, and ${importPreview.linksAdded} links. ${importPreview.recordsSkipped} matching records will be skipped and current settings will stay unchanged.`}</p>
+            {importPreview.conflicts > 0 && <p className="mt-2 rounded bg-red-100 p-2 text-sm font-semibold text-red-800">{importPreview.conflicts} conflicting record relationship{importPreview.conflicts === 1 ? '' : 's'} must be resolved before this backup can be merged. Nothing will be changed.</p>}
+            <div className="mt-3 flex gap-2"><button type="button" className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${importPreview.mode === 'replace' ? 'bg-red-700' : 'bg-slate-900'}`} disabled={isImporting || importPreview.conflicts > 0} onClick={() => void confirmImport()}>{isImporting ? 'Importing...' : importPreview.mode === 'replace' ? 'Replace LinkShelf data' : 'Confirm merge'}</button><button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={isImporting} onClick={() => setImportPreview(null)}>Cancel</button></div>
           </div>}
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
           <h3 className="font-semibold text-slate-900">Why these permissions?</h3>
           <ul className="mt-2 space-y-2"><li><strong>Tabs:</strong> save, close, and restore tabs you choose.</li><li><strong>Bookmarks:</strong> search and create native Chrome bookmarks.</li><li><strong>Alarms and notifications:</strong> deliver reminders.</li><li><strong>Storage:</strong> keep LinkShelf data on this device.</li></ul>
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          <h3 className="font-semibold text-slate-900">Help shape LinkShelf</h3>
+          <p className="mt-2">Found a bug or have an idea? Early feedback directly guides the next release.</p>
+          <div className="mt-3 flex gap-2"><a className="flex-1 rounded-lg bg-blue-700 px-3 py-2 text-center font-semibold text-white" href="mailto:ali.shaaban2002@gmail.com?subject=LinkShelf%20feedback">Send feedback</a><a className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-center font-semibold text-slate-800" href="https://github.com/AliShaab-an/linkshelf/issues" target="_blank" rel="noreferrer">Report issue</a></div>
         </section>
       </div>}
     </>

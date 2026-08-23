@@ -8,7 +8,7 @@ export default defineConfig({
   manifest: {
     name: 'LinkShelf',
     description: 'Park tabs, organize useful links, and return to them at the right time.',
-    version: '0.1.0',
+    version: '0.2.0',
     permissions: ['storage', 'alarms', 'notifications', 'tabs', 'bookmarks'],
     commands: {
       'park-current-tab': {
@@ -17,6 +17,18 @@ export default defineConfig({
           mac: 'Command+Shift+P',
         },
         description: 'Park the current tab in the default project',
+      },
+      'toggle-side-panel': {
+        suggested_key: { default: 'Alt+Shift+L' },
+        description: 'Open or close LinkShelf',
+      },
+      'open-search': {
+        suggested_key: { default: 'Alt+Shift+F' },
+        description: 'Open LinkShelf search',
+      },
+      'open-today': {
+        suggested_key: { default: 'Alt+Shift+T' },
+        description: 'Open LinkShelf Today',
       },
     },
   },
