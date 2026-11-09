@@ -5,18 +5,21 @@ import {
   toLocalDateTimeInputValue,
 } from '@/domain/reminders';
 import type { Project } from '@/domain/schemas';
-import { getProjects, parkCurrentTab } from '@/messaging/contracts';
+import { getSettings, parkCurrentTab } from '@/messaging/contracts';
+import { updateUiState } from '@/entrypoints/sidepanel/ui-state';
 
 type ParkStatus = 'idle' | 'parking' | 'success' | 'error';
 
 interface ParkCurrentTabFormProps {
   tabId: number;
   isEligible: boolean;
+  onSaved(): void;
 }
 
 export function ParkCurrentTabForm({
   tabId,
   isEligible,
+  onSaved,
 }: ParkCurrentTabFormProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState(INBOX_PROJECT_ID);
@@ -29,13 +32,14 @@ export function ParkCurrentTabForm({
   const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
-    void getProjects()
+    void getSettings()
       .then((response) => {
         if (!response.success) {
           setProjectError(response.error.message);
           return;
         }
         const defaultProject =
+          response.projects.find((project) => project.id === response.settings.defaultProjectId) ??
           response.projects.find((project) => project.isInbox) ??
           response.projects[0];
         if (!defaultProject) {
@@ -56,7 +60,7 @@ export function ParkCurrentTabForm({
   }, []);
 
   async function handlePark() {
-    if (!isEligible || !projectId || status === 'parking') return;
+    if (!isEligible || !projectId || status === 'parking' || status === 'success') return;
 
     let reminderAt: string | undefined;
     try {
@@ -75,13 +79,17 @@ export function ParkCurrentTabForm({
         note: note.trim() || undefined,
         reminderAt,
       });
+      if (response.saved) {
+        onSaved();
+        void updateUiState({ selectedProjectId: projectId, expandedSessionIds: response.sessionId ? [response.sessionId] : [], lastSection: 'projects' }).catch(() => undefined);
+      }
       if (!response.success) {
-        setStatus('error');
+        setStatus(response.saved ? 'success' : 'error');
         setMessage(response.error.message);
         return;
       }
       setStatus('success');
-      setMessage('The tab was parked and closed.');
+      setMessage(`Saved to ${projects.find((project) => project.id === projectId)?.name ?? 'your shelf'}. Find it in Saved to reopen it.`);
     } catch (error) {
       setStatus('error');
       setMessage(
@@ -97,7 +105,7 @@ export function ParkCurrentTabForm({
     projects.length === 0 ||
     isLoadingProjects ||
     Boolean(projectError) ||
-    status === 'parking';
+    status === 'parking' || status === 'success';
   const minimumReminder = toLocalDateTimeInputValue(
     new Date(Date.now() + 60_000),
   );
@@ -121,7 +129,7 @@ export function ParkCurrentTabForm({
       </div>}
 
       <button type="button" className="mt-4 w-full rounded-xl bg-blue-700 px-3.5 py-3 font-bold text-white shadow-sm shadow-blue-900/10 hover:bg-blue-800 disabled:opacity-50" disabled={disabled} onClick={() => void handlePark()}>
-        {status === 'parking' ? 'Parking tab...' : 'Park and close'}
+        {status === 'parking' ? 'Saving before closing…' : status === 'success' ? 'Tab saved' : 'Save & close tab'}
       </button>
       {message && <p className={`mt-2 text-sm ${status === 'error' ? 'text-red-700' : 'text-emerald-700'}`} role={status === 'error' ? 'alert' : 'status'}>{message}</p>}
     </>

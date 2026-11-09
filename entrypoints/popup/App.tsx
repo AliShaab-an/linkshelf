@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getDomain, isEligibleUrl } from '@/domain/url';
 import { ActiveTabCard } from './components/ActiveTabCard';
 import { ParkCurrentTabForm } from './components/ParkCurrentTabForm';
+import { SIDE_PANEL_INTENTS_KEY } from '@/domain/side-panel';
 
 interface ActiveTab {
   id: number;
@@ -26,6 +27,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
     void browser.tabs
@@ -53,7 +55,18 @@ function App() {
       if (!sidePanel) {
         throw new Error('The Side Panel API is not available in this browser.');
       }
-      await sidePanel.open({ windowId: activeTab.windowId });
+      // Start opening inside the click's user gesture, before reading storage.
+      const openPromise = sidePanel.open({ windowId: activeTab.windowId });
+      const intentPromise = browser.storage.session.get(SIDE_PANEL_INTENTS_KEY).then((stored) => {
+        const current = stored[SIDE_PANEL_INTENTS_KEY];
+        return browser.storage.session.set({
+          [SIDE_PANEL_INTENTS_KEY]: {
+            ...(current && typeof current === 'object' ? current : {}),
+            [activeTab.windowId]: { section: isSaved ? 'projects' : 'park', requestId: crypto.randomUUID() },
+          },
+        });
+      });
+      await Promise.all([openPromise, intentPromise]);
       window.close();
     } catch (caughtError) {
       setError(
@@ -84,9 +97,10 @@ function App() {
           <ParkCurrentTabForm
             tabId={activeTab.id}
             isEligible={activeTab.isEligible}
+            onSaved={() => setIsSaved(true)}
           />
           <button type="button" className="mt-2 w-full rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900" onClick={() => void openSidePanel()}>
-            Open full LinkShelf →
+            {isSaved ? 'View saved tabs →' : 'Park more tabs in sidebar →'}
           </button>
         </>
       )}

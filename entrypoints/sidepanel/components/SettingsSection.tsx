@@ -151,8 +151,8 @@ export function SettingsSection() {
           <div className="mt-3 space-y-2">{[
             ['park-current-tab', 'Park current tab'],
             ['toggle-side-panel', 'Open or close LinkShelf'],
-            ['open-search', 'Open Search'],
-            ['open-today', 'Open Today'],
+            ['open-search', 'Search Saved'],
+            ['open-today', 'Open Due today'],
           ].map(([name, label]) => <div key={name} className="flex items-center justify-between gap-3"><span className="text-sm font-semibold">{label}</span><kbd className="shrink-0 rounded-lg border border-white/25 bg-white/15 px-2.5 py-1.5 text-xs font-bold shadow-inner">{shortcuts[name] ?? 'Loading...'}</kbd></div>)}</div>
           <button type="button" className="mt-4 w-full rounded-xl bg-white/15 px-3 py-2 text-sm font-bold text-white hover:bg-white/25" onClick={() => void browser.tabs.create({ url: 'chrome://extensions/shortcuts', active: true })}>Manage keyboard shortcuts</button>
         </section>

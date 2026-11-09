@@ -25,8 +25,14 @@ export default function App() {
     <main className="min-h-screen bg-slate-50 px-5 py-10 font-sans text-slate-900">
       <div className="mx-auto max-w-2xl">
         <p className="text-xs font-bold tracking-[0.14em] text-blue-700">WELCOME TO LINKSHELF</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight">Save every link for the right amount of time.</h1>
-        <p className="mt-3 text-lg text-slate-600">Park tabs temporarily, return to them with context, and keep only the resources that deserve a permanent bookmark.</p>
+        <h1 className="mt-2 text-3xl font-bold tracking-tight">Close tabs. Keep the links you need.</h1>
+        <p className="mt-3 text-lg text-slate-600">Parking saves a link before closing its tab, so you can return to it later.</p>
+        <ol className="mt-6 list-inside list-decimal space-y-3 rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">
+          <li><strong>Choose Park tabs.</strong> Select the pages you want to save, then choose Continue.</li>
+          <li><strong>Save and close.</strong> Choose a project. Add a note or reminder if you want one.</li>
+          <li><strong>Return through Saved.</strong> Search for a link and choose Reopen. Due today shows your reminders.</li>
+        </ol>
+        <p className="mt-3 text-sm text-slate-600">Open Manager from the sidebar to organize projects, review older links, or back up your shelf.</p>
 
         <section className="mt-8 rounded-2xl border border-blue-200 bg-blue-50 p-5">
           <h2 className="text-lg font-bold">Before you begin</h2>

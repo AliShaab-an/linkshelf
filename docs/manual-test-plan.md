@@ -10,6 +10,11 @@ Record Chrome version, operating system, build version, date, tester, and pass/f
 
 ## Parking safety
 
+- At 300×400 and 360×600, load a long tab list and confirm the selected count and Continue button remain visible while the list scrolls.
+- Select tabs by clicking their rows, continue to Save and close, go Back, and verify selection and optional details are preserved.
+- Confirm optional notes and reminders start collapsed. An invalid reminder displays an error beside Save & close and closes no tabs.
+- After saving, choose View saved tabs and verify the correct project and new session are visible. Park more tabs starts a fresh selection.
+
 - Use the assigned keyboard shortcut (`Alt+Shift+P` by default; `Command+Shift+P` on macOS) on a normal tab; verify it parks into the configured default project, closes only after storage succeeds, and shows confirmation.
 - Change or remove the shortcut at `chrome://extensions/shortcuts`; verify Settings displays the assigned value or “Not assigned”.
 - Park a normal HTTP and HTTPS tab; verify storage succeeds before the tab closes.
@@ -19,6 +24,12 @@ Record Chrome version, operating system, build version, date, tester, and pass/f
 - Confirm the bulk warning explains that live form/page state is not preserved.
 
 ## Projects and restoration
+
+- The sidebar has Park tabs and Saved. Saved includes search and Due today with an up-to-date reminder count.
+- Open Manager from a selected project and verify that project opens in the management tab. Create, rename, review, archive, and backup controls remain available there.
+- Expand a saved row to see its note and secondary actions. Reopen remains visible in the collapsed row.
+- Change data in the manager and verify Saved in the sidebar refreshes. Search and Due today also refresh when saved data changes.
+- Select a non-Inbox default project in Settings. Verify the popup, sidebar Park flow, and park-current-tab shortcut all use that default.
 
 - Create and rename a project; duplicate names are rejected.
 - Delete a non-empty project; records move safely to Inbox and Inbox cannot be deleted.

@@ -16,7 +16,7 @@ const UiStateSchema = z.strictObject({
 export type UiState = z.infer<typeof UiStateSchema>;
 
 export const DEFAULT_UI_STATE: UiState = {
-  lastSection: 'projects',
+  lastSection: 'park',
   selectedProjectId: 'inbox',
   sessionOrder: 'newest',
   expandedSessionIds: [],
@@ -28,11 +28,17 @@ export async function loadUiState(): Promise<UiState> {
   return parsed.success ? parsed.data : DEFAULT_UI_STATE;
 }
 
-export async function updateUiState(patch: Partial<UiState>): Promise<UiState> {
-  const current = await loadUiState();
-  const next = UiStateSchema.parse({ ...current, ...patch });
-  await browser.storage.local.set({ [UI_STATE_STORAGE_KEY]: next });
-  return next;
+let pendingUpdate = Promise.resolve();
+
+export function updateUiState(patch: Partial<UiState>): Promise<UiState> {
+  const update = pendingUpdate.then(async () => {
+    const current = await loadUiState();
+    const next = UiStateSchema.parse({ ...current, ...patch });
+    await browser.storage.local.set({ [UI_STATE_STORAGE_KEY]: next });
+    return next;
+  });
+  pendingUpdate = update.then(() => undefined, () => undefined);
+  return update;
 }
 
 export function readWindowIntent(
