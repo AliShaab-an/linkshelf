@@ -21,9 +21,10 @@ export interface UpdateSettingsMessage {
   type: 'UPDATE_SETTINGS';
   payload: Pick<Settings, 'defaultProjectId' | 'includePinnedTabsByDefault' | 'confirmBeforeBulkClose' | 'notificationsEnabled' | 'defaultRestoreBehavior' | 'displayDensity' | 'defaultRestoreMode'>;
 }
-export type UpdateSettingsResponse =
+export type UpdateSettingsResponse = OperationWarnings & (
   | { success: true; settings: Settings }
-  | { success: false; error: { message: string } };
+  | { success: false; error: { message: string } }
+);
 
 export interface ExportDataMessage { type: 'EXPORT_DATA' }
 export type ExportDataResponse =
@@ -232,7 +233,7 @@ export interface GetDueReminderLinksMessage {
   type: 'GET_DUE_REMINDER_LINKS';
 }
 
-export type GetDueReminderLinksResponse =
+export type GetDueReminderLinksResponse = OperationWarnings & (
   | {
       success: true;
       links: SavedLink[];
@@ -242,7 +243,8 @@ export type GetDueReminderLinksResponse =
       error: {
         message: string;
       };
-    };
+    }
+);
 
 export type GetParkedLinksResponse =
   | {

@@ -60,6 +60,7 @@ export function SettingsSection() {
     setIsSaving(true); setError(null); setMessage(null);
     try {
       const response = await updateSettings(settings);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       setSettings(response.settings);
       setMessage('Settings saved.');

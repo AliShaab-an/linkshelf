@@ -4,6 +4,7 @@ export const REMINDER_ALARM_PREFIX = 'linkshelf-reminder:';
 
 export interface ReminderAlarm {
   name: string;
+  scheduledTime?: number;
 }
 
 export interface ReminderAlarmApi {
@@ -30,8 +31,36 @@ export function isFutureReminder(link: SavedLink, now: number): boolean {
   return (
     link.status === 'parked' &&
     link.reminderAt !== undefined &&
+    !link.reminderNotifiedAt &&
     new Date(link.reminderAt).getTime() > now
   );
+}
+
+export interface ReminderGroup {
+  key: string;
+  reminderAt: string;
+  links: SavedLink[];
+}
+
+export function groupPendingReminders(links: SavedLink[]): ReminderGroup[] {
+  const groups = new Map<string, ReminderGroup>();
+  for (const link of links) {
+    if (link.status !== 'parked' || !link.reminderAt || link.reminderNotifiedAt) continue;
+    const key = JSON.stringify([link.sessionId, link.reminderAt]);
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, reminderAt: link.reminderAt, links: [] };
+      groups.set(key, group);
+    }
+    group.links.push(link);
+  }
+  return [...groups.values()];
+}
+
+export async function reminderNotificationId(group: ReminderGroup): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(group.key));
+  const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${REMINDER_ALARM_PREFIX}notice-${hash}`;
 }
 
 export async function scheduleLinkReminder(
@@ -56,19 +85,16 @@ export async function reconcileReminderAlarms(
   alarms: ReminderAlarmApi,
   now: number = Date.now(),
 ): Promise<void> {
-  const futureLinks = links
-    .filter((link) => isFutureReminder(link, now))
-    .filter(
-      (link, index, allLinks) =>
-        allLinks.findIndex((candidate) => candidate.sessionId === link.sessionId) ===
-        index,
-    );
+  const futureLinks = groupPendingReminders(links)
+    .map((group) => group.links[0])
+    .filter((link) => isFutureReminder(link, now));
   const expectedAlarmNames = new Set(
     futureLinks.map((link) => reminderAlarmName(link.id)),
   );
   const existingAlarms = await alarms.getAll();
+  const existingByName = new Map(existingAlarms.map((alarm) => [alarm.name, alarm]));
 
-  await Promise.all(
+  const cleared = await Promise.allSettled(
     existingAlarms
       .filter(
         (alarm) =>
@@ -78,11 +104,13 @@ export async function reconcileReminderAlarms(
       .map((alarm) => alarms.clear(alarm.name)),
   );
 
-  await Promise.all(
-    futureLinks.map((link) =>
+  const created = await Promise.allSettled(
+    futureLinks.filter((link) => existingByName.get(reminderAlarmName(link.id))?.scheduledTime !== new Date(link.reminderAt!).getTime()).map((link) =>
       alarms.create(reminderAlarmName(link.id), {
         when: new Date(link.reminderAt!).getTime(),
       }),
     ),
   );
+  const failures = [...cleared, ...created].filter((result) => result.status === 'rejected');
+  if (failures.length) throw new AggregateError(failures.map((result) => result.reason), 'Some reminder alarms could not be reconciled.');
 }
