@@ -1,5 +1,5 @@
 import { createEmptyDatabase, createInboxProject, INBOX_PROJECT_ID } from '@/domain/defaults';
-import { MAX_BACKUP_BYTES } from '@/domain/constants';
+import { stringifyBackup } from '@/domain/backup';
 import {
   LinkShelfDatabaseSchema,
   LinkShelfBackupSchema,
@@ -222,12 +222,15 @@ export class LinkShelfRepository {
   }
 
   async exportBackup(): Promise<LinkShelfBackup> {
-    return LinkShelfBackupSchema.parse({
+    const backup = LinkShelfBackupSchema.parse({
       format: 'linkshelf-backup',
       schemaVersion: 2,
       exportedAt: this.now(),
       database: await this.getDatabase(),
     });
+    // Every successful export must fit the same bounded importer.
+    stringifyBackup(backup);
+    return backup;
   }
 
   async previewImportBackup(
@@ -286,6 +289,9 @@ export class LinkShelfRepository {
         } catch (rollbackError) {
           console.error('LinkShelf could not restore its import snapshot:', rollbackError);
           throw new StorageIntegrityError('The import failed and LinkShelf could not verify rollback. Reload the extension before making more changes.');
+        }
+        if (error instanceof Error && /quota/i.test(error.message)) {
+          throw new StorageValidationError('This import exceeds the available Chrome storage space. Your previous LinkShelf data was restored.');
         }
         throw error;
       }
@@ -939,18 +945,10 @@ export class LinkShelfRepository {
   }
 
   private parseBackup(backup: unknown): LinkShelfBackup {
-    let serialized: string | undefined;
     try {
-      serialized = JSON.stringify(backup);
-    } catch {
-      throw new StorageValidationError('The selected backup could not be read safely.');
-    }
-
-    if (
-      serialized === undefined ||
-      new TextEncoder().encode(serialized).byteLength > MAX_BACKUP_BYTES
-    ) {
-      throw new StorageValidationError('The selected backup exceeds the 5 MB import limit.');
+      stringifyBackup(backup);
+    } catch (error) {
+      throw new StorageValidationError(error instanceof Error ? error.message : 'The selected backup could not be read safely.');
     }
 
     try {

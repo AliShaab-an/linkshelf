@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import {
-  parseSupportedLinkShelfBackup,
   type LinkShelfBackup,
   type Project,
   type Settings,
 } from '@/domain/schemas';
-import { MAX_BACKUP_BYTES } from '@/domain/constants';
+import { BACKUP_SIZE_LIMIT_LABEL } from '@/domain/constants';
+import { readBackupFile, stringifyBackup } from '@/domain/backup';
 import type { ImportBackupPreview, ImportMode } from '@/storage/repository';
 import {
   exportData,
@@ -70,7 +70,7 @@ export function SettingsSection() {
     try {
       const response = await exportData();
       if (!response.success) throw new Error(response.error.message);
-      const blob = new Blob([JSON.stringify(response.backup, null, 2)], { type: 'application/json' });
+      const blob = new Blob([stringifyBackup(response.backup)], { type: 'application/json' });
       const downloadUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = downloadUrl;
@@ -86,14 +86,8 @@ export function SettingsSection() {
   async function selectBackup(file: File | undefined) {
     setImportBackup(null); setImportPreview(null); setError(null); setMessage(null);
     if (!file) return;
-    if (file.size > MAX_BACKUP_BYTES) {
-      setError('This backup is larger than the 5 MB import limit.');
-      return;
-    }
-
     try {
-      const parsedJson = JSON.parse(await file.text()) as unknown;
-      setImportBackup(parseSupportedLinkShelfBackup(parsedJson));
+      setImportBackup(await readBackupFile(file));
       setImportFileName(file.name);
     } catch (caughtError) {
       setError(toMessage(caughtError, 'LinkShelf could not read this backup file.'));
@@ -131,7 +125,7 @@ export function SettingsSection() {
           : `Backup merged: ${response.result.projectsAdded} projects, ${response.result.sessionsAdded} sessions, and ${response.result.linksAdded} links added.`,
       );
     } catch (caughtError) {
-      setError(toMessage(caughtError, 'LinkShelf could not import this backup. Your existing data was kept.'));
+      setError(toMessage(caughtError, 'LinkShelf could not complete this import. Review the error before trying again.'));
     } finally { setIsImporting(false); }
   }
 
@@ -190,7 +184,7 @@ export function SettingsSection() {
 
           <div className="my-4 border-t border-slate-200" />
           <h4 className="text-sm font-semibold">Restore a backup</h4>
-          <p className="mt-1 text-xs text-slate-500">Only validated LinkShelf JSON files up to 5 MB are accepted.</p>
+          <p className="mt-1 text-xs text-slate-500">Validated LinkShelf JSON files up to {BACKUP_SIZE_LIMIT_LABEL} are accepted. Imports must also fit the available Chrome storage space.</p>
           <label className="mt-3 block cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-center text-sm font-semibold text-slate-700 hover:bg-slate-100">
             Choose backup file
             <input type="file" className="sr-only" accept="application/json,.json" onChange={(event) => void selectBackup(event.target.files?.[0])} />

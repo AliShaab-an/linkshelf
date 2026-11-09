@@ -432,7 +432,7 @@ export default defineBackground(() => {
         .then((backup) => sendResponse({ success: true, backup }))
         .catch((error) => {
           console.error('Failed to export LinkShelf data:', error);
-          sendResponse({ success: false, error: { message: 'LinkShelf could not create the backup.' } });
+          sendResponse({ success: false, error: { message: error instanceof Error ? error.message : 'LinkShelf could not create the backup.' } });
         });
       return true;
     }
