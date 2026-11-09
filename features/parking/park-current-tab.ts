@@ -4,21 +4,22 @@ import type {
   ParkCurrentTabResponse,
 } from '@/messaging/contracts';
 import type { ParkTabInput, ParkTabResult } from '@/storage/repository';
+import { closeSavedTab, type SafeTabCloseDependencies } from './safe-tab-close';
 
 export interface BrowserTabSnapshot {
   id?: number;
   title?: string;
   url?: string;
+  pendingUrl?: string;
+  status?: string;
   favIconUrl?: string;
   windowId: number;
   index: number;
   pinned: boolean;
 }
 
-export interface ParkCurrentTabDependencies {
-  getTab(tabId: number): Promise<BrowserTabSnapshot>;
+export interface ParkCurrentTabDependencies extends SafeTabCloseDependencies {
   persistTab(input: ParkTabInput): Promise<ParkTabResult>;
-  closeTab(tabId: number): Promise<void>;
 }
 
 export async function executeParkCurrentTab(
@@ -28,7 +29,7 @@ export async function executeParkCurrentTab(
   let tab: BrowserTabSnapshot;
 
   try {
-    tab = await dependencies.getTab(message.payload.tabId);
+    tab = { ...await dependencies.getTab(message.payload.tabId) };
   } catch {
     return {
       success: false,
@@ -93,11 +94,8 @@ export async function executeParkCurrentTab(
     };
   }
 
-  try {
-    await dependencies.closeTab(tab.id);
-  } catch (error) {
-    console.error('The parked tab was saved but could not be closed:', error);
-
+  const closure = await closeSavedTab(tab, dependencies);
+  if (closure !== 'closed') {
     return {
       success: false,
       saved: true,
@@ -105,8 +103,12 @@ export async function executeParkCurrentTab(
       linkId: parkedRecords.link.id,
       sessionId: parkedRecords.session.id,
       error: {
-        code: 'TAB_CLOSE_FAILED',
-        message: 'The tab was saved, but Chrome could not close it.',
+        code: closure === 'changed' ? 'TAB_CHANGED' : 'TAB_CLOSE_FAILED',
+        message: closure === 'changed'
+          ? 'The original page was saved, but the tab changed. LinkShelf left it untouched.'
+          : closure === 'unavailable'
+            ? 'The page was saved, but Chrome could not verify the tab before closing. LinkShelf did not close it.'
+            : 'The tab was saved, but Chrome did not confirm closing it. Check your open tabs before retrying.',
       },
     };
   }

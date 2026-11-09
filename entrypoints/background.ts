@@ -27,10 +27,13 @@ import {
   isSearchLinksMessage,
   isUnarchiveLinkMessage,
   isUpdateSettingsMessage,
-  type RestoreMode,
+  type ParkCurrentTabMessage,
+  type ParkSelectedTabsMessage,
 } from '@/messaging/contracts';
 import { createReminderCoordinator } from '@/features/reminders/reminder-coordinator';
-import { executeBookmarkLink } from '@/features/bookmarks/bookmark-link';
+import { createBookmarkCoordinator } from '@/features/bookmarks/bookmark-coordinator';
+import { OperationCoordinator, OperationInProgressError } from '@/features/operations/operation-coordinator';
+import { watchTabSnapshots } from '@/features/parking/safe-tab-close';
 import {
   flattenBookmarkFolders,
   searchBookmarkTree,
@@ -39,10 +42,7 @@ import { executeParkCurrentTab } from '@/features/parking/park-current-tab';
 import { executeParkSelectedTabs } from '@/features/parking/park-selected-tabs';
 import { classifyWindowTabs } from '@/features/parking/window-tabs';
 import { REMINDER_ALARM_PREFIX } from '@/features/reminders/reminder-service';
-import { executeRestoreLink } from '@/features/restoration/restore-link';
-import { executeRestoreProject } from '@/features/restoration/restore-project';
-import { executeRestoreSession } from '@/features/restoration/restore-session';
-import type { RestoreTabOutcome } from '@/features/restoration/restore-collection';
+import { createRestoreCoordinator } from '@/features/restoration/restore-coordinator';
 import type { SavedLink } from '@/domain/schemas';
 import {
   SIDE_PANEL_INTENTS_KEY,
@@ -65,6 +65,18 @@ import {
 
 export default defineBackground(() => {
   const repository = new LinkShelfRepository(new ChromeStorageAdapter());
+  const operations = new OperationCoordinator();
+  const restoration = createRestoreCoordinator(repository, operations, browser.tabs);
+  const bookmarking = createBookmarkCoordinator(operations, {
+    getLink: (id) => repository.getLink(id),
+    getTrackingParams: async () => (await repository.getSettings()).trackingParamsToRemove,
+    getBookmarkTree: () => browser.bookmarks.getTree(),
+    createBookmark: async (input) => {
+      const bookmark = await browser.bookmarks.create(input);
+      return { id: bookmark.id, parentId: bookmark.parentId, title: bookmark.title || input.title, url: bookmark.url ?? input.url };
+    },
+    markLinkBookmarked: (id, bookmarkId) => repository.markLinkBookmarked(id, bookmarkId),
+  });
   const openPanelWindows = new Set<number>();
   const knownPanelWindows = new Set<number>();
   type PanelEvent = {
@@ -137,40 +149,24 @@ export default defineBackground(() => {
     return reminders.reconcile();
   }
 
-  async function createCollectionTabOpener(
-    mode: RestoreMode,
-  ): Promise<(url: string) => Promise<RestoreTabOutcome>> {
-    const targetWindow = await browser.windows.getLastFocused();
-    const windowId = targetWindow.id;
-    const existingTabs = windowId === undefined
-      ? []
-      : await browser.tabs.query({ windowId });
-    let nextIndex = existingTabs.length;
+  async function selectRestoreWindow(senderWindowId?: number): Promise<number> {
+    const windowId = senderWindowId ?? (await browser.windows.getLastFocused({ windowTypes: ['normal'] })).id;
+    if (windowId === undefined || windowId < 0) throw new Error('Chrome did not provide a target window. Nothing was opened.');
+    return windowId;
+  }
 
-    return async (url: string) => {
-      const tab = await browser.tabs.create({
-        url,
-        active: false,
-        windowId,
-        index: nextIndex,
-      });
-      nextIndex += 1;
+  function parkCurrent(message: ParkCurrentTabMessage) {
+    return operations.reserve([`tab:${message.payload.tabId}`], () => watchTabSnapshots(browser.tabs, [message.payload.tabId], (hasTabChanged) => executeParkCurrentTab(message, {
+      getTab: (id) => browser.tabs.get(id), persistTab: (input) => repository.parkTab(input),
+      closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
+    })));
+  }
 
-      if (mode === 'normal' || tab.id === undefined) {
-        return { discarded: false, fallback: mode === 'unloaded' };
-      }
-
-      try {
-        const discarded = await browser.tabs.discard(tab.id);
-        if (discarded?.discarded) {
-          return { discarded: true, fallback: false };
-        }
-      } catch (error) {
-        console.warn('Chrome could not discard a restored tab:', error);
-      }
-
-      return { discarded: false, fallback: true };
-    };
+  function parkSelected(message: ParkSelectedTabsMessage) {
+    return operations.reserve(message.payload.tabIds.map((id) => `tab:${id}`), () => watchTabSnapshots(browser.tabs, message.payload.tabIds, (hasTabChanged) => executeParkSelectedTabs(message, {
+      getTab: (id) => browser.tabs.get(id), persistTabs: (input) => repository.parkTabs(input),
+      closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
+    })));
   }
 
   async function showKeyboardResult(title: string, message: string) {
@@ -199,6 +195,10 @@ export default defineBackground(() => {
         sendResponse(result);
       })
       .catch((error) => {
+        if (error instanceof OperationInProgressError) {
+          sendResponse({ success: false, error: { code: 'OPERATION_IN_PROGRESS', message: error.message } });
+          return;
+        }
         if (error instanceof LinkNotFoundError) {
           sendResponse({
             success: false,
@@ -301,16 +301,12 @@ export default defineBackground(() => {
       }
 
       const settings = await repository.getSettings();
-      const response = await executeParkCurrentTab({
+      const response = await parkCurrent({
         type: 'PARK_CURRENT_TAB',
         payload: {
           tabId: activeTab.id,
           projectId: settings.defaultProjectId,
         },
-      }, {
-        getTab: (tabId) => browser.tabs.get(tabId),
-        persistTab: (input) => repository.parkTab(input),
-        closeTab: (tabId) => browser.tabs.remove(tabId),
       });
 
       const completed = await withSecondaryWarning(response, async () => {
@@ -328,7 +324,7 @@ export default defineBackground(() => {
       });
     });
 
-    browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (isGetSettingsMessage(message)) {
         void Promise.all([repository.getSettings(), repository.getProjects()])
           .then(([settings, projects]) =>
@@ -449,23 +445,7 @@ export default defineBackground(() => {
       }
 
       if (isBookmarkLinkMessage(message)) {
-        void executeBookmarkLink(message, {
-          getLink: (linkId) => repository.getLink(linkId),
-          getTrackingParams: async () =>
-            (await repository.getDatabase()).settings.trackingParamsToRemove,
-          getBookmarkTree: () => browser.bookmarks.getTree(),
-          createBookmark: async (input) => {
-            const bookmark = await browser.bookmarks.create(input);
-            return {
-              id: bookmark.id,
-              parentId: bookmark.parentId,
-              title: bookmark.title || input.title,
-              url: bookmark.url ?? input.url,
-            };
-          },
-          markLinkBookmarked: (linkId, bookmarkId) =>
-            repository.markLinkBookmarked(linkId, bookmarkId),
-        })
+        void bookmarking.convert(message)
           .then(async (response) => {
             sendResponse(await withSecondaryWarning(response, async () => {
             if (response.success || response.bookmarkCreated) {
@@ -479,8 +459,8 @@ export default defineBackground(() => {
             success: false,
             bookmarkCreated: false,
             error: {
-              code: 'UNEXPECTED_ERROR',
-              message: 'LinkShelf encountered an error while creating the bookmark.',
+              code: error instanceof OperationInProgressError ? 'OPERATION_IN_PROGRESS' : 'UNEXPECTED_ERROR',
+              message: error instanceof Error ? error.message : 'LinkShelf encountered an error while creating the bookmark.',
             },
           });
         });
@@ -717,15 +697,7 @@ export default defineBackground(() => {
     }
 
     if (isRestoreLinkMessage(message)) {
-      void repository.getSettings()
-        .then((settings) => executeRestoreLink(message, {
-          getLink: (linkId) => repository.getLink(linkId),
-          openTab: async (url) => {
-            await browser.tabs.create({ url, active: true });
-          },
-          markLinkRestored: (linkId) => repository.markLinkRestored(linkId),
-          markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
-        }))
+      void restoration.restoreLink(message, () => selectRestoreWindow(sender.tab?.windowId))
         .then(async (response) => {
           sendResponse(await withSecondaryWarning(response, async () => {
             await synchronizeReminderAlarms();
@@ -737,8 +709,8 @@ export default defineBackground(() => {
             success: false,
             opened: false,
             error: {
-              code: 'UNEXPECTED_ERROR',
-              message: 'LinkShelf encountered an error while restoring the link.',
+              code: error instanceof OperationInProgressError ? 'OPERATION_IN_PROGRESS' : 'UNEXPECTED_ERROR',
+              message: error instanceof Error ? error.message : 'LinkShelf encountered an error while restoring the link.',
             },
           });
         });
@@ -747,16 +719,7 @@ export default defineBackground(() => {
     }
 
     if (isRestoreSessionMessage(message)) {
-      void Promise.all([
-        repository.getSettings(),
-        createCollectionTabOpener('normal'),
-      ]).then(([settings, openTab]) => executeRestoreSession(message, {
-        getParkedLinks: (sessionId) =>
-          repository.getParkedLinksBySession(sessionId),
-        openTab,
-        markLinkRestored: (linkId) => repository.markLinkRestored(linkId),
-        markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
-      }))
+      void restoration.restoreCollection(message, () => selectRestoreWindow(sender.tab?.windowId))
         .then(async (response) => {
           sendResponse(await withSecondaryWarning(response, async () => {
             await synchronizeReminderAlarms();
@@ -768,8 +731,8 @@ export default defineBackground(() => {
             success: false,
             opened: false,
             error: {
-              code: 'UNEXPECTED_ERROR',
-              message: 'LinkShelf could not restore this parking session.',
+              code: error instanceof OperationInProgressError ? 'OPERATION_IN_PROGRESS' : 'UNEXPECTED_ERROR',
+              message: error instanceof Error ? error.message : 'LinkShelf could not restore this parking session.',
             },
           });
         });
@@ -778,18 +741,7 @@ export default defineBackground(() => {
     }
 
     if (isRestoreProjectMessage(message)) {
-      void Promise.all([
-        repository.getSettings(),
-        createCollectionTabOpener(message.payload.mode),
-      ]).then(([settings, openTab]) => executeRestoreProject(message, {
-        getParkedLinks: async (projectId) =>
-          (await repository.getParkedSessionGroups(projectId)).flatMap(
-            (group) => group.links,
-          ),
-        openTab,
-        markLinkRestored: (linkId) => repository.markLinkRestored(linkId),
-        markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
-      }))
+      void restoration.restoreCollection(message, () => selectRestoreWindow(sender.tab?.windowId))
         .then(async (response) => {
           sendResponse(await withSecondaryWarning(response, async () => {
             await synchronizeReminderAlarms();
@@ -801,8 +753,8 @@ export default defineBackground(() => {
             success: false,
             opened: false,
             error: {
-              code: 'UNEXPECTED_ERROR',
-              message: 'LinkShelf could not restore this project.',
+              code: error instanceof OperationInProgressError ? 'OPERATION_IN_PROGRESS' : 'UNEXPECTED_ERROR',
+              message: error instanceof Error ? error.message : 'LinkShelf could not restore this project.',
             },
           });
         });
@@ -812,7 +764,7 @@ export default defineBackground(() => {
 
     if (isArchiveLinkMessage(message)) {
       handleLifecycleOperation(
-        repository.archiveLink(message.payload.linkId),
+        operations.reserve([`link:${message.payload.linkId}`], () => repository.archiveLink(message.payload.linkId)),
         sendResponse,
         synchronizeReminderAlarms,
       );
@@ -821,7 +773,7 @@ export default defineBackground(() => {
 
     if (isUnarchiveLinkMessage(message)) {
       handleLifecycleOperation(
-        repository.unarchiveLink(message.payload.linkId),
+        operations.reserve([`link:${message.payload.linkId}`], () => repository.unarchiveLink(message.payload.linkId)),
         sendResponse,
         synchronizeReminderAlarms,
       );
@@ -830,7 +782,7 @@ export default defineBackground(() => {
 
     if (isRemoveLinkMessage(message)) {
       handleLifecycleOperation(
-        repository.removeLink(message.payload.linkId),
+        operations.reserve([`link:${message.payload.linkId}`], () => repository.removeLink(message.payload.linkId)),
         sendResponse,
         synchronizeReminderAlarms,
       );
@@ -839,7 +791,7 @@ export default defineBackground(() => {
 
     if (isMoveLinkMessage(message)) {
       handleLifecycleOperation(
-        repository.moveLinkToProject(message.payload.linkId, message.payload.projectId),
+        operations.reserve([`link:${message.payload.linkId}`], () => repository.moveLinkToProject(message.payload.linkId, message.payload.projectId)),
         sendResponse,
         synchronizeReminderAlarms,
       );
@@ -847,11 +799,7 @@ export default defineBackground(() => {
     }
 
     if (isParkCurrentTabMessage(message)) {
-      void executeParkCurrentTab(message, {
-        getTab: (tabId) => browser.tabs.get(tabId),
-        persistTab: (input) => repository.parkTab(input),
-        closeTab: (tabId) => browser.tabs.remove(tabId),
-      })
+      void parkCurrent(message)
         .then(async (response) => {
           sendResponse(await withSecondaryWarning(response, async () => {
             if (response.saved) await synchronizeReminderAlarms();
@@ -864,8 +812,8 @@ export default defineBackground(() => {
             saved: false,
             closed: false,
             error: {
-              code: 'UNEXPECTED_ERROR',
-              message: 'The tab stayed open because LinkShelf encountered an error.',
+              code: error instanceof OperationInProgressError ? 'OPERATION_IN_PROGRESS' : 'UNEXPECTED_ERROR',
+              message: error instanceof Error ? error.message : 'LinkShelf could not confirm the parking result. Check saved links and open tabs before retrying.',
             },
           });
         });
@@ -874,11 +822,7 @@ export default defineBackground(() => {
     }
 
     if (isParkSelectedTabsMessage(message)) {
-      void executeParkSelectedTabs(message, {
-        getTab: (tabId) => browser.tabs.get(tabId),
-        persistTabs: (input) => repository.parkTabs(input),
-        closeTab: (tabId) => browser.tabs.remove(tabId),
-      })
+      void parkSelected(message)
         .then(async (response) => {
           sendResponse(await withSecondaryWarning(response, async () => {
             if (response.success) await synchronizeReminderAlarms();
@@ -891,8 +835,8 @@ export default defineBackground(() => {
             saved: false,
             closedTabIds: [],
             error: {
-              code: 'UNEXPECTED_ERROR',
-              message: 'All tabs stayed open because LinkShelf encountered an error.',
+              code: error instanceof OperationInProgressError ? 'OPERATION_IN_PROGRESS' : 'UNEXPECTED_ERROR',
+              message: error instanceof Error ? error.message : 'LinkShelf could not confirm the parking result. Check saved links and open tabs before retrying.',
             },
           });
         });

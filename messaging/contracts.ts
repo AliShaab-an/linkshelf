@@ -113,8 +113,10 @@ export type BookmarkLinkResponse = OperationWarnings & (
           | 'LINK_NOT_FOUND'
           | 'LINK_NOT_PARKED'
           | 'DUPLICATE_BOOKMARK'
+          | 'BOOKMARK_RECOVERY_REQUIRED'
           | 'BOOKMARK_CREATE_FAILED'
           | 'STORAGE_FAILED'
+          | 'OPERATION_IN_PROGRESS'
           | 'UNEXPECTED_ERROR';
         message: string;
       };
@@ -194,6 +196,7 @@ export type ParkSelectedTabsResponse = OperationWarnings & (
       error: {
         code:
           | 'INVALID_SELECTION'
+          | 'OPERATION_IN_PROGRESS'
           | 'TAB_NOT_FOUND'
           | 'TAB_NOT_ELIGIBLE'
           | 'TABS_MOVED'
@@ -378,7 +381,7 @@ export type LinkLifecycleResponse = OperationWarnings & (
   | {
       success: false;
       error: {
-        code: 'LINK_NOT_FOUND' | 'PROJECT_NOT_FOUND' | 'INVALID_STATE' | 'UNEXPECTED_ERROR';
+        code: 'LINK_NOT_FOUND' | 'PROJECT_NOT_FOUND' | 'INVALID_STATE' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR';
         message: string;
       };
     }
@@ -424,6 +427,7 @@ export type RestoreProjectResponse = OperationWarnings & (
           | 'PROJECT_EMPTY'
           | 'TAB_OPEN_FAILED'
           | 'STORAGE_FAILED'
+          | 'OPERATION_IN_PROGRESS'
           | 'UNEXPECTED_ERROR';
         message: string;
       };
@@ -450,6 +454,7 @@ export type RestoreSessionResponse = OperationWarnings & (
           | 'SESSION_EMPTY'
           | 'TAB_OPEN_FAILED'
           | 'STORAGE_FAILED'
+          | 'OPERATION_IN_PROGRESS'
           | 'UNEXPECTED_ERROR';
         message: string;
       };
@@ -472,6 +477,7 @@ export type RestoreLinkResponse = OperationWarnings & (
           | 'LINK_NOT_PARKED'
           | 'TAB_OPEN_FAILED'
           | 'STORAGE_FAILED'
+          | 'OPERATION_IN_PROGRESS'
           | 'UNEXPECTED_ERROR';
         message: string;
       };
@@ -498,6 +504,8 @@ export type ParkCurrentTabResponse = OperationWarnings & (
           | 'TAB_NOT_ELIGIBLE'
           | 'STORAGE_FAILED'
           | 'TAB_CLOSE_FAILED'
+          | 'TAB_CHANGED'
+          | 'OPERATION_IN_PROGRESS'
           | 'UNEXPECTED_ERROR';
         message: string;
       };

@@ -5,11 +5,10 @@ import type {
 } from '@/messaging/contracts';
 import type { ParkTabsInput, ParkTabsResult } from '@/storage/repository';
 import type { BrowserTabSnapshot } from './park-current-tab';
+import { closeSavedTab, type SafeTabCloseDependencies } from './safe-tab-close';
 
-export interface ParkSelectedTabsDependencies {
-  getTab(tabId: number): Promise<BrowserTabSnapshot>;
+export interface ParkSelectedTabsDependencies extends SafeTabCloseDependencies {
   persistTabs(input: ParkTabsInput): Promise<ParkTabsResult>;
-  closeTab(tabId: number): Promise<void>;
 }
 
 export async function executeParkSelectedTabs(
@@ -20,7 +19,7 @@ export async function executeParkSelectedTabs(
 
   for (const tabId of message.payload.tabIds) {
     try {
-      const tab = await dependencies.getTab(tabId);
+      const tab = { ...await dependencies.getTab(tabId) };
 
       if (tab.id === undefined || !tab.url) {
         throw new Error('Unreadable tab');
@@ -98,12 +97,8 @@ export async function executeParkSelectedTabs(
 
   const closeResults = await Promise.all(
     tabs.map(async (tab) => {
-      try {
-        await dependencies.closeTab(tab.id!);
-        return { tabId: tab.id!, closed: true as const };
-      } catch {
-        return { tabId: tab.id!, closed: false as const };
-      }
+      const closure = await closeSavedTab(tab, dependencies);
+      return { tabId: tab.id!, closed: closure === 'closed', closure };
     }),
   );
 
@@ -118,5 +113,8 @@ export async function executeParkSelectedTabs(
     failedToCloseTabIds: closeResults
       .filter((result) => !result.closed)
       .map((result) => result.tabId),
+    ...(closeResults.some((result) => result.closure === 'changed' || result.closure === 'unavailable')
+      ? { warnings: ['Saved snapshots were kept. Changed or unreadable tabs were not closed by LinkShelf.'] }
+      : {}),
   };
 }

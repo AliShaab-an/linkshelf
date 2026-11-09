@@ -64,7 +64,7 @@ export async function executeRestoreLink(
       opened: false,
       error: {
         code: 'TAB_OPEN_FAILED',
-        message: 'The link stayed parked because Chrome could not open it.',
+        message: 'Chrome did not confirm opening this link. Its saved record stayed parked. Check open tabs before retrying.',
       },
     };
   }
