@@ -1,6 +1,7 @@
 import { Icon, type IconName } from './ui/Icon';
+import type { SidePanelSection } from '@/domain/side-panel';
 
-export type SidePanelSection = 'park' | 'today' | 'projects' | 'search' | 'review' | 'archive' | 'settings';
+export type { SidePanelSection } from '@/domain/side-panel';
 
 const items: Array<{ id: SidePanelSection; label: string; icon: IconName }> = [
   { id: 'today', label: 'Today', icon: 'today' },

@@ -10,6 +10,7 @@ import {
 
 export interface RestoreSessionDependencies extends RestoreCollectionDependencies {
   getParkedLinks(sessionId: string): Promise<SavedLink[]>;
+  markAsRestored: boolean;
 }
 
 export async function executeRestoreSession(
@@ -42,15 +43,20 @@ export async function executeRestoreSession(
     };
   }
 
-  const result = await restoreLinkCollection(links, dependencies);
+  const result = await restoreLinkCollection(links, dependencies, {
+    markAsRestored: dependencies.markAsRestored,
+  });
 
   if (!result.success) return result;
 
   return {
     success: true,
     sessionId: message.payload.sessionId,
+    openedLinkIds: result.openedLinkIds,
     restoredLinkIds: result.restoredLinkIds,
     failedLinkIds: result.failedLinkIds,
+    discardedLinkIds: result.discardedLinkIds,
+    fallbackLinkIds: result.fallbackLinkIds,
     complete: result.complete,
   };
 }

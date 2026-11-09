@@ -1,15 +1,27 @@
 import type { SavedLink } from '@/domain/schemas';
 
 export interface RestoreCollectionDependencies {
-  openTab(url: string): Promise<void>;
+  openTab(url: string): Promise<RestoreTabOutcome>;
   markLinkRestored(linkId: string): Promise<SavedLink>;
+}
+
+export interface RestoreTabOutcome {
+  discarded: boolean;
+  fallback: boolean;
+}
+
+export interface RestoreCollectionOptions {
+  markAsRestored: boolean;
 }
 
 export type RestoreCollectionResult =
   | {
       success: true;
+      openedLinkIds: string[];
       restoredLinkIds: string[];
       failedLinkIds: string[];
+      discardedLinkIds: string[];
+      fallbackLinkIds: string[];
       complete: boolean;
     }
   | {
@@ -24,17 +36,27 @@ export type RestoreCollectionResult =
 export async function restoreLinkCollection(
   links: SavedLink[],
   dependencies: RestoreCollectionDependencies,
+  options: RestoreCollectionOptions,
 ): Promise<RestoreCollectionResult> {
+  const openedLinkIds: string[] = [];
   const restoredLinkIds: string[] = [];
   const failedLinkIds: string[] = [];
+  const discardedLinkIds: string[] = [];
+  const fallbackLinkIds: string[] = [];
 
   for (const link of links) {
+    let tabOutcome: RestoreTabOutcome;
     try {
-      await dependencies.openTab(link.url);
+      tabOutcome = await dependencies.openTab(link.url);
+      openedLinkIds.push(link.id);
+      if (tabOutcome.discarded) discardedLinkIds.push(link.id);
+      if (tabOutcome.fallback) fallbackLinkIds.push(link.id);
     } catch {
       failedLinkIds.push(link.id);
       continue;
     }
+
+    if (!options.markAsRestored) continue;
 
     try {
       await dependencies.markLinkRestored(link.id);
@@ -52,7 +74,7 @@ export async function restoreLinkCollection(
     }
   }
 
-  if (restoredLinkIds.length === 0) {
+  if (openedLinkIds.length === 0) {
     return {
       success: false,
       opened: false,
@@ -65,8 +87,11 @@ export async function restoreLinkCollection(
 
   return {
     success: true,
+    openedLinkIds,
     restoredLinkIds,
     failedLinkIds,
+    discardedLinkIds,
+    fallbackLinkIds,
     complete: failedLinkIds.length === 0,
   };
 }

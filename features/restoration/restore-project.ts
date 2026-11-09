@@ -10,6 +10,7 @@ import {
 
 export interface RestoreProjectDependencies extends RestoreCollectionDependencies {
   getParkedLinks(projectId: string): Promise<SavedLink[]>;
+  markAsRestored: boolean;
 }
 
 export async function executeRestoreProject(
@@ -42,14 +43,19 @@ export async function executeRestoreProject(
     };
   }
 
-  const result = await restoreLinkCollection(links, dependencies);
+  const result = await restoreLinkCollection(links, dependencies, {
+    markAsRestored: dependencies.markAsRestored,
+  });
   if (!result.success) return result;
 
   return {
     success: true,
     projectId: message.payload.projectId,
+    openedLinkIds: result.openedLinkIds,
     restoredLinkIds: result.restoredLinkIds,
     failedLinkIds: result.failedLinkIds,
+    discardedLinkIds: result.discardedLinkIds,
+    fallbackLinkIds: result.fallbackLinkIds,
     complete: result.complete,
   };
 }

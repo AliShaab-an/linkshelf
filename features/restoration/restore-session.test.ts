@@ -29,11 +29,12 @@ const links: SavedLink[] = [1, 2].map((number) => ({
 function dependencies(): RestoreSessionDependencies {
   return {
     getParkedLinks: vi.fn().mockResolvedValue(links),
-    openTab: vi.fn().mockResolvedValue(undefined),
+    openTab: vi.fn().mockResolvedValue({ discarded: false, fallback: false }),
     markLinkRestored: vi.fn(async (linkId) => ({
       ...links.find((link) => link.id === linkId)!,
       status: 'restored' as const,
     })),
+    markAsRestored: true,
   };
 }
 
@@ -47,8 +48,11 @@ describe('executeRestoreSession', () => {
     expect(response).toEqual({
       success: true,
       sessionId: 'session-1',
+      openedLinkIds: ['link-1', 'link-2'],
       restoredLinkIds: ['link-1', 'link-2'],
       failedLinkIds: [],
+      discardedLinkIds: [],
+      fallbackLinkIds: [],
       complete: true,
     });
   });
@@ -57,6 +61,7 @@ describe('executeRestoreSession', () => {
     const deps = dependencies();
     deps.openTab = vi.fn(async (url) => {
       if (url.endsWith('/2')) throw new Error('failed');
+      return { discarded: false, fallback: false };
     });
 
     const response = await executeRestoreSession(message, deps);
@@ -67,6 +72,20 @@ describe('executeRestoreSession', () => {
       restoredLinkIds: ['link-1'],
       failedLinkIds: ['link-2'],
       complete: false,
+    });
+  });
+
+  it('opens copies without changing parked state when configured', async () => {
+    const deps = dependencies();
+    deps.markAsRestored = false;
+
+    const response = await executeRestoreSession(message, deps);
+
+    expect(deps.markLinkRestored).not.toHaveBeenCalled();
+    expect(response).toMatchObject({
+      success: true,
+      openedLinkIds: ['link-1', 'link-2'],
+      restoredLinkIds: [],
     });
   });
 

@@ -44,9 +44,39 @@ Record Chrome version, operating system, build version, date, tester, and pass/f
 
 - Export and inspect readable JSON; confirm Chrome's complete bookmark tree is absent.
 - Reject malformed JSON, wrong schema version, missing references, and a file above 5 MB without changing data.
+- Reject duplicate IDs and inconsistent link/session project relationships without changing data.
+- Preview Merge and verify the exact add/skip counts before confirmation; current settings must remain unchanged.
+- Preview Replace and verify the dialog shows the exact current project, session, and link counts being replaced.
+- Change LinkShelf data after opening a preview; confirmation must be rejected as stale without overwriting the newer data.
 - Merge a backup twice; matching IDs are skipped and current records remain unchanged.
 - Replace current data only after explicit confirmation.
 - After merge/replace, verify projects, search, review, reminders, and settings reload correctly.
+
+## v0.2 restoration
+
+- Restore a three-tab project normally and verify the visible restore-list order is preserved in one Chrome window.
+- Restore a project unloaded and verify successfully discarded tabs remain visible, report `discarded`, and reload when activated.
+- Exercise or simulate one discard failure and verify that tab stays open normally while the rest continue restoring.
+- Exercise one tab-creation failure and verify its saved record remains parked.
+- Restore at least 100 saved tabs in both modes and verify ordering, completion messaging, and side-panel responsiveness.
+- Select **Keep it parked**, then restore from Projects, Today, Review, and Search; opened copies must not remove their cards.
+- Select **Mark it restored** and verify successful restores leave the active parked list while failed opens stay parked.
+- Verify long notes show two lines with accessible Show more/Show less controls and shared notes are not duplicated in session headers.
+
+## v0.2 shortcuts and large-project UI
+
+- Verify `Alt+Shift+L` opens LinkShelf, closes it after Chrome reports it open, and safely opens it after restarting the service worker.
+- Verify `Alt+Shift+F` opens Search in the originating Chrome window and focuses the query field.
+- Verify `Alt+Shift+T` opens Today in the originating Chrome window.
+- Open LinkShelf in two windows and verify a Search or Today command changes only the originating window.
+- Confirm Settings lists all four assigned shortcuts and opens `chrome://extensions/shortcuts`.
+- Verify the last side-panel section, selected project, session order, and expanded sessions survive closing and reopening the panel.
+- Verify project filtering matches titles, URLs, domains, link notes, and shared session notes without changing saved records.
+- Verify the newest session starts expanded, older sessions start collapsed, and collapsed sessions do not create tab cards.
+- Expand a 60-tab session and verify it shows 25, then 50, then all 60 links in original order.
+- Switch between comfortable and compact density from both Quick settings and the project toolbar.
+- Test the sticky toolbar, controls, counts, and restoration dialog in a narrow panel and at 200% zoom.
+- Load a version 1 stored database and version 1 backup; verify both migrate to schema version 2 with comfortable density and normal restoration defaults.
 
 ## Scale and service worker
 

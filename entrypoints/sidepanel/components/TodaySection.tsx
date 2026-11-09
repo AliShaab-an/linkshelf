@@ -44,7 +44,9 @@ export function TodaySection() {
         setError(response.error.message);
         return;
       }
-      setLinks((current) => current.filter((link) => link.id !== linkId));
+      if (response.restored) {
+        setLinks((current) => current.filter((link) => link.id !== linkId));
+      }
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not restore this link.');
     } finally {

@@ -1,7 +1,10 @@
 import { createEmptyDatabase, createInboxProject, INBOX_PROJECT_ID } from '@/domain/defaults';
+import { MAX_BACKUP_BYTES } from '@/domain/constants';
 import {
   LinkShelfDatabaseSchema,
   LinkShelfBackupSchema,
+  migrateLinkShelfDatabase,
+  parseSupportedLinkShelfBackup,
   type LinkShelfBackup,
   type LinkShelfDatabase,
   type ParkingSession,
@@ -131,12 +134,40 @@ export interface DeleteProjectResult {
 
 export type ImportMode = 'merge' | 'replace';
 
+export interface BackupCounts {
+  projects: number;
+  sessions: number;
+  links: number;
+  notes: number;
+  reminders: number;
+  linkStatuses: Record<SavedLink['status'], number>;
+}
+
+export interface ImportBackupPreview {
+  mode: ImportMode;
+  revisionToken: string;
+  source: BackupCounts;
+  current: BackupCounts;
+  projectsAdded: number;
+  sessionsAdded: number;
+  linksAdded: number;
+  recordsSkipped: number;
+  conflicts: number;
+  settingsAction: 'keep-current' | 'use-backup';
+}
+
 export interface ImportBackupResult {
   mode: ImportMode;
   projectsAdded: number;
   sessionsAdded: number;
   linksAdded: number;
   recordsSkipped: number;
+}
+
+interface ImportPlan {
+  candidate: LinkShelfDatabase;
+  result: ImportBackupResult;
+  conflicts: number;
 }
 
 export type SettingsUpdate = Pick<
@@ -146,6 +177,8 @@ export type SettingsUpdate = Pick<
   | 'confirmBeforeBulkClose'
   | 'notificationsEnabled'
   | 'defaultRestoreBehavior'
+  | 'displayDensity'
+  | 'defaultRestoreMode'
 >;
 
 export class LinkShelfRepository {
@@ -191,76 +224,62 @@ export class LinkShelfRepository {
   async exportBackup(): Promise<LinkShelfBackup> {
     return LinkShelfBackupSchema.parse({
       format: 'linkshelf-backup',
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: this.now(),
       database: await this.getDatabase(),
     });
   }
 
-  async importBackup(backup: unknown, mode: ImportMode): Promise<ImportBackupResult> {
+  async previewImportBackup(
+    backup: unknown,
+    mode: ImportMode,
+  ): Promise<ImportBackupPreview> {
     return this.runExclusive(async () => {
-      const parsed = LinkShelfBackupSchema.safeParse(backup);
-      if (!parsed.success) {
-        throw new StorageValidationError('The selected file is not a valid LinkShelf backup.');
+      const parsed = this.parseBackup(backup);
+      const snapshot = structuredClone(await this.initializeUnsafe());
+      const plan = this.createImportPlan(snapshot, parsed.database, mode);
+
+      return {
+        mode,
+        revisionToken: await this.createImportRevision(snapshot, parsed, mode),
+        source: this.countDatabase(parsed.database),
+        current: this.countDatabase(snapshot),
+        projectsAdded: plan.result.projectsAdded,
+        sessionsAdded: plan.result.sessionsAdded,
+        linksAdded: plan.result.linksAdded,
+        recordsSkipped: plan.result.recordsSkipped,
+        conflicts: plan.conflicts,
+        settingsAction: mode === 'merge' ? 'keep-current' : 'use-backup',
+      };
+    });
+  }
+
+  async importBackup(
+    backup: unknown,
+    mode: ImportMode,
+    revisionToken: string,
+  ): Promise<ImportBackupResult> {
+    return this.runExclusive(async () => {
+      const parsed = this.parseBackup(backup);
+      const snapshot = structuredClone(await this.initializeUnsafe());
+      const expectedRevision = await this.createImportRevision(snapshot, parsed, mode);
+
+      if (revisionToken !== expectedRevision) {
+        throw new StorageValidationError(
+          'LinkShelf data changed after the import summary was shown. Review the backup again before importing.',
+        );
       }
 
-      const snapshot = structuredClone(await this.initializeUnsafe());
-      const imported = parsed.data.database;
-      let candidate: LinkShelfDatabase;
-      let result: ImportBackupResult;
+      const plan = this.createImportPlan(snapshot, parsed.database, mode);
 
-      if (mode === 'replace') {
-        candidate = structuredClone(imported);
-        result = {
-          mode,
-          projectsAdded: imported.projects.length,
-          sessionsAdded: imported.sessions.length,
-          linksAdded: imported.links.length,
-          recordsSkipped: 0,
-        };
-      } else {
-        const currentProjectIds = new Set(snapshot.projects.map((project) => project.id));
-        const currentSessionIds = new Set(snapshot.sessions.map((session) => session.id));
-        const currentLinkIds = new Set(snapshot.links.map((link) => link.id));
-        const currentInbox = snapshot.projects.find((project) => project.isInbox)!;
-        const importedInbox = imported.projects.find((project) => project.isInbox)!;
-        const projectIdMap = new Map<string, string>([[importedInbox.id, currentInbox.id]]);
-        const projectsToAdd = imported.projects.filter((project) => {
-          if (project.isInbox || currentProjectIds.has(project.id)) {
-            projectIdMap.set(project.id, project.isInbox ? currentInbox.id : project.id);
-            return false;
-          }
-          projectIdMap.set(project.id, project.id);
-          return true;
-        });
-        const sessionsToAdd = imported.sessions
-          .filter((session) => !currentSessionIds.has(session.id))
-          .map((session) => ({ ...session, projectId: projectIdMap.get(session.projectId)! }));
-        const linksToAdd = imported.links
-          .filter((link) => !currentLinkIds.has(link.id))
-          .map((link) => ({
-            ...link,
-            projectId: projectIdMap.get(link.projectId)!,
-          }));
-        const totalImported = imported.projects.length + imported.sessions.length + imported.links.length;
-
-        candidate = {
-          ...snapshot,
-          projects: [...snapshot.projects, ...projectsToAdd],
-          sessions: [...snapshot.sessions, ...sessionsToAdd],
-          links: [...snapshot.links, ...linksToAdd],
-        };
-        result = {
-          mode,
-          projectsAdded: projectsToAdd.length,
-          sessionsAdded: sessionsToAdd.length,
-          linksAdded: linksToAdd.length,
-          recordsSkipped: totalImported - projectsToAdd.length - sessionsToAdd.length - linksToAdd.length,
-        };
+      if (plan.conflicts > 0) {
+        throw new StorageValidationError(
+          'The backup conflicts with existing LinkShelf record relationships. Nothing was imported.',
+        );
       }
 
       try {
-        await this.writeValidated(candidate);
+        await this.writeValidated(plan.candidate);
       } catch (error) {
         try {
           await this.writeValidated(snapshot);
@@ -271,7 +290,7 @@ export class LinkShelfRepository {
         throw error;
       }
 
-      return result;
+      return plan.result;
     });
   }
 
@@ -919,6 +938,167 @@ export class LinkShelfRepository {
     return notifiedLinks;
   }
 
+  private parseBackup(backup: unknown): LinkShelfBackup {
+    let serialized: string | undefined;
+    try {
+      serialized = JSON.stringify(backup);
+    } catch {
+      throw new StorageValidationError('The selected backup could not be read safely.');
+    }
+
+    if (
+      serialized === undefined ||
+      new TextEncoder().encode(serialized).byteLength > MAX_BACKUP_BYTES
+    ) {
+      throw new StorageValidationError('The selected backup exceeds the 5 MB import limit.');
+    }
+
+    try {
+      return parseSupportedLinkShelfBackup(backup);
+    } catch {
+      throw new StorageValidationError(
+        'The selected file is not a valid LinkShelf backup or uses an unsupported schema version.',
+      );
+    }
+  }
+
+  private createImportPlan(
+    snapshot: LinkShelfDatabase,
+    imported: LinkShelfDatabase,
+    mode: ImportMode,
+  ): ImportPlan {
+    if (mode === 'replace') {
+      return {
+        candidate: structuredClone(imported),
+        conflicts: 0,
+        result: {
+          mode,
+          projectsAdded: imported.projects.length,
+          sessionsAdded: imported.sessions.length,
+          linksAdded: imported.links.length,
+          recordsSkipped: 0,
+        },
+      };
+    }
+
+    const currentProjectIds = new Set(snapshot.projects.map((project) => project.id));
+    const currentSessionsById = new Map(
+      snapshot.sessions.map((session) => [session.id, session]),
+    );
+    const currentLinksById = new Map(snapshot.links.map((link) => [link.id, link]));
+    const currentInbox = snapshot.projects.find((project) => project.isInbox)!;
+    const importedInbox = imported.projects.find((project) => project.isInbox)!;
+    const projectIdMap = new Map<string, string>([[importedInbox.id, currentInbox.id]]);
+    let conflicts = 0;
+
+    const projectsToAdd = imported.projects.filter((project) => {
+      const mappedId = project.isInbox ? currentInbox.id : project.id;
+      projectIdMap.set(project.id, mappedId);
+      return !project.isInbox && !currentProjectIds.has(project.id);
+    });
+
+    const sessionsToAdd: ParkingSession[] = [];
+    for (const session of imported.sessions) {
+      const mappedProjectId = projectIdMap.get(session.projectId)!;
+      const existing = currentSessionsById.get(session.id);
+
+      if (existing) {
+        if (existing.projectId !== mappedProjectId) conflicts += 1;
+        continue;
+      }
+
+      sessionsToAdd.push({ ...session, projectId: mappedProjectId });
+    }
+
+    const availableSessions = new Map(currentSessionsById);
+    sessionsToAdd.forEach((session) => availableSessions.set(session.id, session));
+    const linksToAdd: SavedLink[] = [];
+
+    for (const link of imported.links) {
+      const mappedProjectId = projectIdMap.get(link.projectId)!;
+      const existing = currentLinksById.get(link.id);
+
+      if (existing) {
+        if (
+          existing.projectId !== mappedProjectId ||
+          existing.sessionId !== link.sessionId
+        ) {
+          conflicts += 1;
+        }
+        continue;
+      }
+
+      const targetSession = availableSessions.get(link.sessionId);
+      if (!targetSession || targetSession.projectId !== mappedProjectId) {
+        conflicts += 1;
+        continue;
+      }
+
+      linksToAdd.push({ ...link, projectId: mappedProjectId });
+    }
+
+    const totalImported =
+      imported.projects.length + imported.sessions.length + imported.links.length;
+    const recordsAdded =
+      projectsToAdd.length + sessionsToAdd.length + linksToAdd.length;
+
+    return {
+      candidate: {
+        ...snapshot,
+        projects: [...snapshot.projects, ...projectsToAdd],
+        sessions: [...snapshot.sessions, ...sessionsToAdd],
+        links: [...snapshot.links, ...linksToAdd],
+      },
+      conflicts,
+      result: {
+        mode,
+        projectsAdded: projectsToAdd.length,
+        sessionsAdded: sessionsToAdd.length,
+        linksAdded: linksToAdd.length,
+        recordsSkipped: totalImported - recordsAdded - conflicts,
+      },
+    };
+  }
+
+  private countDatabase(database: LinkShelfDatabase): BackupCounts {
+    const linkStatuses: BackupCounts['linkStatuses'] = {
+      parked: 0,
+      archived: 0,
+      restored: 0,
+      removed: 0,
+    };
+
+    database.links.forEach((link) => {
+      linkStatuses[link.status] += 1;
+    });
+
+    return {
+      projects: database.projects.length,
+      sessions: database.sessions.length,
+      links: database.links.length,
+      notes:
+        database.sessions.filter((session) => !!session.note?.trim()).length +
+        database.links.filter((link) => !!link.note?.trim()).length,
+      reminders: database.links.filter((link) => link.reminderAt !== undefined).length,
+      linkStatuses,
+    };
+  }
+
+  private async createImportRevision(
+    database: LinkShelfDatabase,
+    backup: LinkShelfBackup,
+    mode: ImportMode,
+  ): Promise<string> {
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({ database, backup, mode }),
+    );
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+
+    return Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('');
+  }
+
   private async initializeUnsafe(): Promise<LinkShelfDatabase> {
     if (this.databaseCache) {
       return this.databaseCache;
@@ -933,6 +1113,18 @@ export class LinkShelfRepository {
     }
 
     const database = this.parseStoredDatabase(storedValue);
+
+    if (
+      typeof storedValue === 'object' &&
+      storedValue !== null &&
+      'settings' in storedValue &&
+      typeof storedValue.settings === 'object' &&
+      storedValue.settings !== null &&
+      'schemaVersion' in storedValue.settings &&
+      storedValue.settings.schemaVersion !== 2
+    ) {
+      return this.writeValidated(database);
+    }
 
     const ensuredDatabase = await this.ensureInbox(database);
     this.databaseCache = ensuredDatabase;
@@ -987,15 +1179,13 @@ export class LinkShelfRepository {
   }
 
   private parseStoredDatabase(value: unknown): LinkShelfDatabase {
-    const result = LinkShelfDatabaseSchema.safeParse(value);
-
-    if (!result.success) {
+    try {
+      return migrateLinkShelfDatabase(value);
+    } catch {
       throw new StorageValidationError(
         'Stored LinkShelf data does not match the current schema.',
       );
     }
-
-    return result.data;
   }
 
   private async ensureInbox(

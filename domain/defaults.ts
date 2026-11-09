@@ -28,6 +28,8 @@ export function createDefaultSettings(): Settings {
     confirmBeforeBulkClose: true,
     notificationsEnabled: true,
     defaultRestoreBehavior: 'restore-and-remove',
+    displayDensity: 'comfortable',
+    defaultRestoreMode: 'normal',
     trackingParamsToRemove: [...DEFAULT_TRACKING_PARAMS],
   };
 }

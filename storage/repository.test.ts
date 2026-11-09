@@ -74,14 +74,18 @@ describe('LinkShelfRepository', () => {
       confirmBeforeBulkClose: false,
       notificationsEnabled: false,
       defaultRestoreBehavior: 'open-copy',
+      displayDensity: 'compact',
+      defaultRestoreMode: 'unloaded',
     });
 
     expect(updated).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       includePinnedTabsByDefault: true,
       confirmBeforeBulkClose: false,
       notificationsEnabled: false,
       defaultRestoreBehavior: 'open-copy',
+      displayDensity: 'compact',
+      defaultRestoreMode: 'unloaded',
     });
     expect(updated.trackingParamsToRemove).toEqual(current.trackingParamsToRemove);
   });
@@ -95,10 +99,31 @@ describe('LinkShelfRepository', () => {
 
     expect(backup).toMatchObject({
       format: 'linkshelf-backup',
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: now,
     });
     expect(backup.database.projects[0].isInbox).toBe(true);
+  });
+
+  it('migrates and persists an existing version 1 database during initialization', async () => {
+    const storage = new MemoryStorageAdapter();
+    const database = createEmptyDatabase(now);
+    const { displayDensity: _density, defaultRestoreMode: _mode, ...versionOneSettings } = database.settings;
+    await storage.set(DATABASE_STORAGE_KEY, {
+      ...database,
+      settings: { ...versionOneSettings, schemaVersion: 1 },
+    });
+    const writesBeforeMigration = storage.writeCount;
+
+    const migrated = await createRepository(storage).initialize();
+
+    expect(migrated.settings).toMatchObject({
+      schemaVersion: 2,
+      displayDensity: 'comfortable',
+      defaultRestoreMode: 'normal',
+    });
+    expect(storage.writeCount - writesBeforeMigration).toBe(1);
+    expect(storage.values.get(DATABASE_STORAGE_KEY)).toEqual(migrated);
   });
 
   it('merges new backup records without overwriting current records', async () => {
@@ -117,7 +142,9 @@ describe('LinkShelfRepository', () => {
       pinnedBeforeParking: false,
     });
 
-    const result = await target.importBackup(await source.exportBackup(), 'merge');
+    const backup = await source.exportBackup();
+    const preview = await target.previewImportBackup(backup, 'merge');
+    const result = await target.importBackup(backup, 'merge', preview.revisionToken);
     const database = await target.getDatabase();
 
     expect(result).toEqual({
@@ -125,6 +152,16 @@ describe('LinkShelfRepository', () => {
     });
     expect(database.projects.filter((item) => item.isInbox)).toHaveLength(1);
     expect(database.links[0].title).toBe('Imported link');
+    expect(preview).toMatchObject({
+      mode: 'merge',
+      projectsAdded: 1,
+      sessionsAdded: 1,
+      linksAdded: 1,
+      recordsSkipped: 1,
+      conflicts: 0,
+      settingsAction: 'keep-current',
+      source: { projects: 2, sessions: 1, links: 1 },
+    });
   });
 
   it('rejects invalid imports before changing storage', async () => {
@@ -132,10 +169,25 @@ describe('LinkShelfRepository', () => {
     const repository = createRepository(storage);
     const before = await repository.getDatabase();
 
-    await expect(repository.importBackup({ format: 'not-linkshelf' }, 'replace'))
+    const writesBefore = storage.writeCount;
+    await expect(repository.previewImportBackup({ format: 'not-linkshelf' }, 'replace'))
       .rejects.toBeInstanceOf(StorageValidationError);
 
     expect(await repository.getDatabase()).toEqual(before);
+    expect(storage.writeCount).toBe(writesBefore);
+  });
+
+  it('rejects oversized backups before changing storage', async () => {
+    const storage = new MemoryStorageAdapter();
+    const repository = createRepository(storage);
+    const backup = await repository.exportBackup();
+    backup.database.projects[0].description = 'x'.repeat(5 * 1024 * 1024);
+    const writesBefore = storage.writeCount;
+
+    await expect(repository.previewImportBackup(backup, 'replace'))
+      .rejects.toThrow('5 MB');
+
+    expect(storage.writeCount).toBe(writesBefore);
   });
 
   it('restores the previous database when an import write fails', async () => {
@@ -150,9 +202,85 @@ describe('LinkShelfRepository', () => {
     const source = new LinkShelfRepository(sourceStorage, () => now, () => sourceIds.shift()!);
     await source.parkTab({ title: 'Replacement link', url: 'https://replacement.example.com', pinnedBeforeParking: false });
 
+    const backup = await source.exportBackup();
+    const preview = await target.previewImportBackup(backup, 'replace');
     targetStorage.failOnWrite = targetStorage.writeCount + 1;
-    await expect(target.importBackup(await source.exportBackup(), 'replace')).rejects.toThrow('simulated write failure');
+    await expect(target.importBackup(backup, 'replace', preview.revisionToken)).rejects.toThrow('simulated write failure');
     expect(await target.getDatabase()).toEqual(before);
+  });
+
+  it('previews the exact records replaced without writing', async () => {
+    const targetStorage = new MemoryStorageAdapter();
+    const target = createRepository(targetStorage);
+    await target.parkTab({ title: 'Current', url: 'https://current.example.com', pinnedBeforeParking: false });
+    const writesBefore = targetStorage.writeCount;
+
+    const sourceStorage = new MemoryStorageAdapter();
+    const source = createRepository(sourceStorage);
+    const backup = await source.exportBackup();
+    const preview = await target.previewImportBackup(backup, 'replace');
+
+    expect(preview).toMatchObject({
+      mode: 'replace',
+      current: { projects: 1, sessions: 1, links: 1 },
+      source: { projects: 1, sessions: 0, links: 0 },
+      projectsAdded: 1,
+      sessionsAdded: 0,
+      linksAdded: 0,
+      settingsAction: 'use-backup',
+    });
+    expect(targetStorage.writeCount).toBe(writesBefore);
+  });
+
+  it('rejects a stale import preview without replacing newer data', async () => {
+    const targetStorage = new MemoryStorageAdapter();
+    const ids = ['new-project'];
+    const target = new LinkShelfRepository(targetStorage, () => now, () => ids.shift()!);
+    const source = createRepository(new MemoryStorageAdapter());
+    const backup = await source.exportBackup();
+    const preview = await target.previewImportBackup(backup, 'replace');
+    await target.createProject({ name: 'Created after preview' });
+    const writesBeforeImport = targetStorage.writeCount;
+
+    await expect(
+      target.importBackup(backup, 'replace', preview.revisionToken),
+    ).rejects.toThrow('data changed');
+
+    expect((await target.getProjects()).some((project) => project.name === 'Created after preview')).toBe(true);
+    expect(targetStorage.writeCount).toBe(writesBeforeImport);
+  });
+
+  it('reports relationship conflicts and refuses to merge them', async () => {
+    const targetStorage = new MemoryStorageAdapter();
+    const targetIds = ['project-current', 'session-shared', 'link-current'];
+    const target = new LinkShelfRepository(targetStorage, () => now, () => targetIds.shift()!);
+    const targetProject = await target.createProject({ name: 'Current project' });
+    await target.parkTab({
+      projectId: targetProject.id,
+      title: 'Current',
+      url: 'https://current.example.com',
+      pinnedBeforeParking: false,
+    });
+
+    const sourceStorage = new MemoryStorageAdapter();
+    const sourceIds = ['project-imported', 'session-shared', 'link-imported'];
+    const source = new LinkShelfRepository(sourceStorage, () => now, () => sourceIds.shift()!);
+    const sourceProject = await source.createProject({ name: 'Imported project' });
+    await source.parkTab({
+      projectId: sourceProject.id,
+      title: 'Imported',
+      url: 'https://imported.example.com',
+      pinnedBeforeParking: false,
+    });
+
+    const backup = await source.exportBackup();
+    const preview = await target.previewImportBackup(backup, 'merge');
+    const writesBeforeImport = targetStorage.writeCount;
+
+    expect(preview.conflicts).toBe(2);
+    await expect(target.importBackup(backup, 'merge', preview.revisionToken))
+      .rejects.toThrow('conflicts');
+    expect(targetStorage.writeCount).toBe(writesBeforeImport);
   });
 
   it('repairs valid stored data that has no Inbox', async () => {

@@ -5,6 +5,11 @@ import type {
   SavedLink,
   Settings,
 } from '@/domain/schemas';
+import type {
+  ImportBackupPreview,
+  ImportBackupResult,
+  ImportMode,
+} from '@/storage/repository';
 
 export interface GetSettingsMessage { type: 'GET_SETTINGS' }
 export type GetSettingsResponse =
@@ -13,7 +18,7 @@ export type GetSettingsResponse =
 
 export interface UpdateSettingsMessage {
   type: 'UPDATE_SETTINGS';
-  payload: Pick<Settings, 'defaultProjectId' | 'includePinnedTabsByDefault' | 'confirmBeforeBulkClose' | 'notificationsEnabled' | 'defaultRestoreBehavior'>;
+  payload: Pick<Settings, 'defaultProjectId' | 'includePinnedTabsByDefault' | 'confirmBeforeBulkClose' | 'notificationsEnabled' | 'defaultRestoreBehavior' | 'displayDensity' | 'defaultRestoreMode'>;
 }
 export type UpdateSettingsResponse =
   | { success: true; settings: Settings }
@@ -24,21 +29,20 @@ export type ExportDataResponse =
   | { success: true; backup: LinkShelfBackup }
   | { success: false; error: { message: string } };
 
+export interface PreviewImportDataMessage {
+  type: 'PREVIEW_IMPORT_DATA';
+  payload: { backup: unknown; mode: ImportMode };
+}
+export type PreviewImportDataResponse =
+  | { success: true; preview: ImportBackupPreview }
+  | { success: false; error: { message: string } };
+
 export interface ImportDataMessage {
   type: 'IMPORT_DATA';
-  payload: { backup: unknown; mode: 'merge' | 'replace' };
+  payload: { backup: unknown; mode: ImportMode; revisionToken: string };
 }
 export type ImportDataResponse =
-  | {
-      success: true;
-      result: {
-        mode: 'merge' | 'replace';
-        projectsAdded: number;
-        sessionsAdded: number;
-        linksAdded: number;
-        recordsSkipped: number;
-      };
-    }
+  | { success: true; result: ImportBackupResult }
   | { success: false; error: { message: string } };
 
 export interface ParkedSessionGroup {
@@ -378,17 +382,22 @@ export interface RestoreSessionMessage {
   payload: { sessionId: string };
 }
 
+export type RestoreMode = 'normal' | 'unloaded';
+
 export interface RestoreProjectMessage {
   type: 'RESTORE_PROJECT';
-  payload: { projectId: string };
+  payload: { projectId: string; mode: RestoreMode };
 }
 
 export type RestoreProjectResponse =
   | {
       success: true;
       projectId: string;
+      openedLinkIds: string[];
       restoredLinkIds: string[];
       failedLinkIds: string[];
+      discardedLinkIds: string[];
+      fallbackLinkIds: string[];
       complete: boolean;
     }
   | {
@@ -408,8 +417,11 @@ export type RestoreSessionResponse =
   | {
       success: true;
       sessionId: string;
+      openedLinkIds: string[];
       restoredLinkIds: string[];
       failedLinkIds: string[];
+      discardedLinkIds: string[];
+      fallbackLinkIds: string[];
       complete: boolean;
     }
   | {
@@ -430,6 +442,7 @@ export type RestoreLinkResponse =
       success: true;
       linkId: string;
       opened: true;
+      restored: boolean;
     }
   | {
       success: false;
@@ -516,7 +529,9 @@ export function isUpdateSettingsMessage(message: unknown): message is UpdateSett
     typeof payload.includePinnedTabsByDefault === 'boolean' &&
     typeof payload.confirmBeforeBulkClose === 'boolean' &&
     typeof payload.notificationsEnabled === 'boolean' &&
-    (payload.defaultRestoreBehavior === 'restore-and-remove' || payload.defaultRestoreBehavior === 'open-copy');
+    (payload.defaultRestoreBehavior === 'restore-and-remove' || payload.defaultRestoreBehavior === 'open-copy') &&
+    (payload.displayDensity === 'comfortable' || payload.displayDensity === 'compact') &&
+    (payload.defaultRestoreMode === 'normal' || payload.defaultRestoreMode === 'unloaded');
 }
 
 export function isExportDataMessage(message: unknown): message is ExportDataMessage {
@@ -524,12 +539,24 @@ export function isExportDataMessage(message: unknown): message is ExportDataMess
     (message as Partial<ExportDataMessage>).type === 'EXPORT_DATA';
 }
 
+export function isPreviewImportDataMessage(
+  message: unknown,
+): message is PreviewImportDataMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<PreviewImportDataMessage>;
+  return candidate.type === 'PREVIEW_IMPORT_DATA' && !!candidate.payload &&
+    'backup' in candidate.payload &&
+    (candidate.payload.mode === 'merge' || candidate.payload.mode === 'replace');
+}
+
 export function isImportDataMessage(message: unknown): message is ImportDataMessage {
   if (typeof message !== 'object' || message === null) return false;
   const candidate = message as Partial<ImportDataMessage>;
   return candidate.type === 'IMPORT_DATA' && !!candidate.payload &&
     'backup' in candidate.payload &&
-    (candidate.payload.mode === 'merge' || candidate.payload.mode === 'replace');
+    (candidate.payload.mode === 'merge' || candidate.payload.mode === 'replace') &&
+    typeof candidate.payload.revisionToken === 'string' &&
+    candidate.payload.revisionToken.length > 0;
 }
 
 export function isGetBookmarkFoldersMessage(
@@ -772,7 +799,8 @@ export function isRestoreProjectMessage(
   return (
     candidate.type === 'RESTORE_PROJECT' &&
     typeof candidate.payload?.projectId === 'string' &&
-    candidate.payload.projectId.length > 0
+    candidate.payload.projectId.length > 0 &&
+    (candidate.payload.mode === 'normal' || candidate.payload.mode === 'unloaded')
   );
 }
 
@@ -811,13 +839,26 @@ export async function exportData(): Promise<ExportDataResponse> {
   return response as ExportDataResponse;
 }
 
+export async function previewImportData(
+  backup: unknown,
+  mode: ImportMode,
+): Promise<PreviewImportDataResponse> {
+  const response = (await browser.runtime.sendMessage({
+    type: 'PREVIEW_IMPORT_DATA',
+    payload: { backup, mode },
+  } satisfies PreviewImportDataMessage)) as unknown;
+  assertResponse(response);
+  return response as PreviewImportDataResponse;
+}
+
 export async function importData(
   backup: unknown,
-  mode: 'merge' | 'replace',
+  mode: ImportMode,
+  revisionToken: string,
 ): Promise<ImportDataResponse> {
   const response = (await browser.runtime.sendMessage({
     type: 'IMPORT_DATA',
-    payload: { backup, mode },
+    payload: { backup, mode, revisionToken },
   } satisfies ImportDataMessage)) as unknown;
   assertResponse(response);
   return response as ImportDataResponse;
@@ -1072,10 +1113,11 @@ export async function restoreSession(
 
 export async function restoreProject(
   projectId: string,
+  mode: RestoreMode,
 ): Promise<RestoreProjectResponse> {
   const message: RestoreProjectMessage = {
     type: 'RESTORE_PROJECT',
-    payload: { projectId },
+    payload: { projectId, mode },
   };
   const response = (await browser.runtime.sendMessage(message)) as unknown;
   assertResponse(response);

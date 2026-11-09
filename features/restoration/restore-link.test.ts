@@ -33,6 +33,7 @@ function createDependencies(): RestoreLinkDependencies {
       ...link,
       status: 'restored' as const,
     }),
+    markAsRestored: true,
   };
 }
 
@@ -55,6 +56,7 @@ describe('executeRestoreLink', () => {
       success: true,
       linkId: 'link-1',
       opened: true,
+      restored: true,
     });
   });
 
@@ -100,6 +102,21 @@ describe('executeRestoreLink', () => {
     expect(response).toMatchObject({
       success: false,
       error: { code: 'LINK_NOT_PARKED' },
+    });
+  });
+
+  it('keeps an opened copy parked when configured', async () => {
+    const dependencies = createDependencies();
+    dependencies.markAsRestored = false;
+
+    const response = await executeRestoreLink(message, dependencies);
+
+    expect(dependencies.markLinkRestored).not.toHaveBeenCalled();
+    expect(response).toEqual({
+      success: true,
+      linkId: link.id,
+      opened: true,
+      restored: false,
     });
   });
 });
