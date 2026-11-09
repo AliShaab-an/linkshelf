@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyDatabase, INBOX_PROJECT_ID } from '@/domain/defaults';
+import { MAX_BACKUP_BYTES } from '@/domain/constants';
 import type { StorageAdapter } from './storage-adapter';
 import {
   DATABASE_STORAGE_KEY,
@@ -181,11 +182,11 @@ describe('LinkShelfRepository', () => {
     const storage = new MemoryStorageAdapter();
     const repository = createRepository(storage);
     const backup = await repository.exportBackup();
-    backup.database.projects[0].description = 'x'.repeat(5 * 1024 * 1024);
+    backup.database.projects[0].description = 'x'.repeat(MAX_BACKUP_BYTES);
     const writesBefore = storage.writeCount;
 
     await expect(repository.previewImportBackup(backup, 'replace'))
-      .rejects.toThrow('5 MB');
+      .rejects.toThrow('32 MiB');
 
     expect(storage.writeCount).toBe(writesBefore);
   });
