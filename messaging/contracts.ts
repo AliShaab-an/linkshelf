@@ -1,3 +1,4 @@
+import type { OperationWarnings } from '@/features/operations/secondary-result';
 import type {
   LinkShelfBackup,
   ParkingSession,
@@ -41,9 +42,10 @@ export interface ImportDataMessage {
   type: 'IMPORT_DATA';
   payload: { backup: unknown; mode: ImportMode; revisionToken: string };
 }
-export type ImportDataResponse =
+export type ImportDataResponse = OperationWarnings & (
   | { success: true; result: ImportBackupResult }
-  | { success: false; error: { message: string } };
+  | { success: false; error: { message: string } }
+);
 
 export interface ParkedSessionGroup {
   session: ParkingSession;
@@ -94,7 +96,7 @@ export interface BookmarkLinkMessage {
   payload: { linkId: string; parentId: string };
 }
 
-export type BookmarkLinkResponse =
+export type BookmarkLinkResponse = OperationWarnings & (
   | {
       success: true;
       linkId: string;
@@ -115,7 +117,8 @@ export type BookmarkLinkResponse =
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
 export interface OpenBookmarkMessage {
   type: 'OPEN_BOOKMARK';
@@ -174,7 +177,7 @@ export interface ParkSelectedTabsMessage {
   };
 }
 
-export type ParkSelectedTabsResponse =
+export type ParkSelectedTabsResponse = OperationWarnings & (
   | {
       success: true;
       saved: true;
@@ -197,7 +200,8 @@ export type ParkSelectedTabsResponse =
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
 export interface GetParkedLinksMessage {
   type: 'GET_PARKED_LINKS';
@@ -367,7 +371,7 @@ export interface MoveLinkMessage {
   payload: { linkId: string; projectId: string };
 }
 
-export type LinkLifecycleResponse =
+export type LinkLifecycleResponse = OperationWarnings & (
   | { success: true; link: SavedLink }
   | {
       success: false;
@@ -375,7 +379,8 @@ export type LinkLifecycleResponse =
         code: 'LINK_NOT_FOUND' | 'PROJECT_NOT_FOUND' | 'INVALID_STATE' | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
 export interface RestoreSessionMessage {
   type: 'RESTORE_SESSION';
@@ -384,12 +389,20 @@ export interface RestoreSessionMessage {
 
 export type RestoreMode = 'normal' | 'unloaded';
 
+export interface RestoreProgress {
+  openedLinkIds: string[];
+  restoredLinkIds: string[];
+  failedLinkIds: string[];
+  discardedLinkIds: string[];
+  fallbackLinkIds: string[];
+}
+
 export interface RestoreProjectMessage {
   type: 'RESTORE_PROJECT';
   payload: { projectId: string; mode: RestoreMode };
 }
 
-export type RestoreProjectResponse =
+export type RestoreProjectResponse = OperationWarnings & (
   | {
       success: true;
       projectId: string;
@@ -403,6 +416,7 @@ export type RestoreProjectResponse =
   | {
       success: false;
       opened: boolean;
+      progress?: RestoreProgress;
       error: {
         code:
           | 'PROJECT_EMPTY'
@@ -411,9 +425,10 @@ export type RestoreProjectResponse =
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
-export type RestoreSessionResponse =
+export type RestoreSessionResponse = OperationWarnings & (
   | {
       success: true;
       sessionId: string;
@@ -427,6 +442,7 @@ export type RestoreSessionResponse =
   | {
       success: false;
       opened: boolean;
+      progress?: RestoreProgress;
       error: {
         code:
           | 'SESSION_EMPTY'
@@ -435,9 +451,10 @@ export type RestoreSessionResponse =
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
-export type RestoreLinkResponse =
+export type RestoreLinkResponse = OperationWarnings & (
   | {
       success: true;
       linkId: string;
@@ -456,9 +473,10 @@ export type RestoreLinkResponse =
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
-export type ParkCurrentTabResponse =
+export type ParkCurrentTabResponse = OperationWarnings & (
   | {
       success: true;
       saved: true;
@@ -481,7 +499,8 @@ export type ParkCurrentTabResponse =
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
 export function isParkCurrentTabMessage(
   message: unknown,

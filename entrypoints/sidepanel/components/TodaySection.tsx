@@ -1,3 +1,4 @@
+import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
 import { useEffect, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
 import {
@@ -9,6 +10,7 @@ import { SavedLinkCard } from './SavedLinkCard';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 
 export function TodaySection() {
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [links, setLinks] = useState<SavedLink[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -40,6 +42,7 @@ export function TodaySection() {
     setError(null);
     try {
       const response = await restoreLink(linkId);
+      setWarnings(response.warnings ?? []);
       if (!response.success) {
         setError(response.error.message);
         return;
@@ -56,6 +59,7 @@ export function TodaySection() {
 
   return (
     <>
+      <OperationWarnings warnings={warnings} />
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Due and overdue</p>
         <h2 className="mt-1 text-lg font-bold">Today</h2>

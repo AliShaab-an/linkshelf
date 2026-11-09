@@ -1,3 +1,4 @@
+import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import {
   isArchiveLinkMessage,
   isBookmarkLinkMessage,
@@ -233,14 +234,18 @@ export default defineBackground(() => {
   }
 
   async function showKeyboardResult(title: string, message: string) {
-    if (await browser.notifications.getPermissionLevel() !== 'granted') return;
-    await browser.notifications.create(`linkshelf-command-${Date.now()}`, {
-      type: 'basic',
-      iconUrl: browser.runtime.getURL('/icon/128.png'),
-      title,
-      message,
-      priority: 1,
-    });
+    try {
+      if (await browser.notifications.getPermissionLevel() !== 'granted') return;
+      await browser.notifications.create(`linkshelf-command-${Date.now()}`, {
+        type: 'basic',
+        iconUrl: browser.runtime.getURL('/icon/128.png'),
+        title,
+        message,
+        priority: 1,
+      });
+    } catch (error) {
+      console.warn('LinkShelf could not display keyboard feedback.', error);
+    }
   }
 
   function handleLifecycleOperation(
@@ -250,8 +255,8 @@ export default defineBackground(() => {
   ) {
     void operation
       .then(async (link) => {
-        await afterSuccess?.(link);
-        sendResponse({ success: true, link });
+        const result = await withSecondaryWarning({ success: true as const, link, warnings: [] as string[] }, async () => { await afterSuccess?.(link); }, 'The link was updated, but reminders could not be updated. Reload LinkShelf to retry reminders.');
+        sendResponse(result);
       })
       .catch((error) => {
         if (error instanceof LinkNotFoundError) {
@@ -386,166 +391,168 @@ export default defineBackground(() => {
         closeTab: (tabId) => browser.tabs.remove(tabId),
       });
 
-      if (response.saved && response.linkId) {
-        const link = await repository.getLink(response.linkId);
-        if (link) await scheduleLinkReminder(link, browser.alarms);
-      }
-      if (!response.success) {
-        console.warn('LinkShelf keyboard parking did not complete:', response.error.message);
-        await showKeyboardResult('LinkShelf could not park this tab', response.error.message);
-      } else {
-        await showKeyboardResult('Tab parked', 'The current tab was saved in your default project.');
-      }
-    })().catch((error) => {
-      console.error('Unexpected keyboard parking failure:', error);
-      void showKeyboardResult('LinkShelf could not park this tab', 'An unexpected error occurred. The tab stayed open.');
+      const completed = await withSecondaryWarning(response, async () => {
+            if (response.saved && response.linkId) {
+          const link = await repository.getLink(response.linkId);
+          if (link) await scheduleLinkReminder(link, browser.alarms);
+        }
+        }, 'The tab was saved, but reminders could not be updated. Reload LinkShelf to retry reminders.');
+        if (!response.success) {
+          console.warn('LinkShelf keyboard parking did not complete:', response.error.message);
+          await showKeyboardResult(response.saved ? 'Tab saved but still open' : 'LinkShelf could not park this tab', [response.error.message, ...(completed.warnings ?? [])].join(' '));
+        } else {
+          await showKeyboardResult('Tab parked', ['The current tab was saved in your default project.', ...(completed.warnings ?? [])].join(' '));
+        }
+      })().catch((error) => {
+        console.error('Unexpected keyboard parking failure:', error);
+        void showKeyboardResult('LinkShelf could not park this tab', 'The parking result could not be confirmed. Check your shelf and open tabs before trying again.');
+      });
     });
-  });
 
-  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (isGetSettingsMessage(message)) {
-      void Promise.all([repository.getSettings(), repository.getProjects()])
-        .then(([settings, projects]) =>
-          sendResponse({ success: true, settings, projects }),
-        )
-        .catch((error) => {
-          console.error('Failed to read LinkShelf settings:', error);
-          sendResponse({ success: false, error: { message: 'LinkShelf could not load settings.' } });
-        });
-      return true;
-    }
+    browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (isGetSettingsMessage(message)) {
+        void Promise.all([repository.getSettings(), repository.getProjects()])
+          .then(([settings, projects]) =>
+            sendResponse({ success: true, settings, projects }),
+          )
+          .catch((error) => {
+            console.error('Failed to read LinkShelf settings:', error);
+            sendResponse({ success: false, error: { message: 'LinkShelf could not load settings.' } });
+          });
+        return true;
+      }
 
-    if (isUpdateSettingsMessage(message)) {
-      void repository
-        .updateSettings(message.payload)
-        .then((settings) => sendResponse({ success: true, settings }))
-        .catch((error) => {
-          console.error('Failed to update LinkShelf settings:', error);
-          sendResponse({ success: false, error: { message: error instanceof Error ? error.message : 'LinkShelf could not save settings.' } });
-        });
-      return true;
-    }
+      if (isUpdateSettingsMessage(message)) {
+        void repository
+          .updateSettings(message.payload)
+          .then((settings) => sendResponse({ success: true, settings }))
+          .catch((error) => {
+            console.error('Failed to update LinkShelf settings:', error);
+            sendResponse({ success: false, error: { message: error instanceof Error ? error.message : 'LinkShelf could not save settings.' } });
+          });
+        return true;
+      }
 
-    if (isExportDataMessage(message)) {
-      void repository
-        .exportBackup()
-        .then((backup) => sendResponse({ success: true, backup }))
-        .catch((error) => {
-          console.error('Failed to export LinkShelf data:', error);
-          sendResponse({ success: false, error: { message: error instanceof Error ? error.message : 'LinkShelf could not create the backup.' } });
-        });
-      return true;
-    }
+      if (isExportDataMessage(message)) {
+        void repository
+          .exportBackup()
+          .then((backup) => sendResponse({ success: true, backup }))
+          .catch((error) => {
+            console.error('Failed to export LinkShelf data:', error);
+            sendResponse({ success: false, error: { message: error instanceof Error ? error.message : 'LinkShelf could not create the backup.' } });
+          });
+        return true;
+      }
 
-    if (isImportDataMessage(message)) {
-      void repository
-        .importBackup(
-          message.payload.backup,
-          message.payload.mode,
-          message.payload.revisionToken,
-        )
-        .then(async (result) => {
-          await synchronizeReminderAlarms();
-          sendResponse({ success: true, result });
+      if (isImportDataMessage(message)) {
+        void repository
+          .importBackup(
+            message.payload.backup,
+            message.payload.mode,
+            message.payload.revisionToken,
+          )
+          .then(async (result) => {
+            sendResponse(await withSecondaryWarning({ success: true as const, result, warnings: [] as string[] }, synchronizeReminderAlarms, 'Your backup was imported, but reminders could not be updated. Reload LinkShelf to retry reminders.'));
+          })
+          .catch((error) => {
+            console.error('Failed to import LinkShelf data:', error);
+            sendResponse({
+              success: false,
+              error: {
+                message: error instanceof Error
+                  ? error.message
+                  : 'LinkShelf could not import this backup.',
+              },
+            });
+          });
+        return true;
+      }
+
+      if (isPreviewImportDataMessage(message)) {
+        void repository
+          .previewImportBackup(message.payload.backup, message.payload.mode)
+          .then((preview) => sendResponse({ success: true, preview }))
+          .catch((error) => {
+            console.error('Failed to preview LinkShelf import:', error);
+            sendResponse({
+              success: false,
+              error: {
+                message: error instanceof Error
+                  ? error.message
+                  : 'LinkShelf could not inspect this backup.',
+              },
+            });
+          });
+        return true;
+      }
+
+      if (isSearchLinksMessage(message)) {
+        void Promise.all([
+          repository.searchLinks(message.payload.query),
+          browser.bookmarks.getTree(),
+        ])
+          .then(([results, tree]) =>
+            sendResponse({
+              success: true,
+              results,
+              bookmarks: searchBookmarkTree(tree, message.payload.query),
+            }),
+          )
+          .catch((error) => {
+            console.error('Failed to search links and Chrome bookmarks:', error);
+            sendResponse({
+              success: false,
+              error: { message: 'LinkShelf could not search saved links and bookmarks.' },
+            });
+          });
+
+        return true;
+      }
+
+      if (isGetBookmarkFoldersMessage(message)) {
+        void browser.bookmarks
+          .getTree()
+          .then((tree) =>
+            sendResponse({
+              success: true,
+              folders: flattenBookmarkFolders(tree),
+            }),
+          )
+          .catch((error) => {
+            console.error('Failed to read Chrome bookmark folders:', error);
+            sendResponse({
+              success: false,
+              error: { message: 'LinkShelf could not load Chrome bookmark folders.' },
+            });
+          });
+
+        return true;
+      }
+
+      if (isBookmarkLinkMessage(message)) {
+        void executeBookmarkLink(message, {
+          getLink: (linkId) => repository.getLink(linkId),
+          getTrackingParams: async () =>
+            (await repository.getDatabase()).settings.trackingParamsToRemove,
+          getBookmarkTree: () => browser.bookmarks.getTree(),
+          createBookmark: async (input) => {
+            const bookmark = await browser.bookmarks.create(input);
+            return {
+              id: bookmark.id,
+              parentId: bookmark.parentId,
+              title: bookmark.title || input.title,
+              url: bookmark.url ?? input.url,
+            };
+          },
+          markLinkBookmarked: (linkId, bookmarkId) =>
+            repository.markLinkBookmarked(linkId, bookmarkId),
         })
-        .catch((error) => {
-          console.error('Failed to import LinkShelf data:', error);
-          sendResponse({
-            success: false,
-            error: {
-              message: error instanceof Error
-                ? error.message
-                : 'LinkShelf could not import this backup.',
-            },
-          });
-        });
-      return true;
-    }
-
-    if (isPreviewImportDataMessage(message)) {
-      void repository
-        .previewImportBackup(message.payload.backup, message.payload.mode)
-        .then((preview) => sendResponse({ success: true, preview }))
-        .catch((error) => {
-          console.error('Failed to preview LinkShelf import:', error);
-          sendResponse({
-            success: false,
-            error: {
-              message: error instanceof Error
-                ? error.message
-                : 'LinkShelf could not inspect this backup.',
-            },
-          });
-        });
-      return true;
-    }
-
-    if (isSearchLinksMessage(message)) {
-      void Promise.all([
-        repository.searchLinks(message.payload.query),
-        browser.bookmarks.getTree(),
-      ])
-        .then(([results, tree]) =>
-          sendResponse({
-            success: true,
-            results,
-            bookmarks: searchBookmarkTree(tree, message.payload.query),
-          }),
-        )
-        .catch((error) => {
-          console.error('Failed to search links and Chrome bookmarks:', error);
-          sendResponse({
-            success: false,
-            error: { message: 'LinkShelf could not search saved links and bookmarks.' },
-          });
-        });
-
-      return true;
-    }
-
-    if (isGetBookmarkFoldersMessage(message)) {
-      void browser.bookmarks
-        .getTree()
-        .then((tree) =>
-          sendResponse({
-            success: true,
-            folders: flattenBookmarkFolders(tree),
-          }),
-        )
-        .catch((error) => {
-          console.error('Failed to read Chrome bookmark folders:', error);
-          sendResponse({
-            success: false,
-            error: { message: 'LinkShelf could not load Chrome bookmark folders.' },
-          });
-        });
-
-      return true;
-    }
-
-    if (isBookmarkLinkMessage(message)) {
-      void executeBookmarkLink(message, {
-        getLink: (linkId) => repository.getLink(linkId),
-        getTrackingParams: async () =>
-          (await repository.getDatabase()).settings.trackingParamsToRemove,
-        getBookmarkTree: () => browser.bookmarks.getTree(),
-        createBookmark: async (input) => {
-          const bookmark = await browser.bookmarks.create(input);
-          return {
-            id: bookmark.id,
-            parentId: bookmark.parentId,
-            title: bookmark.title || input.title,
-            url: bookmark.url ?? input.url,
-          };
-        },
-        markLinkBookmarked: (linkId, bookmarkId) =>
-          repository.markLinkBookmarked(linkId, bookmarkId),
-      })
-        .then(async (response) => {
-          if (response.success || response.bookmarkCreated) {
-            await synchronizeReminderAlarms();
-          }
-          sendResponse(response);
+          .then(async (response) => {
+            sendResponse(await withSecondaryWarning(response, async () => {
+            if (response.success || response.bookmarkCreated) {
+              await synchronizeReminderAlarms();
+            }
+          }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
           console.error('Unexpected bookmark conversion failure:', error);
@@ -801,15 +808,15 @@ export default defineBackground(() => {
           markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
         }))
         .then(async (response) => {
-          if (response.success) {
-            await browser.alarms.clear(reminderAlarmName(response.linkId));
-            await reconcileReminderAlarms(
-              await repository.getReminderLinks(),
-              browser.alarms,
-            );
-          }
-
-          sendResponse(response);
+          sendResponse(await withSecondaryWarning(response, async () => {
+            if (response.success) {
+              await browser.alarms.clear(reminderAlarmName(response.linkId));
+              await reconcileReminderAlarms(
+                await repository.getReminderLinks(),
+                browser.alarms,
+              );
+            }
+          }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
           console.error('Unexpected restoration failure:', error);
@@ -838,11 +845,12 @@ export default defineBackground(() => {
         markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
       }))
         .then(async (response) => {
-          await reconcileReminderAlarms(
-            await repository.getReminderLinks(),
-            browser.alarms,
-          );
-          sendResponse(response);
+          sendResponse(await withSecondaryWarning(response, async () => {
+            await reconcileReminderAlarms(
+              await repository.getReminderLinks(),
+              browser.alarms,
+            );
+          }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
           console.error('Unexpected session restoration failure:', error);
@@ -873,11 +881,12 @@ export default defineBackground(() => {
         markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
       }))
         .then(async (response) => {
-          await reconcileReminderAlarms(
-            await repository.getReminderLinks(),
-            browser.alarms,
-          );
-          sendResponse(response);
+          sendResponse(await withSecondaryWarning(response, async () => {
+            await reconcileReminderAlarms(
+              await repository.getReminderLinks(),
+              browser.alarms,
+            );
+          }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
           console.error('Unexpected project restoration failure:', error);
@@ -945,15 +954,15 @@ export default defineBackground(() => {
         closeTab: (tabId) => browser.tabs.remove(tabId),
       })
         .then(async (response) => {
-          if (response.saved && response.linkId) {
-            const link = await repository.getLink(response.linkId);
+          sendResponse(await withSecondaryWarning(response, async () => {
+            if (response.saved && response.linkId) {
+              const link = await repository.getLink(response.linkId);
 
-            if (link) {
-              await scheduleLinkReminder(link, browser.alarms);
+              if (link) {
+                await scheduleLinkReminder(link, browser.alarms);
+              }
             }
-          }
-
-          sendResponse(response);
+          }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
           console.error('Unexpected parking failure:', error);
@@ -978,15 +987,15 @@ export default defineBackground(() => {
         closeTab: (tabId) => browser.tabs.remove(tabId),
       })
         .then(async (response) => {
-          if (response.success && response.linkIds.length > 0) {
-            const reminderLink = await repository.getLink(response.linkIds[0]);
+          sendResponse(await withSecondaryWarning(response, async () => {
+            if (response.success && response.linkIds.length > 0) {
+              const reminderLink = await repository.getLink(response.linkIds[0]);
 
-            if (reminderLink) {
-              await scheduleLinkReminder(reminderLink, browser.alarms);
+              if (reminderLink) {
+                await scheduleLinkReminder(reminderLink, browser.alarms);
+              }
             }
-          }
-
-          sendResponse(response);
+          }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
           console.error('Unexpected bulk parking failure:', error);

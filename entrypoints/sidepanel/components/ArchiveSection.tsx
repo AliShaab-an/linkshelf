@@ -1,3 +1,4 @@
+import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
 import { useEffect, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
 import {
@@ -11,6 +12,7 @@ import { SavedLinkCard } from './SavedLinkCard';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 
 export function ArchiveSection() {
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [links, setLinks] = useState<SavedLink[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -36,6 +38,7 @@ export function ArchiveSection() {
     setError(null);
     try {
       const response = await unarchiveLink(link.id);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       setLinks((current) => current.filter((candidate) => candidate.id !== link.id));
       setMessage(`Returned “${link.title}” to its project.`);
@@ -53,6 +56,7 @@ export function ArchiveSection() {
     setError(null);
     try {
       const response = await removeLink(link.id);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       setLinks((current) => current.filter((candidate) => candidate.id !== link.id));
       setRemoveCandidate(null);
@@ -66,6 +70,7 @@ export function ArchiveSection() {
 
   return (
     <>
+      <OperationWarnings warnings={warnings} />
       <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inactive links</p><h2 className="mt-1 text-lg font-bold">Archive</h2><p className="mt-1 text-sm text-slate-500">Archived links stay local and searchable without cluttering active projects.</p></div>
       {removeCandidate && <RemoveLinkDialog link={removeCandidate} isRemoving={workingId === removeCandidate.id} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} />}
       {message && <p className="mb-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}

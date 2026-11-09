@@ -1,3 +1,5 @@
+import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
+import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useState } from 'react';
 import {
   type LinkShelfBackup,
@@ -18,6 +20,7 @@ import {
 type EditableSettings = Pick<Settings, 'defaultProjectId' | 'includePinnedTabsByDefault' | 'confirmBeforeBulkClose' | 'notificationsEnabled' | 'defaultRestoreBehavior' | 'displayDensity' | 'defaultRestoreMode'>;
 
 export function SettingsSection() {
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [settings, setSettings] = useState<EditableSettings | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -112,12 +115,15 @@ export function SettingsSection() {
     setIsImporting(true); setError(null); setMessage(null);
     try {
       const response = await importData(importBackup, mode, importPreview.revisionToken);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
-      const refreshed = await getSettings();
-      if (refreshed.success) {
+      const completed = await withSecondaryWarning(response, async () => {
+        const refreshed = await getSettings();
+        if (!refreshed.success) throw new Error(refreshed.error.message);
         setSettings(refreshed.settings);
         setProjects(refreshed.projects);
-      }
+      }, 'Your backup was imported, but this view could not refresh. Reopen Settings to load the imported preferences.');
+      setWarnings(completed.warnings ?? []);
       setImportBackup(null); setImportPreview(null); setImportFileName('');
       setMessage(
         mode === 'replace'
@@ -131,6 +137,7 @@ export function SettingsSection() {
 
   return (
     <>
+      <OperationWarnings warnings={warnings} />
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Local preferences</p>
         <h2 className="mt-1 text-lg font-bold">Settings</h2>

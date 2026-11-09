@@ -90,7 +90,7 @@ export async function executeBookmarkLink(
       bookmark,
       error: {
         code: 'STORAGE_FAILED',
-        message: 'The Chrome bookmark was created, but the link is still parked because storage failed.',
+        message: 'The Chrome bookmark was created, but its LinkShelf state could not be confirmed. Check the existing bookmark before retrying.',
       },
     };
   }

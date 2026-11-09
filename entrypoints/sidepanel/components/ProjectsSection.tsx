@@ -1,3 +1,5 @@
+import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
+import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { INBOX_PROJECT_ID } from '@/domain/constants';
 import type { DisplayDensity, Project, RestoreMode, SavedLink } from '@/domain/schemas';
@@ -36,6 +38,7 @@ function sortProjects(projects: Project[]): Project[] {
 }
 
 export function ProjectsSection() {
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState(INBOX_PROJECT_ID);
   const [groups, setGroups] = useState<ParkedSessionGroup[]>([]);
@@ -61,6 +64,13 @@ export function ProjectsSection() {
   const [defaultRestoreMode, setDefaultRestoreMode] = useState<RestoreMode>('normal');
   const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set());
   const [sessionLimits, setSessionLimits] = useState<Record<string, number>>({});
+
+  function rememberView(patch: Parameters<typeof updateUiState>[0]) {
+    void updateUiState(patch).catch((error) => {
+      console.warn('LinkShelf could not remember the current view.', error);
+      setWarnings((current) => [...current, 'Your view preference could not be saved. The project and link data is unaffected by that preference error.']);
+    });
+  }
 
   const selectedProject = projects.find((project) => project.id === selectedId);
   const parkedLinkCount = groups.reduce(
@@ -133,7 +143,7 @@ export function ProjectsSection() {
       setGroups(response.groups);
       const nextExpanded = new Set(response.groups.slice(0, 1).map((group) => group.session.id));
       setExpandedSessionIds(nextExpanded);
-      void updateUiState({
+      rememberView({
         selectedProjectId: projectId,
         expandedSessionIds: [...nextExpanded],
       });
@@ -156,7 +166,7 @@ export function ProjectsSection() {
       setSelectedId(response.project.id);
       setGroups([]);
       setExpandedSessionIds(new Set());
-      void updateUiState({ selectedProjectId: response.project.id, expandedSessionIds: [] });
+      rememberView({ selectedProjectId: response.project.id, expandedSessionIds: [] });
       setNewName('');
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not create the project.');
@@ -168,7 +178,7 @@ export function ProjectsSection() {
   function setOrder(order: SessionOrder) {
     setSessionOrder(order);
     setSessionLimits({});
-    void updateUiState({ sessionOrder: order });
+    rememberView({ sessionOrder: order });
   }
 
   function toggleSession(sessionId: string) {
@@ -176,7 +186,7 @@ export function ProjectsSection() {
       const next = new Set(current);
       if (next.has(sessionId)) next.delete(sessionId);
       else next.add(sessionId);
-      void updateUiState({ expandedSessionIds: [...next] });
+      rememberView({ expandedSessionIds: [...next] });
       return next;
     });
   }
@@ -187,7 +197,7 @@ export function ProjectsSection() {
       : new Set<string>();
     setExpandedSessionIds(next);
     setSessionLimits({});
-    void updateUiState({ expandedSessionIds: [...next] });
+    rememberView({ expandedSessionIds: [...next] });
   }
 
   async function saveRename(event: FormEvent<HTMLFormElement>) {
@@ -218,13 +228,17 @@ export function ProjectsSection() {
       if (!response.success) throw new Error(response.error.message);
       setProjects((current) => current.filter((project) => project.id !== response.deletedProjectId));
       setSelectedId(response.inboxProjectId);
-      const groupsResponse = await getParkedSessionGroups(response.inboxProjectId);
-      if (!groupsResponse.success) throw new Error(groupsResponse.error.message);
-      setGroups(groupsResponse.groups);
+      setGroups([]);
+      const completed = await withSecondaryWarning({ ...response, warnings: [] as string[] }, async () => {
+        const groupsResponse = await getParkedSessionGroups(response.inboxProjectId);
+        if (!groupsResponse.success) throw new Error(groupsResponse.error.message);
+        setGroups(groupsResponse.groups);
+        const nextExpanded = new Set(groupsResponse.groups.slice(0, 1).map((group) => group.session.id));
+        setExpandedSessionIds(nextExpanded);
+        await updateUiState({ selectedProjectId: response.inboxProjectId, expandedSessionIds: [...nextExpanded] });
+      }, 'The project was deleted and its links moved to Inbox, but this view could not refresh. Reopen Projects.');
+      setWarnings(completed.warnings ?? []);
       setIsConfirmingDelete(false);
-      const nextExpanded = new Set(groupsResponse.groups.slice(0, 1).map((group) => group.session.id));
-      setExpandedSessionIds(nextExpanded);
-      void updateUiState({ selectedProjectId: response.inboxProjectId, expandedSessionIds: [...nextExpanded] });
       setMessage(`Deleted “${projectName}” and moved its links to Inbox.`);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not delete the project.');
@@ -238,6 +252,7 @@ export function ProjectsSection() {
     setError(null);
     try {
       const response = await restoreLink(linkId);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       if (response.restored) {
         removeLinkFromGroups(linkId);
@@ -257,7 +272,9 @@ export function ProjectsSection() {
     setMessage(null);
     try {
       const response = await restoreSession(sessionId);
+      setWarnings(response.warnings ?? []);
       if (!response.success) {
+        for (const id of response.progress?.restoredLinkIds ?? []) removeLinkFromGroups(id);
         throw new Error(response.error.message);
       }
 
@@ -287,8 +304,12 @@ export function ProjectsSection() {
           ? caughtError.message
           : 'LinkShelf could not restore this session.',
       );
-      const refreshed = await getParkedSessionGroups(selectedId);
-      if (refreshed.success) setGroups(refreshed.groups);
+      const refreshed = await withSecondaryWarning({ warnings: [] as string[] }, async () => {
+        const response = await getParkedSessionGroups(selectedId);
+        if (!response.success) throw new Error(response.error.message);
+        setGroups(response.groups);
+      }, 'The saved list could not refresh. Reopen Projects before retrying any links that already opened.');
+      setWarnings((current) => [...current, ...(refreshed.warnings ?? [])]);
     } finally {
       setRestoringSessionId(null);
     }
@@ -301,7 +322,12 @@ export function ProjectsSection() {
     setMessage(null);
     try {
       const response = await restoreProject(selectedProject.id, mode);
-      if (!response.success) throw new Error(response.error.message);
+      setWarnings(response.warnings ?? []);
+      if (!response.success) {
+        for (const id of response.progress?.restoredLinkIds ?? []) removeLinkFromGroups(id);
+        if (response.opened) setIsConfirmingRestoreProject(false);
+        throw new Error(response.error.message);
+      }
 
       const restoredIds = new Set(response.restoredLinkIds);
       setGroups((current) =>
@@ -336,8 +362,12 @@ export function ProjectsSection() {
           ? caughtError.message
           : 'LinkShelf could not restore this project.',
       );
-      const refreshed = await getParkedSessionGroups(selectedProject.id);
-      if (refreshed.success) setGroups(refreshed.groups);
+      const refreshed = await withSecondaryWarning({ warnings: [] as string[] }, async () => {
+        const response = await getParkedSessionGroups(selectedProject.id);
+        if (!response.success) throw new Error(response.error.message);
+        setGroups(response.groups);
+      }, 'The saved list could not refresh. Reopen Projects before retrying any links that already opened.');
+      setWarnings((current) => [...current, ...(refreshed.warnings ?? [])]);
     } finally {
       setIsRestoringProject(false);
     }
@@ -360,6 +390,7 @@ export function ProjectsSection() {
     setMessage(null);
     try {
       const response = await archiveLink(link.id);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       removeLinkFromGroups(link.id);
       setMessage(`Archived “${link.title}”.`);
@@ -378,6 +409,7 @@ export function ProjectsSection() {
     setMessage(null);
     try {
       const response = await removeLink(link.id);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       removeLinkFromGroups(link.id);
       setRemoveCandidate(null);
@@ -391,6 +423,7 @@ export function ProjectsSection() {
 
   return (
     <>
+      <OperationWarnings warnings={warnings} />
       <div className="sticky top-[130px] z-20 mb-4 rounded-2xl border border-slate-200 bg-white/95 p-3.5 shadow-sm backdrop-blur">
         <div className="flex items-center gap-2">
           <label className="sr-only" htmlFor="project-selector">Project</label>

@@ -80,7 +80,7 @@ export async function executeRestoreLink(
         opened: true,
         error: {
           code: 'STORAGE_FAILED',
-          message: 'The tab opened, but the link is still parked because storage failed.',
+          message: 'The tab opened, but its saved state could not be confirmed. Check your open tabs and saved list before retrying.',
         },
       };
     }

@@ -1,3 +1,4 @@
+import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
 import { useEffect, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
 import {
@@ -20,6 +21,7 @@ import { SavedLinkCard } from './SavedLinkCard';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 
 export function ReviewSection() {
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [links, setLinks] = useState<SavedLink[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,12 +56,13 @@ export function ReviewSection() {
 
   async function runLinkAction(
     link: SavedLink,
-    action: () => Promise<{ success: true } | { success: false; error: { message: string } }>,
+    action: () => Promise<{ success: true; warnings?: string[] } | { success: false; error: { message: string }; warnings?: string[] }>,
     successMessage: string,
   ) {
     setWorkingId(link.id); setError(null); setMessage(null);
     try {
       const response = await action();
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       finish(link, successMessage);
       return true;
@@ -73,6 +76,7 @@ export function ReviewSection() {
     setWorkingId(link.id); setError(null); setMessage(null);
     try {
       const response = await restoreLink(link.id);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       if (response.restored) {
         finish(link, `Restored “${link.title}”.`);
@@ -116,6 +120,7 @@ export function ReviewSection() {
     setWorkingId(link.id); setError(null); setMessage(null);
     try {
       const response = await moveLink(link.id, moveProjectId);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       setLinks((current) => current.map((candidate) => candidate.id === link.id ? response.link : candidate));
       setMoveCandidate(null);
@@ -131,11 +136,13 @@ export function ReviewSection() {
     setWorkingId(link.id); setError(null);
     try {
       const response = await bookmarkLink(link.id, selectedFolderId);
+      setWarnings(response.warnings ?? []);
       if (!response.success) {
         if (response.error.code === 'DUPLICATE_BOOKMARK' && response.duplicates?.[0]) {
           setDuplicate(response.duplicates[0]);
           return;
         }
+        if (response.bookmarkCreated) setBookmarkCandidate(null);
         throw new Error(response.error.message);
       }
       setBookmarkCandidate(null);
@@ -153,6 +160,7 @@ export function ReviewSection() {
 
   return (
     <>
+      <OperationWarnings warnings={warnings} />
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Decision queue</p>
         <h2 className="mt-1 text-lg font-bold">Review parked links</h2>
