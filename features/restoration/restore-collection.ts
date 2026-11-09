@@ -1,4 +1,5 @@
 import type { SavedLink } from '@/domain/schemas';
+import type { RestoreProgress } from '@/messaging/contracts';
 
 export interface RestoreCollectionDependencies {
   openTab(url: string): Promise<RestoreTabOutcome>;
@@ -27,6 +28,7 @@ export type RestoreCollectionResult =
   | {
       success: false;
       opened: boolean;
+      progress?: RestoreProgress;
       error: {
         code: 'TAB_OPEN_FAILED' | 'STORAGE_FAILED';
         message: string;
@@ -65,10 +67,11 @@ export async function restoreLinkCollection(
       return {
         success: false,
         opened: true,
+        progress: { openedLinkIds, restoredLinkIds, failedLinkIds, discardedLinkIds, fallbackLinkIds },
         error: {
           code: 'STORAGE_FAILED',
           message:
-            'A tab opened, but LinkShelf could not update its stored state. Remaining links stayed parked.',
+            `Opened ${openedLinkIds.length} tabs and confirmed ${restoredLinkIds.length} saved-state updates before storage failed. Unprocessed links remain parked. Check your open tabs and saved list before retrying.`,
         },
       };
     }

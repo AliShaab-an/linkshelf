@@ -1,3 +1,4 @@
+import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
 import { useEffect, useRef, useState } from 'react';
 import type { SavedLink } from '@/domain/schemas';
 import {
@@ -20,6 +21,7 @@ import { SavedLinkCard } from './SavedLinkCard';
 
 export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<LinkSearchResult[]>([]);
   const [bookmarks, setBookmarks] = useState<NativeBookmarkResult[]>([]);
@@ -79,6 +81,7 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
     setWorkingId(link.id); setError(null); setMessage(null);
     try {
       const response = await action();
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       replaceResult(response.link); setMessage(successMessage);
     } catch (caughtError) {
@@ -90,6 +93,7 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
     setWorkingId(link.id); setError(null);
     try {
       const response = await restoreLink(link.id);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       if (response.restored) removeResult(link.id);
       setMessage(response.restored ? `Restored “${link.title}”.` : `Opened a copy of “${link.title}”; it remains parked.`);
@@ -104,6 +108,7 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
     setWorkingId(link.id); setError(null);
     try {
       const response = await removeLink(link.id);
+      setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
       removeResult(link.id); setRemoveCandidate(null);
       setMessage(`Removed “${link.title}” from LinkShelf.`);
@@ -131,12 +136,16 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
     setWorkingId(link.id); setError(null);
     try {
       const response = await bookmarkLink(link.id, selectedFolderId);
+      setWarnings(response.warnings ?? []);
       if (!response.success) {
         if (response.error.code === 'DUPLICATE_BOOKMARK' && response.duplicates?.[0]) {
           setDuplicate(response.duplicates[0]);
           return;
         }
-        if (response.bookmarkCreated) setRefreshVersion((value) => value + 1);
+        if (response.bookmarkCreated) {
+          setBookmarkCandidate(null);
+          setRefreshVersion((value) => value + 1);
+        }
         throw new Error(response.error.message);
       }
       setBookmarkCandidate(null); removeResult(link.id);
@@ -161,6 +170,7 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
 
   return (
     <>
+      <OperationWarnings warnings={warnings} />
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Local search</p>
         <h2 className="mt-1 text-lg font-bold">Search your shelf and bookmarks</h2>

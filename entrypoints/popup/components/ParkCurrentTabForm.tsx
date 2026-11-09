@@ -1,3 +1,4 @@
+import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
 import { useEffect, useState } from 'react';
 import { INBOX_PROJECT_ID } from '@/domain/constants';
 import {
@@ -18,6 +19,7 @@ export function ParkCurrentTabForm({
   tabId,
   isEligible,
 }: ParkCurrentTabFormProps) {
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState(INBOX_PROJECT_ID);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
@@ -56,7 +58,7 @@ export function ParkCurrentTabForm({
   }, []);
 
   async function handlePark() {
-    if (!isEligible || !projectId || status === 'parking') return;
+    if (!isEligible || !projectId || (status === 'parking' || status === 'success')) return;
 
     let reminderAt: string | undefined;
     try {
@@ -75,8 +77,9 @@ export function ParkCurrentTabForm({
         note: note.trim() || undefined,
         reminderAt,
       });
+      setWarnings(response.warnings ?? []);
       if (!response.success) {
-        setStatus('error');
+        setStatus(response.saved ? 'success' : 'error');
         setMessage(response.error.message);
         return;
       }
@@ -97,13 +100,14 @@ export function ParkCurrentTabForm({
     projects.length === 0 ||
     isLoadingProjects ||
     Boolean(projectError) ||
-    status === 'parking';
+    (status === 'parking' || status === 'success');
   const minimumReminder = toLocalDateTimeInputValue(
     new Date(Date.now() + 60_000),
   );
 
   return (
     <>
+      <OperationWarnings warnings={warnings} />
       <label className="text-sm font-semibold text-slate-700" htmlFor="project">Project</label>
       <select id="project" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-100" value={projectId} disabled={isLoadingProjects || status === 'parking'} onChange={(event) => setProjectId(event.target.value)}>
         {isLoadingProjects && <option value={INBOX_PROJECT_ID}>Loading projects...</option>}
@@ -121,7 +125,7 @@ export function ParkCurrentTabForm({
       </div>}
 
       <button type="button" className="mt-4 w-full rounded-xl bg-blue-700 px-3.5 py-3 font-bold text-white shadow-sm shadow-blue-900/10 hover:bg-blue-800 disabled:opacity-50" disabled={disabled} onClick={() => void handlePark()}>
-        {status === 'parking' ? 'Parking tab...' : 'Park and close'}
+        {status === 'parking' ? 'Parking tab...' : status === 'success' ? 'Tab saved' : 'Park and close'}
       </button>
       {message && <p className={`mt-2 text-sm ${status === 'error' ? 'text-red-700' : 'text-emerald-700'}`} role={status === 'error' ? 'alert' : 'status'}>{message}</p>}
     </>

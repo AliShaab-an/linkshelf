@@ -1,3 +1,4 @@
+import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   localReminderToUtc,
@@ -19,6 +20,7 @@ function formatDate(value: string): string {
 }
 
 export function ParkTabsSection() {
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tabs, setTabs] = useState<WindowTabCandidate[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -158,6 +160,7 @@ export function ParkTabsSection() {
         note: note.trim() || undefined,
         reminderAt: reviewReminderAt,
       });
+      setWarnings(response.warnings ?? []);
 
       if (!response.success) {
         setFormError(response.error.message);
@@ -191,6 +194,7 @@ export function ParkTabsSection() {
 
   return (
     <>
+      <OperationWarnings warnings={warnings} />
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
