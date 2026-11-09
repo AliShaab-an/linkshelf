@@ -173,7 +173,7 @@ export function ParkTabsSection() {
       setResultMessage(
         failedCount === 0
           ? `Saved and closed ${savedCount} tab${savedCount === 1 ? '' : 's'} in one parking session.`
-          : `Saved all ${savedCount} tabs, but Chrome could not close ${failedCount}. They remain open and safely stored.`,
+          : `Saved all ${savedCount} tabs; ${failedCount} closures were not confirmed. Changed or unreadable tabs were left untouched.`,
       );
       setSelectedIds([]);
       setNote('');

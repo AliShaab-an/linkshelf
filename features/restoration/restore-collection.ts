@@ -2,7 +2,8 @@ import type { SavedLink } from '@/domain/schemas';
 import type { RestoreProgress } from '@/messaging/contracts';
 
 export interface RestoreCollectionDependencies {
-  openTab(url: string): Promise<RestoreTabOutcome>;
+  openTab(url: string, link?: SavedLink): Promise<RestoreTabOutcome>;
+  getLink?(id: string): Promise<SavedLink | undefined>;
   markLinkRestored(linkId: string): Promise<SavedLink>;
 }
 
@@ -15,7 +16,7 @@ export interface RestoreCollectionOptions {
   markAsRestored: boolean;
 }
 
-export type RestoreCollectionResult =
+export type RestoreCollectionResult = { warnings?: string[] } & (
   | {
       success: true;
       openedLinkIds: string[];
@@ -33,7 +34,8 @@ export type RestoreCollectionResult =
         code: 'TAB_OPEN_FAILED' | 'STORAGE_FAILED';
         message: string;
       };
-    };
+    }
+);
 
 export async function restoreLinkCollection(
   links: SavedLink[],
@@ -47,9 +49,28 @@ export async function restoreLinkCollection(
   const fallbackLinkIds: string[] = [];
 
   for (const link of links) {
+    let current = link;
+    if (dependencies.getLink) {
+      try {
+        const saved = await dependencies.getLink(link.id);
+        if (!saved || saved.status !== 'parked' || saved.sessionId !== link.sessionId || saved.projectId !== link.projectId) {
+          failedLinkIds.push(link.id);
+          continue;
+        }
+        current = saved;
+      } catch {
+        return {
+          success: false, opened: openedLinkIds.length > 0,
+          progress: { openedLinkIds, restoredLinkIds, failedLinkIds, discardedLinkIds, fallbackLinkIds },
+          error: { code: 'STORAGE_FAILED', message: 'LinkShelf could not confirm the remaining saved links. Check completed progress before retrying.' },
+        };
+      }
+    }
     let tabOutcome: RestoreTabOutcome;
     try {
-      tabOutcome = await dependencies.openTab(link.url);
+      tabOutcome = dependencies.getLink
+        ? await dependencies.openTab(current.url, current)
+        : await dependencies.openTab(current.url);
       openedLinkIds.push(link.id);
       if (tabOutcome.discarded) discardedLinkIds.push(link.id);
       if (tabOutcome.fallback) fallbackLinkIds.push(link.id);
@@ -83,7 +104,7 @@ export async function restoreLinkCollection(
       opened: false,
       error: {
         code: 'TAB_OPEN_FAILED',
-        message: 'Chrome could not open any links. Everything stayed parked.',
+        message: 'Chrome did not confirm opening any links. Saved records stayed parked. Check open tabs before retrying.',
       },
     };
   }
@@ -96,5 +117,6 @@ export async function restoreLinkCollection(
     discardedLinkIds,
     fallbackLinkIds,
     complete: failedLinkIds.length === 0,
+    ...(failedLinkIds.length ? { warnings: ['Some browser opens were not confirmed. Check open tabs before retrying those saved links.'] } : {}),
   };
 }
