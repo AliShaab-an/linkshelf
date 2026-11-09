@@ -906,6 +906,24 @@ export class LinkShelfRepository {
     return notifiedLink;
   }
 
+  async markReminderGroupNotified(linkIds: readonly string[], reminderAt: string): Promise<SavedLink[]> {
+    const ids = new Set(linkIds);
+    let notifiedLinks: SavedLink[] = [];
+    await this.updateDatabase((database) => {
+      const timestamp = this.now();
+      return {
+        ...database,
+        links: database.links.map((link) => {
+          if (!ids.has(link.id) || link.status !== 'parked' || link.reminderAt !== reminderAt || link.reminderNotifiedAt) return link;
+          const notified = { ...link, reminderNotifiedAt: timestamp, updatedAt: timestamp };
+          notifiedLinks.push(notified);
+          return notified;
+        }),
+      };
+    });
+    return notifiedLinks;
+  }
+
   async markSessionRemindersNotified(sessionId: string): Promise<SavedLink[]> {
     let notifiedLinks: SavedLink[] = [];
 

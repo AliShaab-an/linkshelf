@@ -28,6 +28,7 @@ export function TodaySection() {
           setError(projectsResponse.error.message);
           return;
         }
+        setWarnings(linksResponse.warnings ?? []);
         setLinks(linksResponse.links);
         setProjects(projectsResponse.projects);
       })

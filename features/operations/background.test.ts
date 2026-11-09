@@ -51,7 +51,7 @@ describe('background operation outcomes', () => {
         create: vi.fn(async () => ({ id: nextTab++ })), discard: vi.fn(async () => ({ discarded: true })),
       },
       alarms: { onAlarm: event(), getAll: vi.fn(async () => []), clear: vi.fn(async () => true), create: vi.fn(async () => undefined) },
-      notifications: { getPermissionLevel: vi.fn(async () => 'granted'), create: vi.fn(async () => 'notification') },
+      notifications: { getAll: vi.fn(async () => ({})), getPermissionLevel: vi.fn(async () => 'granted'), create: vi.fn(async () => 'notification') },
       bookmarks: { getTree: vi.fn(async () => []), create: vi.fn(async (input: unknown) => ({ ...input as object, id: 'bookmark-1' })) },
       commands: { onCommand: { addListener: (callback: typeof command) => { command = callback; } } },
     };
@@ -81,10 +81,13 @@ describe('background operation outcomes', () => {
     expect(result).toMatchObject({ success: true, saved: true, closedTabIds: [1], warnings: [expect.any(String)] });
     expect(stored().links).toHaveLength(1);
     expect(api.tabs.remove).toHaveBeenCalledWith(1);
-    expect(console.warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ message: 'Alarm quota exceeded' }));
+    expect(console.warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      errors: [expect.objectContaining({ errors: [expect.objectContaining({ message: 'Alarm quota exceeded' })] })],
+    }));
   });
 
   it('preserves single-tab saved/closed flags when alarm cleanup fails', async () => {
+    api.alarms.getAll.mockResolvedValue([{ name: 'linkshelf-reminder:stale', scheduledTime: 0 }]);
     api.alarms.clear.mockRejectedValue(new Error('Alarms unavailable'));
     const result = await request({ type: 'PARK_CURRENT_TAB', payload: { tabId: 1, projectId: 'inbox' } });
     expect(result).toMatchObject({ success: true, saved: true, closed: true, warnings: [expect.any(String)] });
@@ -109,6 +112,7 @@ describe('background operation outcomes', () => {
 
   it('preserves saved-but-not-closed single-tab result after secondary failure', async () => {
     api.tabs.remove.mockRejectedValue(new Error('Cannot close'));
+    api.alarms.getAll.mockResolvedValue([{ name: 'linkshelf-reminder:stale', scheduledTime: 0 }]);
     api.alarms.clear.mockRejectedValue(new Error('Cannot update alarms'));
     const result = await request({ type: 'PARK_CURRENT_TAB', payload: { tabId: 1, projectId: 'inbox' } });
     expect(result).toMatchObject({ success: false, saved: true, closed: false, error: { code: 'TAB_CLOSE_FAILED' }, warnings: [expect.any(String)] });
@@ -149,6 +153,7 @@ describe('background operation outcomes', () => {
 
   it('retains successful restore result after alarm cleanup failure', async () => {
     const link = await parkedLink();
+    api.alarms.getAll.mockResolvedValue([{ name: 'linkshelf-reminder:stale', scheduledTime: 0 }]);
     api.alarms.clear.mockRejectedValue(new Error('Alarm cleanup failed'));
     const result = await request({ type: 'RESTORE_LINK', payload: { linkId: link.id } });
     expect(result).toMatchObject({ success: true, opened: true, restored: true, warnings: [expect.any(String)] });
@@ -196,6 +201,7 @@ describe('background operation outcomes', () => {
   });
 
   it('preserves unarchive after notification delivery fails', async () => {
+    api.notifications.create.mockRejectedValue(new Error('Notifications unavailable'));
     const parked = await request({ type: 'PARK_CURRENT_TAB', payload: { tabId: 1, projectId: 'inbox', reminderAt: '2020-01-01T00:00:00.000Z' } });
     await request({ type: 'ARCHIVE_LINK', payload: { linkId: parked.linkId } });
     api.notifications.create.mockRejectedValue(new Error('Notifications unavailable'));

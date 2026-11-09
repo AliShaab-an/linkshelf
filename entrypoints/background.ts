@@ -29,6 +29,7 @@ import {
   isUpdateSettingsMessage,
   type RestoreMode,
 } from '@/messaging/contracts';
+import { createReminderCoordinator } from '@/features/reminders/reminder-coordinator';
 import { executeBookmarkLink } from '@/features/bookmarks/bookmark-link';
 import {
   flattenBookmarkFolders,
@@ -37,12 +38,7 @@ import {
 import { executeParkCurrentTab } from '@/features/parking/park-current-tab';
 import { executeParkSelectedTabs } from '@/features/parking/park-selected-tabs';
 import { classifyWindowTabs } from '@/features/parking/window-tabs';
-import {
-  getReminderLinkId,
-  reconcileReminderAlarms,
-  reminderAlarmName,
-  scheduleLinkReminder,
-} from '@/features/reminders/reminder-service';
+import { REMINDER_ALARM_PREFIX } from '@/features/reminders/reminder-service';
 import { executeRestoreLink } from '@/features/restoration/restore-link';
 import { executeRestoreProject } from '@/features/restoration/restore-project';
 import { executeRestoreSession } from '@/features/restoration/restore-session';
@@ -113,88 +109,32 @@ export default defineBackground(() => {
     });
   }
 
-  async function showReminderNotification(link: SavedLink) {
-    const database = await repository.getDatabase();
-    const sessionReminderLinks = database.links.filter(
-      (candidate) =>
-        candidate.sessionId === link.sessionId &&
-        candidate.status === 'parked' &&
-        candidate.reminderAt !== undefined,
-    );
-
-    if (
-      sessionReminderLinks.length === 0 ||
-      sessionReminderLinks.every((candidate) => candidate.reminderNotifiedAt)
-    ) {
-      return;
-    }
-
-    if (!database.settings.notificationsEnabled) {
-      return;
-    }
-
-    const permissionLevel = await browser.notifications.getPermissionLevel();
-
-    if (permissionLevel !== 'granted') {
-      console.warn(
-        'LinkShelf could not display a reminder because Chrome notifications are disabled.',
-      );
-      return;
-    }
-
-    const project = database.projects.find(
-      (candidate) => candidate.id === link.projectId,
-    );
-    const notificationMessage =
-      link.note ||
-      (sessionReminderLinks.length === 1
-        ? link.title
-        : `${sessionReminderLinks.length} parked tabs are ready to review.`);
-
-    await browser.notifications.create(reminderAlarmName(link.sessionId), {
+  const reminders = createReminderCoordinator({
+    getDatabase: () => repository.getDatabase(),
+    markNotified: (ids, reminderAt) => repository.markReminderGroupNotified(ids, reminderAt),
+    alarms: browser.alarms,
+    getPermission: () => browser.notifications.getPermissionLevel(),
+    getNotifications: () => browser.notifications.getAll(),
+    createNotification: (id, options) => browser.notifications.create(id, {
+      ...options,
       type: 'basic',
       iconUrl: browser.runtime.getURL('/icon/128.png'),
-      title:
-        sessionReminderLinks.length === 1
-          ? 'LinkShelf reminder'
-          : `LinkShelf reminder: ${project?.name ?? 'Parked tabs'}`,
-      message: notificationMessage.slice(0, 250),
-      contextMessage:
-        sessionReminderLinks.length === 1
-          ? link.domain
-          : `${sessionReminderLinks.length} links`,
       priority: 2,
       requireInteraction: true,
-    });
-    await repository.markSessionRemindersNotified(link.sessionId);
-  }
+    }),
+  });
 
   async function initializeExtension() {
     try {
       await repository.initialize();
-      const reminderLinks = await repository.getReminderLinks();
-
-      await reconcileReminderAlarms(reminderLinks, browser.alarms);
-
-      const now = new Date().toISOString();
-      const missedLinks = reminderLinks.filter(
-        (link) =>
-          link.reminderAt! <= now && link.reminderNotifiedAt === undefined,
-      );
-
-      for (const link of missedLinks) {
-        await showReminderNotification(link);
-      }
+      await synchronizeReminderAlarms();
     } catch (error) {
-      console.error('Failed to initialize LinkShelf:', error);
+      console.error('Failed to initialize LinkShelf reminders:', error);
     }
   }
 
-  async function synchronizeReminderAlarms() {
-    await reconcileReminderAlarms(
-      await repository.getReminderLinks(),
-      browser.alarms,
-    );
+  function synchronizeReminderAlarms() {
+    return reminders.reconcile();
   }
 
   async function createCollectionTabOpener(
@@ -304,29 +244,11 @@ export default defineBackground(() => {
   browser.runtime.onStartup.addListener(() => void initializeExtension());
 
   browser.alarms.onAlarm.addListener((alarm) => {
-    const linkId = getReminderLinkId(alarm.name);
-
-    if (!linkId) {
-      return;
-    }
-
-    void repository
-      .getLink(linkId)
-      .then(async (link) => {
-        if (
-          !link ||
-          link.status !== 'parked' ||
-          !link.reminderAt ||
-          link.reminderAt > new Date().toISOString()
-        ) {
-          return;
-        }
-
-        await showReminderNotification(link);
-      })
-      .catch((error) => {
-        console.error('Failed to show a LinkShelf reminder:', error);
-      });
+    if (!alarm.name.startsWith(REMINDER_ALARM_PREFIX)) return;
+    void synchronizeReminderAlarms().catch((error) => console.error('Failed to reconcile LinkShelf reminders:', error));
+  });
+  browser.notifications.onPermissionLevelChanged?.addListener(() => {
+    void synchronizeReminderAlarms().catch((error) => console.error('Failed to reconcile notification permissions:', error));
   });
 
   browser.commands.onCommand.addListener((command, tab) => {
@@ -392,10 +314,7 @@ export default defineBackground(() => {
       });
 
       const completed = await withSecondaryWarning(response, async () => {
-            if (response.saved && response.linkId) {
-          const link = await repository.getLink(response.linkId);
-          if (link) await scheduleLinkReminder(link, browser.alarms);
-        }
+            if (response.saved) await synchronizeReminderAlarms();
         }, 'The tab was saved, but reminders could not be updated. Reload LinkShelf to retry reminders.');
         if (!response.success) {
           console.warn('LinkShelf keyboard parking did not complete:', response.error.message);
@@ -425,7 +344,7 @@ export default defineBackground(() => {
       if (isUpdateSettingsMessage(message)) {
         void repository
           .updateSettings(message.payload)
-          .then((settings) => sendResponse({ success: true, settings }))
+          .then(async (settings) => sendResponse(await withSecondaryWarning({ success: true as const, settings, warnings: [] as string[] }, synchronizeReminderAlarms, 'Settings were saved, but reminders could not be updated. Due reminders remain in Today.')))
           .catch((error) => {
             console.error('Failed to update LinkShelf settings:', error);
             sendResponse({ success: false, error: { message: error instanceof Error ? error.message : 'LinkShelf could not save settings.' } });
@@ -785,7 +704,7 @@ export default defineBackground(() => {
     if (isGetDueReminderLinksMessage(message)) {
       void repository
         .getDueReminderLinks()
-        .then((links) => sendResponse({ success: true, links }))
+        .then(async (links) => sendResponse(await withSecondaryWarning({ success: true as const, links, warnings: [] as string[] }, synchronizeReminderAlarms, 'Due reminders are available, but notification delivery could not complete.')))
         .catch((error) => {
           console.error('Failed to read due reminders:', error);
           sendResponse({
@@ -809,13 +728,7 @@ export default defineBackground(() => {
         }))
         .then(async (response) => {
           sendResponse(await withSecondaryWarning(response, async () => {
-            if (response.success) {
-              await browser.alarms.clear(reminderAlarmName(response.linkId));
-              await reconcileReminderAlarms(
-                await repository.getReminderLinks(),
-                browser.alarms,
-              );
-            }
+            await synchronizeReminderAlarms();
           }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
@@ -846,10 +759,7 @@ export default defineBackground(() => {
       }))
         .then(async (response) => {
           sendResponse(await withSecondaryWarning(response, async () => {
-            await reconcileReminderAlarms(
-              await repository.getReminderLinks(),
-              browser.alarms,
-            );
+            await synchronizeReminderAlarms();
           }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
@@ -882,10 +792,7 @@ export default defineBackground(() => {
       }))
         .then(async (response) => {
           sendResponse(await withSecondaryWarning(response, async () => {
-            await reconcileReminderAlarms(
-              await repository.getReminderLinks(),
-              browser.alarms,
-            );
+            await synchronizeReminderAlarms();
           }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
@@ -916,16 +823,7 @@ export default defineBackground(() => {
       handleLifecycleOperation(
         repository.unarchiveLink(message.payload.linkId),
         sendResponse,
-        async (link) => {
-          await synchronizeReminderAlarms();
-          if (
-            link.reminderAt &&
-            link.reminderAt <= new Date().toISOString() &&
-            !link.reminderNotifiedAt
-          ) {
-            await showReminderNotification(link);
-          }
-        },
+        synchronizeReminderAlarms,
       );
       return true;
     }
@@ -943,6 +841,7 @@ export default defineBackground(() => {
       handleLifecycleOperation(
         repository.moveLinkToProject(message.payload.linkId, message.payload.projectId),
         sendResponse,
+        synchronizeReminderAlarms,
       );
       return true;
     }
@@ -955,13 +854,7 @@ export default defineBackground(() => {
       })
         .then(async (response) => {
           sendResponse(await withSecondaryWarning(response, async () => {
-            if (response.saved && response.linkId) {
-              const link = await repository.getLink(response.linkId);
-
-              if (link) {
-                await scheduleLinkReminder(link, browser.alarms);
-              }
-            }
+            if (response.saved) await synchronizeReminderAlarms();
           }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
@@ -988,13 +881,7 @@ export default defineBackground(() => {
       })
         .then(async (response) => {
           sendResponse(await withSecondaryWarning(response, async () => {
-            if (response.success && response.linkIds.length > 0) {
-              const reminderLink = await repository.getLink(response.linkIds[0]);
-
-              if (reminderLink) {
-                await scheduleLinkReminder(reminderLink, browser.alarms);
-              }
-            }
+            if (response.success) await synchronizeReminderAlarms();
           }, 'Reminders could not be updated. Check the action result and reload LinkShelf to retry reminders.'));
         })
         .catch((error) => {
