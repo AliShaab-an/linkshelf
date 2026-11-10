@@ -24,12 +24,16 @@ export function stringifyRecoveryExport(value: RawRecoveryExport): string {
   return serialized;
 }
 
-/** Compare actual storage readback, without JSON copies or value-bearing diagnostics. */
+/** Compare Chrome's JSON-compatible readback without allocating JSON copies.
+ * Chrome omits undefined object properties; absent and null remain distinct.
+ */
 export function storedValuesEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
   if (Array.isArray(left) !== Array.isArray(right)) return false;
-  const a = Object.keys(left), b = Object.keys(right);
+  if (Array.isArray(left) && Array.isArray(right) && left.length !== right.length) return false;
+  const keys = (value: object) => Object.keys(value).filter(key => Array.isArray(value) || (value as Record<string, unknown>)[key] !== undefined);
+  const a = keys(left), b = keys(right);
   if (a.length !== b.length) return false;
   return a.every((key) => Object.hasOwn(right, key) && storedValuesEqual((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
 }
