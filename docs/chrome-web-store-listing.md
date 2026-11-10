@@ -32,7 +32,7 @@ Main features:
 - Review old links and choose to restore, move, bookmark, archive, or remove them.
 - Export, validate, merge, and restore local JSON backups.
 
-LinkShelf is local-first. It has no account, advertising, analytics, or remote server. It does not inject scripts into webpages. Your LinkShelf data stays in Chrome storage on your device unless you explicitly export a backup file.
+LinkShelf is local-first. It has no account, advertising, analytics, or developer-operated backend. It does not inject scripts into webpages. The LinkShelf database is stored in Chrome on your device; you can export it to a backup file. Saved-link favicons can load from their original image hosts, as explained in the privacy policy.
 
 ## Single purpose declaration
 
@@ -51,9 +51,9 @@ LinkShelf's single purpose is to help users locally park, organize, revisit, sea
 
 - Handles web browsing activity: **Yes** — tab and bookmark titles/URLs selected or searched by the user, solely for visible LinkShelf features.
 - Handles user-generated content: **Yes** — project names, notes, reminders, and settings stored locally.
-- Data sold or transferred: **No**.
+- Data sold: **No**. Review third-party request disclosures for remote favicon image hosts before completing the dashboard.
 - Data used for advertising, creditworthiness, or unrelated purposes: **No**.
-- Data transmitted off device: **No**.
+- Data transmitted off device: **Requires review before submission** — no database upload or telemetry, but remote favicon requests transmit the image URL and ordinary network metadata to its host. Do not answer with an unconditional “No”.
 - Remote code: **No**.
 
 Keep these answers synchronized with the hosted privacy policy and actual extension behavior.

@@ -49,6 +49,76 @@ const invalidCases: Array<[string, (database: LinkShelfDatabase) => void, string
 ];
 
 describe('shared integrity validation and safe initialization', () => {
+  // Fixed 2,048-element fixtures exercise invalid-array handling without probing
+  // resource exhaustion or making timing/heap assumptions about the machine.
+  it.each([1, 2])('rejects a bounded malformed schema-%i backup array without changing a healthy library', async (version) => {
+    const { repository, storage } = setup();
+    await repository.initialize();
+    const before = structuredClone(storage.value);
+    storage.set.mockClear();
+    const source = version === 1 ? legacy(fixture()) : fixture();
+    const malformed = {
+      ...backup(), schemaVersion: version,
+      database: { ...source, links: Array.from({ length: 2048 }, () => null) },
+    };
+    expect(() => parseSupportedLinkShelfBackup(malformed)).toThrow();
+    await expect(repository.previewImportBackup(malformed, 'replace')).rejects.toBeInstanceOf(StorageValidationError);
+    await expect(repository.importBackup(malformed, 'replace', 'unused-invalid-preview')).rejects.toBeInstanceOf(StorageValidationError);
+    expect(storage.value).toEqual(before);
+    expect(storage.set).not.toHaveBeenCalled();
+    expect((await repository.getStorageStatus()).state).toBe('healthy');
+    const valid = { ...backup(), schemaVersion: version, database: source };
+    const preview = await repository.previewImportBackup(valid, 'replace');
+    await repository.importBackup(valid, 'replace', preview.revisionToken);
+    expect(await repository.getDatabase()).toEqual(fixture());
+  });
+
+  it.each([1, 2])('preserves a bounded malformed schema-%i stored array and recovers only from a confirmed trusted backup', async (version) => {
+    const source = version === 1 ? legacy(fixture()) : fixture();
+    const malformed = { ...source, links: Array.from({ length: 2048 }, () => null) };
+    const { repository, storage } = setup(malformed);
+    await expect(repository.initialize()).rejects.toBeInstanceOf(StorageValidationError);
+    const status = await repository.getStorageStatus();
+    expect(status.state).toBe('recovery');
+    expect(status.diagnostics.length).toBeLessThanOrEqual(20);
+    expect(JSON.stringify(status)).not.toMatch(/private\.example|Private note|Private title/);
+    expect(storage.value).toEqual(malformed);
+    expect(storage.set).not.toHaveBeenCalled();
+    const raw = await repository.exportRecoveryData();
+    expect(raw.rawValue).toEqual(malformed);
+    const trusted = { ...backup(), schemaVersion: version, database: source };
+    const preview = await repository.previewRecoveryBackup(trusted, raw.rawRevisionToken);
+    await repository.restoreRecoveryBackup(trusted, raw.rawRevisionToken, preview.revisionToken, true);
+    expect(await repository.getDatabase()).toEqual(fixture());
+    expect((await repository.getStorageStatus()).state).toBe('healthy');
+  });
+
+  it('verifies Chrome JSON readback when optional project and tab fields are omitted', async () => {
+    const storage = new MemoryStorage(createEmptyDatabase(NOW));
+    storage.set.mockImplementation(async (_key, value) => { storage.value = JSON.parse(JSON.stringify(value)); });
+    const repository = new LinkShelfRepository(storage, () => NOW, (() => { let id = 0; return () => `json-${++id}`; })());
+    const project = await repository.createProject({ name: 'Chrome serialization' });
+    const input = { projectId: project.id, sourceWindowId: 1, tabs: [{ title: 'Synthetic', url: 'https://example.com/json', pinnedBeforeParking: false }] };
+    await repository.parkTabs(input);
+    // A second write also compares the cached snapshot with Chrome's omitted keys.
+    await repository.renameProject(project.id, 'Still healthy');
+    expect(await repository.getStorageStatus()).toEqual({ state: 'healthy', diagnostics: [] });
+    const exported = await repository.exportBackup();
+    expect(JSON.parse(JSON.stringify(exported.database))).toEqual(storage.value);
+    expect((await repository.getDatabase()).links).toHaveLength(1);
+    expect(Object.hasOwn((storage.value as LinkShelfDatabase).projects[1], 'description')).toBe(false);
+  });
+
+  it('normalizes only undefined object properties when comparing storage readback', () => {
+    expect(storedValuesEqual({ optional: undefined, nested: { x: 1, optional: undefined } }, { nested: { x: 1 } })).toBe(true);
+    expect(storedValuesEqual({ nested: { x: 1 } }, { optional: undefined, nested: { optional: undefined, x: 1 } })).toBe(true);
+    expect(storedValuesEqual({ optional: null }, {})).toBe(false);
+    expect(storedValuesEqual([undefined], [])).toBe(false);
+    expect(storedValuesEqual([null], [undefined])).toBe(false);
+    expect(storedValuesEqual(new Array(1), [])).toBe(false);
+    expect(storedValuesEqual({ nested: { x: 2 } }, { nested: { x: 1 } })).toBe(false);
+  });
+
   it.each(invalidCases)('rejects %s consistently without persisting or deleting anything', async (_name, change, code) => {
     const value = fixture(); change(value);
     expect(getIntegrityDiagnostics(value).some((item) => item.code === code)).toBe(true);

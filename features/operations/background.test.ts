@@ -1,6 +1,8 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { createEmptyDatabase } from '@/domain/defaults';
 import type { LinkShelfBackup, SavedLink } from '@/domain/schemas';
+import { LinkShelfDatabaseSchema } from '@/domain/schemas';
+import { LinkShelfRepository } from '@/storage/repository';
 
 describe('background operation outcomes', () => {
   let listener: (message: unknown, sender: unknown, reply: (result: any) => void) => boolean;
@@ -236,5 +238,65 @@ describe('background operation outcomes', () => {
     expect(stored().links).toHaveLength(1);
     expect(api.tabs.remove).toHaveBeenCalledWith(1);
     expect(console.error).not.toHaveBeenCalledWith('Unexpected keyboard parking failure:', expect.anything());
+  });
+
+  it('round trips a complete park/move/archive/restore workflow into an independent library', async () => {
+    const project = (await request({ type: 'CREATE_PROJECT', payload: { name: 'Research Ω' } })).project;
+    const destination = (await request({ type: 'CREATE_PROJECT', payload: { name: 'Later' } })).project;
+    const result = await request({ type: 'PARK_SELECTED_TABS', payload: {
+      tabIds: [1, 2, 3], projectId: project.id, note: 'Shared lifecycle note Ω', reminderAt: '2099-01-01T10:00:00.000Z',
+    } });
+    expect(result).toMatchObject({ saved: true, closedTabIds: [1, 2, 3] });
+    const [moved, archived, restored] = result.linkIds;
+    expect((await request({ type: 'MOVE_LINK', payload: { linkId: moved, projectId: destination.id } })).success).toBe(true);
+    expect((await request({ type: 'ARCHIVE_LINK', payload: { linkId: archived } })).success).toBe(true);
+    expect((await request({ type: 'RESTORE_SESSION', payload: { sessionId: result.sessionId } })).openedLinkIds).toEqual([restored]);
+    const search = await request({ type: 'SEARCH_LINKS', payload: { query: 'lifecycle Ω' } });
+    expect(search.results.map((item: any) => item.link.id).sort()).toEqual([moved, archived].sort());
+    expect(LinkShelfDatabaseSchema.safeParse(stored()).success).toBe(true);
+    const { backup } = await request({ type: 'EXPORT_DATA' });
+    let separateValue: unknown;
+    const separate = new LinkShelfRepository({
+      get: async () => structuredClone(separateValue),
+      set: async (_key, value) => { separateValue = structuredClone(value); },
+    });
+    await separate.initialize();
+    const preview = await separate.previewImportBackup(backup, 'replace');
+    await separate.importBackup(backup, 'replace', preview.revisionToken);
+    expect(await separate.getDatabase()).toEqual(backup.database);
+    expect((await separate.getDatabase()).links.map((link) => link.status)).toEqual(['parked', 'archived', 'restored']);
+    expect(api.tabs.create).toHaveBeenCalledTimes(1);
+    expect(api.bookmarks.create).not.toHaveBeenCalled();
+  });
+
+  it('deletes a default project after lifecycle changes without orphaning history or resetting preferences', async () => {
+    const { project } = await request({ type: 'CREATE_PROJECT', payload: { name: 'Disposable' } });
+    const settings = { ...stored().settings, defaultProjectId: project.id, displayDensity: 'compact', defaultRestoreMode: 'unloaded' };
+    expect((await request({ type: 'UPDATE_SETTINGS', payload: settings })).success).toBe(true);
+    const parked = await request({ type: 'PARK_SELECTED_TABS', payload: { tabIds: [1, 2], projectId: project.id, note: 'Preserve history' } });
+    await request({ type: 'ARCHIVE_LINK', payload: { linkId: parked.linkIds[0] } });
+    await request({ type: 'RESTORE_LINK', payload: { linkId: parked.linkIds[1] } });
+    expect((await request({ type: 'DELETE_PROJECT', payload: { projectId: project.id } })).success).toBe(true);
+    expect(stored().settings).toMatchObject({ defaultProjectId: 'inbox', displayDensity: 'compact', defaultRestoreMode: 'unloaded' });
+    expect(stored().links.map((link: SavedLink) => link.status)).toEqual(['archived', 'restored']);
+    expect(stored().links.every((link: SavedLink) => link.projectId === 'inbox' && link.note === 'Preserve history')).toBe(true);
+    expect(stored().sessions.every((session: any) => session.projectId === 'inbox')).toBe(true);
+    expect(LinkShelfDatabaseSchema.safeParse(stored()).success).toBe(true);
+  });
+
+  it('exports preserved information after bookmark failure, then safely merges it back without repeating side effects', async () => {
+    const link = await parkedLink();
+    api.bookmarks.create.mockRejectedValueOnce(new Error('Native bookmark failure'));
+    const failed = await request({ type: 'BOOKMARK_LINK', payload: { linkId: link.id, parentId: 'folder' } });
+    expect(failed).toMatchObject({ success: false, bookmarkCreated: false });
+    const { backup } = await request({ type: 'EXPORT_DATA' });
+    expect(backup.database.links[0]).toEqual(link);
+    const { preview } = await request({ type: 'PREVIEW_IMPORT_DATA', payload: { backup, mode: 'merge' } });
+    expect((await request({ type: 'IMPORT_DATA', payload: { backup, mode: 'merge', revisionToken: preview.revisionToken } })).success).toBe(true);
+    expect(stored().links).toEqual([link]);
+    expect(api.bookmarks.create).toHaveBeenCalledTimes(1);
+    expect(api.tabs.create).not.toHaveBeenCalled();
+    expect((await request({ type: 'BOOKMARK_LINK', payload: { linkId: link.id, parentId: 'folder' } })).success).toBe(true);
+    expect(stored().links[0]).toMatchObject({ id: link.id, status: 'removed', bookmarkId: 'bookmark-1' });
   });
 });

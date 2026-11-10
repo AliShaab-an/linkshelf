@@ -24,7 +24,7 @@
     </header>
 
     <main class="page content-page">
-      <p class="eyebrow">Effective August 11, 2026</p>
+      <p class="eyebrow">Effective November 10, 2026</p>
       <h1>Privacy Policy</h1>
       <p class="lead">
         LinkShelf is a local-first Chrome extension for parking, organizing, revisiting, searching,
@@ -44,10 +44,15 @@
 
         <h2>Local storage and transmission</h2>
         <p>
-          LinkShelf stores its own data in <code>chrome.storage.local</code> on the user's device.
-          LinkShelf does not operate a server and does not transmit browsing activity, bookmarks,
-          notes, reminders, settings, analytics, or other user data to the developer or third parties.
+          LinkShelf stores its own database in <code>chrome.storage.local</code> on the user's device.
+          LinkShelf has no developer-operated backend, telemetry, analytics, or remote logging,
+          and does not upload the database to the developer.
         </p>
+        <p>Saved-link cards can load the favicon URL captured from a parked tab or included in an imported
+          backup. When that URL points to a remote image host, the browser requests the image from that
+          host, which receives the requested URL, IP address, and ordinary network metadata. Opening a
+          saved link also contacts its website at the user's request. These requests are separate from
+          local database storage.</p>
         <p>
           LinkShelf does not sell data, use data for advertising, allow humans to read user data, or
           use user data for creditworthiness or lending purposes. Its use of information obtained from
@@ -60,7 +65,7 @@
           <li><strong>Bookmarks:</strong> search bookmark titles and URLs and create a bookmark when explicitly requested.</li>
           <li><strong>Storage:</strong> keep LinkShelf projects, links, sessions, reminders, settings, and lifecycle history locally.</li>
           <li><strong>Alarms and notifications:</strong> schedule and display reminders created by the user.</li>
-          <li><strong>Side panel and active tab:</strong> provide the extension interface and current-tab parking workflow.</li>
+          <li><strong>Side panel:</strong> provide the extension interface. Current-tab parking uses the existing Tabs permission; LinkShelf does not request <code>activeTab</code>.</li>
         </ul>
         <p>LinkShelf does not request broad website host access and does not inject scripts into webpages.</p>
 
@@ -81,8 +86,9 @@
         <h2>Security</h2>
         <p>
           LinkShelf validates stored and imported data against a strict schema. Tabs close only after
-          successful persistence. Import uses validation and rollback protection. Because LinkShelf
-          sends no user data over a network, there is no extension-operated data transmission to encrypt.
+          successful persistence. Import uses validation and rollback protection. The local database
+          is not encrypted by LinkShelf. Exported backups and raw recovery files can contain sensitive
+          browsing information and should be stored securely.
         </p>
 
         <h2>Changes</h2>
