@@ -13,6 +13,7 @@ import {
 import { TodaySection } from './components/TodaySection';
 import { Icon } from './components/ui/Icon';
 import { QuickSettings } from './components/QuickSettings';
+import { StorageRecoveryGate } from './components/StorageRecovery';
 import { loadUiState, readWindowIntent, updateUiState } from './ui-state';
 
 function App() {
@@ -95,6 +96,7 @@ function App() {
       />
 
       <section className="mx-auto max-w-2xl p-4 pb-10">
+        <StorageRecoveryGate>
         {activeSection === 'park' && <ParkTabsSection />}
         {activeSection === 'today' && <TodaySection />}
         {activeSection === 'projects' && <ProjectsSection />}
@@ -102,6 +104,7 @@ function App() {
         {activeSection === 'search' && <SearchSection focusRequestId={searchFocusRequestId} />}
         {activeSection === 'review' && <ReviewSection />}
         {activeSection === 'settings' && <SettingsSection />}
+        </StorageRecoveryGate>
       </section>
     </main>
   );

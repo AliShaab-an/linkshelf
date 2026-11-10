@@ -1,4 +1,6 @@
 import type { OperationWarnings } from '@/features/operations/secondary-result';
+import type { RawRecoveryExport, StorageStatus } from '@/domain/recovery';
+import type { RecoveryBackupPreview } from '@/storage/repository';
 import type {
   LinkShelfBackup,
   ParkingSession,
@@ -13,6 +15,35 @@ import type {
 } from '@/storage/repository';
 
 export interface GetSettingsMessage { type: 'GET_SETTINGS' }
+
+export type StorageRecoveryMessage =
+  | { type: 'GET_STORAGE_STATUS' | 'RECHECK_STORAGE' | 'EXPORT_RECOVERY_DATA' }
+  | { type: 'PREVIEW_RECOVERY_BACKUP'; payload: { backup: unknown; rawRevisionToken: string } }
+  | { type: 'RESTORE_RECOVERY_BACKUP'; payload: { backup: unknown; rawRevisionToken: string; revisionToken: string; confirmed: boolean } };
+type RecoveryFailure = { success: false; error: { message: string } };
+export type StorageStatusResponse = { success: true; status: StorageStatus } | RecoveryFailure;
+export type ExportRecoveryResponse = { success: true; recovery: RawRecoveryExport } | RecoveryFailure;
+export type PreviewRecoveryResponse = { success: true; preview: RecoveryBackupPreview } | RecoveryFailure;
+export type RestoreRecoveryResponse = OperationWarnings & ({ success: true; result: ImportBackupResult } | RecoveryFailure);
+
+export function isStorageRecoveryMessage(value: unknown): value is StorageRecoveryMessage {
+  if (!value || typeof value !== 'object' || !('type' in value)) return false;
+  if (value.type === 'GET_STORAGE_STATUS' || value.type === 'RECHECK_STORAGE' || value.type === 'EXPORT_RECOVERY_DATA') return true;
+  if (value.type !== 'PREVIEW_RECOVERY_BACKUP' && value.type !== 'RESTORE_RECOVERY_BACKUP') return false;
+  const payload = (value as { payload?: Record<string, unknown> }).payload;
+  if (!payload || typeof payload !== 'object' || !('backup' in payload) || typeof payload.rawRevisionToken !== 'string') return false;
+  return value.type === 'PREVIEW_RECOVERY_BACKUP' || (typeof payload.revisionToken === 'string' && typeof payload.confirmed === 'boolean');
+}
+
+async function sendRecoveryRequest<T>(message: StorageRecoveryMessage): Promise<T> {
+  const response: unknown = await browser.runtime.sendMessage(message);
+  assertResponse(response);
+  return response as T;
+}
+export const getStorageStatus = (recheck = false) => sendRecoveryRequest<StorageStatusResponse>({ type: recheck ? 'RECHECK_STORAGE' : 'GET_STORAGE_STATUS' });
+export const exportRecoveryData = () => sendRecoveryRequest<ExportRecoveryResponse>({ type: 'EXPORT_RECOVERY_DATA' });
+export const previewRecoveryBackup = (backup: unknown, rawRevisionToken: string) => sendRecoveryRequest<PreviewRecoveryResponse>({ type: 'PREVIEW_RECOVERY_BACKUP', payload: { backup, rawRevisionToken } });
+export const restoreRecoveryBackup = (backup: unknown, rawRevisionToken: string, revisionToken: string, confirmed: boolean) => sendRecoveryRequest<RestoreRecoveryResponse>({ type: 'RESTORE_RECOVERY_BACKUP', payload: { backup, rawRevisionToken, revisionToken, confirmed } });
 export type GetSettingsResponse =
   | { success: true; settings: Settings; projects: Project[] }
   | { success: false; error: { message: string } };
