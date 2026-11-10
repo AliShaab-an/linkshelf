@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { getIntegrityDiagnostics } from './integrity';
 
 export const CURRENT_SCHEMA_VERSION = 2 as const;
 
@@ -105,11 +106,17 @@ export const SettingsSchema = z.strictObject({
 
 export type Settings = z.infer<typeof SettingsSchema>;
 
-export const LinkShelfDatabaseSchema = z.strictObject({
+export const LinkShelfDatabaseStructureSchema = z.strictObject({
   projects: z.array(ProjectSchema),
   sessions: z.array(ParkingSessionSchema),
   links: z.array(SavedLinkSchema),
   settings: SettingsSchema,
+});
+
+export const LinkShelfDatabaseSchema = LinkShelfDatabaseStructureSchema.superRefine((database, context) => {
+  for (const issue of getIntegrityDiagnostics(database)) {
+    context.addIssue({ code: 'custom', path: issue.path, message: issue.message });
+  }
 });
 
 const LinkShelfDatabaseV1Schema = z.strictObject({
@@ -121,12 +128,12 @@ const LinkShelfDatabaseV1Schema = z.strictObject({
 
 export type LinkShelfDatabase = z.infer<typeof LinkShelfDatabaseSchema>;
 
-export function migrateLinkShelfDatabase(value: unknown): LinkShelfDatabase {
-  const current = LinkShelfDatabaseSchema.safeParse(value);
-  if (current.success) return current.data;
-
+export function migrateLinkShelfDatabaseStructure(value: unknown): LinkShelfDatabase {
+  const version = value && typeof value === 'object' && 'settings' in value && value.settings && typeof value.settings === 'object' && 'schemaVersion' in value.settings
+    ? value.settings.schemaVersion : undefined;
+  if (version !== 1) return LinkShelfDatabaseStructureSchema.parse(value);
   const previous = LinkShelfDatabaseV1Schema.parse(value);
-  return LinkShelfDatabaseSchema.parse({
+  return {
     ...previous,
     settings: {
       ...previous.settings,
@@ -134,7 +141,11 @@ export function migrateLinkShelfDatabase(value: unknown): LinkShelfDatabase {
       displayDensity: 'comfortable',
       defaultRestoreMode: 'normal',
     },
-  });
+  };
+}
+
+export function migrateLinkShelfDatabase(value: unknown): LinkShelfDatabase {
+  return LinkShelfDatabaseSchema.parse(migrateLinkShelfDatabaseStructure(value));
 }
 
 export const LinkShelfBackupSchema = z
@@ -143,48 +154,6 @@ export const LinkShelfBackupSchema = z
     schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
     exportedAt: IsoUtcDateTimeSchema,
     database: LinkShelfDatabaseSchema,
-  })
-  .superRefine((backup, context) => {
-    const projectIds = new Set(backup.database.projects.map((project) => project.id));
-    const sessionIds = new Set(backup.database.sessions.map((session) => session.id));
-    const linkIds = new Set(backup.database.links.map((link) => link.id));
-    const sessionsById = new Map(
-      backup.database.sessions.map((session) => [session.id, session]),
-    );
-    const inboxCount = backup.database.projects.filter((project) => project.isInbox).length;
-
-    if (projectIds.size !== backup.database.projects.length) {
-      context.addIssue({ code: 'custom', path: ['database', 'projects'], message: 'Project IDs must be unique.' });
-    }
-    if (sessionIds.size !== backup.database.sessions.length) {
-      context.addIssue({ code: 'custom', path: ['database', 'sessions'], message: 'Session IDs must be unique.' });
-    }
-    if (linkIds.size !== backup.database.links.length) {
-      context.addIssue({ code: 'custom', path: ['database', 'links'], message: 'Link IDs must be unique.' });
-    }
-    if (inboxCount !== 1) {
-      context.addIssue({ code: 'custom', path: ['database', 'projects'], message: 'A backup must contain exactly one Inbox project.' });
-    }
-    if (!projectIds.has(backup.database.settings.defaultProjectId)) {
-      context.addIssue({ code: 'custom', path: ['database', 'settings', 'defaultProjectId'], message: 'The default project is missing.' });
-    }
-    backup.database.sessions.forEach((session, index) => {
-      if (!projectIds.has(session.projectId)) {
-        context.addIssue({ code: 'custom', path: ['database', 'sessions', index, 'projectId'], message: 'The session project is missing.' });
-      }
-    });
-    backup.database.links.forEach((link, index) => {
-      if (!projectIds.has(link.projectId)) {
-        context.addIssue({ code: 'custom', path: ['database', 'links', index, 'projectId'], message: 'The link project is missing.' });
-      }
-      if (!sessionIds.has(link.sessionId)) {
-        context.addIssue({ code: 'custom', path: ['database', 'links', index, 'sessionId'], message: 'The link session is missing.' });
-      }
-      const session = sessionsById.get(link.sessionId);
-      if (session && session.projectId !== link.projectId) {
-        context.addIssue({ code: 'custom', path: ['database', 'links', index, 'projectId'], message: 'The link and its session must belong to the same project.' });
-      }
-    });
   });
 
 export type LinkShelfBackup = z.infer<typeof LinkShelfBackupSchema>;
@@ -204,6 +173,6 @@ export function parseSupportedLinkShelfBackup(value: unknown): LinkShelfBackup {
   return LinkShelfBackupSchema.parse({
     ...previous,
     schemaVersion: CURRENT_SCHEMA_VERSION,
-    database: migrateLinkShelfDatabase(previous.database),
+    database: migrateLinkShelfDatabaseStructure(previous.database),
   });
 }

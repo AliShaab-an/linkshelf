@@ -27,6 +27,7 @@ import {
   isSearchLinksMessage,
   isUnarchiveLinkMessage,
   isUpdateSettingsMessage,
+  isStorageRecoveryMessage,
   type ParkCurrentTabMessage,
   type ParkSelectedTabsMessage,
 } from '@/messaging/contracts';
@@ -61,10 +62,16 @@ import {
   LinkShelfRepository,
   ProjectNotFoundError,
   ProtectedInboxError,
+  DATABASE_STORAGE_KEY,
+  StorageValidationError,
+  StorageIntegrityError,
 } from '@/storage/repository';
 
 export default defineBackground(() => {
   const repository = new LinkShelfRepository(new ChromeStorageAdapter());
+  browser.storage.onChanged?.addListener((changes, area) => {
+    if (area === 'local' && Object.hasOwn(changes, DATABASE_STORAGE_KEY)) repository.invalidateCache();
+  });
   const operations = new OperationCoordinator();
   const restoration = createRestoreCoordinator(repository, operations, browser.tabs);
   const bookmarking = createBookmarkCoordinator(operations, {
@@ -325,6 +332,24 @@ export default defineBackground(() => {
     });
 
     browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (isStorageRecoveryMessage(message)) {
+        void (async () => {
+          switch (message.type) {
+            case 'GET_STORAGE_STATUS': return { success: true, status: await repository.getStorageStatus() };
+            case 'RECHECK_STORAGE': return { success: true, status: await repository.getStorageStatus(true) };
+            case 'EXPORT_RECOVERY_DATA': return { success: true, recovery: await repository.exportRecoveryData() };
+            case 'PREVIEW_RECOVERY_BACKUP': return { success: true, preview: await repository.previewRecoveryBackup(message.payload.backup, message.payload.rawRevisionToken) };
+            case 'RESTORE_RECOVERY_BACKUP': {
+              const result = await repository.restoreRecoveryBackup(message.payload.backup, message.payload.rawRevisionToken, message.payload.revisionToken, message.payload.confirmed);
+              return withSecondaryWarning({ success: true, result, warnings: [] as string[] }, synchronizeReminderAlarms, 'Your backup was restored, but reminders could not be updated. Check Today to retry reminders.');
+            }
+          }
+        })().then(sendResponse).catch((error) => sendResponse({
+          success: false,
+          error: { message: error instanceof StorageValidationError || error instanceof StorageIntegrityError ? error.message : 'Local recovery could not complete. Check stored data again before trying another action.' },
+        }));
+        return true;
+      }
       if (isGetSettingsMessage(message)) {
         void Promise.all([repository.getSettings(), repository.getProjects()])
           .then(([settings, projects]) =>

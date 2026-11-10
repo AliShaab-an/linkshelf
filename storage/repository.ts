@@ -3,7 +3,7 @@ import { stringifyBackup } from '@/domain/backup';
 import {
   LinkShelfDatabaseSchema,
   LinkShelfBackupSchema,
-  migrateLinkShelfDatabase,
+  migrateLinkShelfDatabaseStructure,
   parseSupportedLinkShelfBackup,
   type LinkShelfBackup,
   type LinkShelfDatabase,
@@ -14,6 +14,8 @@ import {
 } from '@/domain/schemas';
 import { getDomain, normalizeUrl } from '@/domain/url';
 import type { StorageAdapter } from './storage-adapter';
+import { getIntegrityDiagnostics, structuralDiagnostics, type IntegrityDiagnostic } from '@/domain/integrity';
+import { storedValuesEqual, stringifyRecoveryExport, type RawRecoveryExport, type StorageStatus } from '@/domain/recovery';
 
 export const DATABASE_STORAGE_KEY = 'linkshelfDatabase';
 
@@ -164,6 +166,11 @@ export interface ImportBackupResult {
   recordsSkipped: number;
 }
 
+export interface RecoveryBackupPreview {
+  revisionToken: string;
+  source: BackupCounts;
+}
+
 interface ImportPlan {
   candidate: LinkShelfDatabase;
   result: ImportBackupResult;
@@ -184,6 +191,8 @@ export type SettingsUpdate = Pick<
 export class LinkShelfRepository {
   private operationQueue: Promise<void> = Promise.resolve();
   private databaseCache?: LinkShelfDatabase;
+  private storedSnapshot?: unknown;
+  private recoveryDiagnostics?: IntegrityDiagnostic[];
 
   constructor(
     private readonly storage: StorageAdapter,
@@ -197,6 +206,61 @@ export class LinkShelfRepository {
 
   async getDatabase(): Promise<LinkShelfDatabase> {
     return this.initialize();
+  }
+
+  invalidateCache(): void {
+    this.databaseCache = undefined;
+    this.storedSnapshot = undefined;
+  }
+
+  async getStorageStatus(recheck = false): Promise<StorageStatus> {
+    return this.runExclusive(async () => {
+      if (recheck) { this.recoveryDiagnostics = undefined; this.invalidateCache(); }
+      try {
+        await this.initializeUnsafe();
+        return { state: 'healthy', diagnostics: [] };
+      } catch {
+        if (!this.recoveryDiagnostics) this.enterRecovery([this.diagnostic('STORAGE_UNAVAILABLE', 'Stored data could not be checked. No reset was attempted.')]);
+        return { state: 'recovery', diagnostics: structuredClone(this.recoveryDiagnostics!) };
+      }
+    });
+  }
+
+  async exportRecoveryData(): Promise<RawRecoveryExport> {
+    return this.runExclusive(async () => {
+      const raw = await this.readStored();
+      const result: RawRecoveryExport = {
+        format: 'linkshelf-raw-recovery', exportedAt: this.now(), sourceKey: DATABASE_STORAGE_KEY,
+        valuePresent: raw !== undefined, rawValue: raw ?? null,
+        diagnostics: structuredClone(this.recoveryDiagnostics ?? []),
+        rawRevisionToken: '0'.repeat(64),
+      };
+      stringifyRecoveryExport(result);
+      result.rawRevisionToken = await this.rawRevision(raw);
+      return result;
+    });
+  }
+
+  async previewRecoveryBackup(backup: unknown, rawRevisionToken: string): Promise<RecoveryBackupPreview> {
+    return this.runExclusive(async () => {
+      const parsed = this.parseBackup(backup);
+      const raw = await this.readStored();
+      await this.requireRecoveryRevision(raw, rawRevisionToken);
+      return { revisionToken: await this.createImportRevision(raw, parsed, 'replace'), source: this.countDatabase(parsed.database) };
+    });
+  }
+
+  async restoreRecoveryBackup(backup: unknown, rawRevisionToken: string, revisionToken: string, confirmed: boolean): Promise<ImportBackupResult> {
+    return this.runExclusive(async () => {
+      if (!confirmed) throw new StorageValidationError('Save the raw recovery file and confirm replacement before restoring a backup.');
+      const parsed = this.parseBackup(backup);
+      const raw = await this.readStored();
+      await this.requireRecoveryRevision(raw, rawRevisionToken);
+      if (revisionToken !== await this.createImportRevision(raw, parsed, 'replace')) throw new StorageValidationError('The recovery preview changed. Review the backup again.');
+      await this.writeValidated(parsed.database, raw, true);
+      this.recoveryDiagnostics = undefined;
+      return { mode: 'replace', projectsAdded: parsed.database.projects.length, sessionsAdded: parsed.database.sessions.length, linksAdded: parsed.database.links.length, recordsSkipped: 0 };
+    });
   }
 
   async getSettings(): Promise<Settings> {
@@ -241,6 +305,7 @@ export class LinkShelfRepository {
       const parsed = this.parseBackup(backup);
       const snapshot = structuredClone(await this.initializeUnsafe());
       const plan = this.createImportPlan(snapshot, parsed.database, mode);
+      if (!plan.conflicts && !LinkShelfDatabaseSchema.safeParse(plan.candidate).success) throw new StorageValidationError('The proposed import has invalid relationships. Nothing was imported.');
 
       return {
         mode,
@@ -264,7 +329,9 @@ export class LinkShelfRepository {
   ): Promise<ImportBackupResult> {
     return this.runExclusive(async () => {
       const parsed = this.parseBackup(backup);
-      const snapshot = structuredClone(await this.initializeUnsafe());
+      const state = await this.initializeStateUnsafe();
+      const snapshot = structuredClone(state.database);
+      const original = state.original;
       const expectedRevision = await this.createImportRevision(snapshot, parsed, mode);
 
       if (revisionToken !== expectedRevision) {
@@ -281,20 +348,7 @@ export class LinkShelfRepository {
         );
       }
 
-      try {
-        await this.writeValidated(plan.candidate);
-      } catch (error) {
-        try {
-          await this.writeValidated(snapshot);
-        } catch (rollbackError) {
-          console.error('LinkShelf could not restore its import snapshot:', rollbackError);
-          throw new StorageIntegrityError('The import failed and LinkShelf could not verify rollback. Reload the extension before making more changes.');
-        }
-        if (error instanceof Error && /quota/i.test(error.message)) {
-          throw new StorageValidationError('This import exceeds the available Chrome storage space. Your previous LinkShelf data was restored.');
-        }
-        throw error;
-      }
+      await this.writeValidated(plan.candidate, original, true);
 
       return plan.result;
     });
@@ -306,10 +360,11 @@ export class LinkShelfRepository {
     ) => LinkShelfDatabase | Promise<LinkShelfDatabase>,
   ): Promise<LinkShelfDatabase> {
     return this.runExclusive(async () => {
-      const current = await this.initializeUnsafe();
-      const candidate = await update(structuredClone(current));
+      const state = await this.initializeStateUnsafe();
+      const original = state.original;
+      const candidate = await update(structuredClone(state.database));
 
-      return this.writeValidated(candidate);
+      return this.writeValidated(candidate, original);
     });
   }
 
@@ -1101,7 +1156,7 @@ export class LinkShelfRepository {
   }
 
   private async createImportRevision(
-    database: LinkShelfDatabase,
+    database: unknown,
     backup: LinkShelfBackup,
     mode: ImportMode,
   ): Promise<string> {
@@ -1116,35 +1171,38 @@ export class LinkShelfRepository {
   }
 
   private async initializeUnsafe(): Promise<LinkShelfDatabase> {
-    if (this.databaseCache) {
-      return this.databaseCache;
-    }
+    return (await this.initializeStateUnsafe()).database;
+  }
 
-    const storedValue = await this.storage.get(DATABASE_STORAGE_KEY);
-
+  private async initializeStateUnsafe(): Promise<{ database: LinkShelfDatabase; original: unknown }> {
+    if (this.recoveryDiagnostics) throw new StorageIntegrityError('Stored LinkShelf data requires recovery. Open LinkShelf to preserve and recover it.');
+    if (this.databaseCache) return { database: this.databaseCache, original: this.storedSnapshot };
+    const storedValue = await this.readStored();
     if (storedValue === undefined) {
-      const database = createEmptyDatabase(this.now());
-
-      return this.writeValidated(database);
+      const database = await this.writeValidated(createEmptyDatabase(this.now()), undefined);
+      return { database, original: database };
     }
-
-    const database = this.parseStoredDatabase(storedValue);
-
-    if (
-      typeof storedValue === 'object' &&
-      storedValue !== null &&
-      'settings' in storedValue &&
-      typeof storedValue.settings === 'object' &&
-      storedValue.settings !== null &&
-      'schemaVersion' in storedValue.settings &&
-      storedValue.settings.schemaVersion !== 2
-    ) {
-      return this.writeValidated(database);
+    let database: LinkShelfDatabase;
+    try {
+      database = migrateLinkShelfDatabaseStructure(storedValue);
+    } catch (error) {
+      this.enterRecovery(structuralDiagnostics(error));
+      throw new StorageValidationError('Stored LinkShelf data does not match a supported schema. The original was preserved.');
     }
-
-    const ensuredDatabase = await this.ensureInbox(database);
-    this.databaseCache = ensuredDatabase;
-    return ensuredDatabase;
+    const candidate = this.ensureInbox(database);
+    const diagnostics = getIntegrityDiagnostics(candidate);
+    if (diagnostics.length) throw this.enterRecovery(diagnostics);
+    const version = (storedValue as { settings: { schemaVersion: number } }).settings.schemaVersion;
+    if (version !== 2 || candidate !== database) {
+      const database = await this.writeValidated(candidate, storedValue);
+      return { database, original: database };
+    }
+    const original = storedValuesEqual(storedValue, candidate) ? candidate : structuredClone(storedValue);
+    this.databaseCache = candidate;
+    this.storedSnapshot = original;
+    // Return the precondition with the snapshot: a change event can invalidate
+    // the shared cache before the awaiting operation resumes.
+    return { database: candidate, original };
   }
 
   private async updateLinkState(
@@ -1194,80 +1252,80 @@ export class LinkShelfRepository {
     return result;
   }
 
-  private parseStoredDatabase(value: unknown): LinkShelfDatabase {
-    try {
-      return migrateLinkShelfDatabase(value);
-    } catch {
-      throw new StorageValidationError(
-        'Stored LinkShelf data does not match the current schema.',
-      );
-    }
-  }
-
-  private async ensureInbox(
-    database: LinkShelfDatabase,
-  ): Promise<LinkShelfDatabase> {
-    const inboxProjects = database.projects.filter((project) => project.isInbox);
-
-    if (inboxProjects.length > 1) {
-      throw new StorageIntegrityError(
-        'Stored LinkShelf data contains more than one Inbox project.',
-      );
-    }
-
-    if (inboxProjects.length === 0) {
-      if (database.projects.some((project) => project.id === INBOX_PROJECT_ID)) {
-        throw new StorageIntegrityError(
-          'The reserved Inbox project ID is already used by another project.',
-        );
-      }
-
+  private ensureInbox(database: LinkShelfDatabase): LinkShelfDatabase {
+    const inboxes = database.projects.filter((project) => project.isInbox);
+    if (inboxes.length === 0 && !database.projects.some((project) => project.id === INBOX_PROJECT_ID)) {
       const inbox = createInboxProject(this.now());
-      const repairedDatabase: LinkShelfDatabase = {
-        ...database,
-        projects: [...database.projects, inbox],
-        settings: {
-          ...database.settings,
-          defaultProjectId: inbox.id,
-        },
-      };
-
-      return this.writeValidated(repairedDatabase);
+      return { ...database, projects: [...database.projects, inbox], settings: { ...database.settings, defaultProjectId: inbox.id } };
     }
-
-    const defaultProjectExists = database.projects.some(
-      (project) => project.id === database.settings.defaultProjectId,
-    );
-
-    if (!defaultProjectExists) {
-      const repairedDatabase: LinkShelfDatabase = {
-        ...database,
-        settings: {
-          ...database.settings,
-          defaultProjectId: inboxProjects[0].id,
-        },
-      };
-
-      return this.writeValidated(repairedDatabase);
+    if (inboxes.length === 1 && !database.projects.some((project) => project.id === database.settings.defaultProjectId)) {
+      return { ...database, settings: { ...database.settings, defaultProjectId: inboxes[0].id } };
     }
-
     return database;
   }
 
-  private async writeValidated(
-    database: LinkShelfDatabase,
-  ): Promise<LinkShelfDatabase> {
+  private diagnostic(code: string, message: string): IntegrityDiagnostic {
+    return { code, path: [], message };
+  }
+
+  private enterRecovery(diagnostics: IntegrityDiagnostic[]): StorageIntegrityError {
+    this.invalidateCache();
+    this.recoveryDiagnostics = diagnostics;
+    return new StorageIntegrityError('Stored LinkShelf data requires recovery. The stored value was preserved; unsafe writes are blocked.');
+  }
+
+  private async readStored(): Promise<unknown> {
+    try { return await this.storage.get(DATABASE_STORAGE_KEY); }
+    catch { throw this.enterRecovery([this.diagnostic('STORAGE_UNAVAILABLE', 'Stored data could not be read. No reset was attempted.')]); }
+  }
+
+  private async rawRevision(value: unknown): Promise<string> {
+    const bytes = new TextEncoder().encode(JSON.stringify(value === undefined ? { valuePresent: false } : { valuePresent: true, rawValue: value }));
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  private async requireRecoveryRevision(raw: unknown, token: string): Promise<void> {
+    if (!this.recoveryDiagnostics) throw new StorageValidationError('Recovery replacement is available only while stored data requires recovery.');
+    if (!token || token !== await this.rawRevision(raw)) throw new StorageValidationError('Stored data changed after raw export. Export the current recovery data and review the backup again.');
+  }
+
+  private async writeValidated(database: LinkShelfDatabase, original: unknown = this.storedSnapshot, alwaysRollback = false): Promise<LinkShelfDatabase> {
     const result = LinkShelfDatabaseSchema.safeParse(database);
-
-    if (!result.success) {
-      throw new StorageValidationError(
-        'LinkShelf refused to write data that does not match the current schema.',
-      );
+    if (!result.success) throw new StorageValidationError('LinkShelf refused to write data with invalid fields or relationships.');
+    const before = await this.readStored();
+    if (!storedValuesEqual(before, original)) throw this.enterRecovery([this.diagnostic('STORAGE_CHANGED', 'Stored data changed outside the current operation. Check it again before making changes.')]);
+    let writeError: unknown;
+    let writeFailed = false;
+    try { await this.storage.set(DATABASE_STORAGE_KEY, result.data); }
+    catch (error) { writeFailed = true; writeError = error; }
+    let observed: unknown;
+    try { observed = await this.storage.get(DATABASE_STORAGE_KEY); }
+    catch { throw this.enterRecovery([this.diagnostic('WRITE_UNVERIFIED', 'A write outcome could not be verified. Check stored data before continuing.')]); }
+    if (!writeFailed && storedValuesEqual(observed, result.data)) {
+      this.databaseCache = result.data;
+      this.storedSnapshot = result.data;
+      return result.data;
     }
-
-    await this.storage.set(DATABASE_STORAGE_KEY, result.data);
-    this.databaseCache = result.data;
-
-    return result.data;
+    this.invalidateCache();
+    if (!writeFailed || writeError === undefined || writeError === null) writeError = new StorageIntegrityError('Chrome did not confirm persisting the expected data. The write was not confirmed.');
+    if (!storedValuesEqual(observed, original) && !storedValuesEqual(observed, result.data)) {
+      throw this.enterRecovery([this.diagnostic('UNEXPECTED_WRITE_RESULT', 'An unexpected stored value was found after a write. It was preserved for recovery.')]);
+    }
+    if (alwaysRollback || !storedValuesEqual(observed, original)) {
+      try {
+        if (original === undefined) throw new Error('No original stored value is available for rollback.');
+        await this.storage.set(DATABASE_STORAGE_KEY, original);
+        const restored = await this.storage.get(DATABASE_STORAGE_KEY);
+        if (!storedValuesEqual(restored, original)) throw new Error('Rollback readback differs.');
+      } catch {
+        this.enterRecovery([this.diagnostic('ROLLBACK_UNVERIFIED', 'The failed write could not be safely rolled back. Stored data needs attention.')]);
+        throw new StorageIntegrityError('The write failed and LinkShelf could not verify rollback. Open LinkShelf recovery before making more changes.');
+      }
+    }
+    if (writeError instanceof Error && /quota/i.test(writeError.message)) {
+      throw new StorageValidationError('This operation exceeds the available Chrome storage space. The previous stored data was verified unchanged or restored.');
+    }
+    throw writeError;
   }
 }
