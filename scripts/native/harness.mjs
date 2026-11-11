@@ -16,7 +16,7 @@ export async function poll(read, matches, label, timeout = 15000) {
   throw new Error(`Timed out: ${label}; last value ${JSON.stringify(value)?.slice(0, 240)}`);
 }
 
-export async function createHarness() {
+export async function createHarness({ pagePath = 'sidepanel.html', prepareBuild } = {}) {
   const require = createRequire(import.meta.url);
   let chromium;
   try { ({ chromium } = require(process.env.LINKSHELF_PLAYWRIGHT_MODULE || 'playwright')); }
@@ -29,6 +29,7 @@ export async function createHarness() {
     await fs.access('.output/chrome-mv3/manifest.json');
     await fs.cp('.output/chrome-mv3', extensionPath, { recursive: true });
   } catch { throw new Error('Build output is missing or changing. Finish npm run build before starting native tests.'); }
+  await prepareBuild?.(extensionPath);
   const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end(`<title>Synthetic ${req.url}</title><p>Disposable LinkShelf test page</p>`);
@@ -53,7 +54,7 @@ export async function createHarness() {
     const cdp = await h.context.browser().newBrowserCDPSession();
     h.id = (await cdp.send('Extensions.loadUnpacked', { path: extensionPath })).id;
     h.page = await h.context.newPage();
-    await h.page.goto(`chrome-extension://${h.id}/sidepanel.html`);
+    await h.page.goto(`chrome-extension://${h.id}/${pagePath}`);
     await h.rpc({ type: 'GET_STORAGE_STATUS' });
   };
   h.rpc = (message, page = h.page) => page.evaluate(message => chrome.runtime.sendMessage(message), message);
@@ -92,7 +93,7 @@ export async function createHarness() {
     const { preview } = await h.ok({ type: 'PREVIEW_IMPORT_DATA', payload: { backup, mode } });
     return h.ok({ type: 'IMPORT_DATA', payload: { backup, mode, revisionToken: preview.revisionToken } });
   };
-  h.stopWorker = async () => {
+  h.stopWorker = async ({ wake = true } = {}) => {
     const cdp = await h.context.newCDPSession(h.page);
     const running = new Promise(resolve => cdp.on('ServiceWorker.workerVersionUpdated', info => {
       const item = info.versions.find(v => v.scriptURL === `chrome-extension://${h.id}/background.js` && v.runningStatus === 'running');
@@ -109,7 +110,7 @@ export async function createHarness() {
       await cdp.send('ServiceWorker.stopWorker', { versionId: version.versionId });
       await Promise.race([stopped, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Worker did not stop')), 15000); })]);
     } finally { clearTimeout(timer); await cdp.detach(); }
-    return h.ok({ type: 'GET_STORAGE_STATUS' });
+    return wake ? h.ok({ type: 'GET_STORAGE_STATUS' }) : undefined;
   };
   h.restart = async () => { await h.context.close(); await h.start(); };
   h.close = async () => { await h.context?.close(); await new Promise(resolve => server.close(resolve)); };
