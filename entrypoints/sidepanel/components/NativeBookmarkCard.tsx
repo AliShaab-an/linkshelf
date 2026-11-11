@@ -1,12 +1,14 @@
 import type { NativeBookmarkResult } from '@/messaging/contracts';
 
 interface NativeBookmarkCardProps {
+  cardId?: string;
   bookmark: NativeBookmarkResult;
   isOpening: boolean;
   onOpen: () => void;
 }
 
 export function NativeBookmarkCard({
+  cardId,
   bookmark,
   isOpening,
   onOpen,
@@ -19,7 +21,7 @@ export function NativeBookmarkCard({
   }
 
   return (
-    <article className="rounded-xl border border-blue-200 bg-blue-50/40 p-3.5 shadow-sm">
+    <article id={cardId} className="rounded-xl border border-blue-200 bg-blue-50/40 p-3.5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <h3 className="break-words font-semibold leading-snug" dir="auto">{bookmark.title}</h3>
         <span className="shrink-0 rounded-full bg-blue-100 px-2 py-1 text-[11px] font-bold text-blue-800">

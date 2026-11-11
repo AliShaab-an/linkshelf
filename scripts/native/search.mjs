@@ -92,22 +92,38 @@ try {
     const full = await rpc('synthetic');
     await query('synthetic', 50, full.results.length + full.bookmarks.length);
     let expectedCards = 50;
-    for (const [more, count] of [[moreLinks, full.results.length], [moreBookmarks, full.bookmarks.length]]) {
+    const observed = await cards.locator('h3').allTextContents();
+    const expectedSaved = full.results.map(item => item.link.title);
+    const expectedBookmarks = full.bookmarks.map(item => item.title);
+    const loadedSaved = observed.slice(0, 25);
+    const loadedBookmarks = observed.slice(25);
+    for (const [more, expected, collected, saved] of [[moreLinks, expectedSaved, loadedSaved, true], [moreBookmarks, expectedBookmarks, loadedBookmarks, false]]) {
+      const count = expected.length;
       for (let loaded = 25; loaded < count; loaded += 25) {
-        expectedCards += Math.min(25, count - loaded);
+        const batch = Math.min(25, count - loaded);
+        const otherCards = saved ? 25 : expectedSaved.length % 25 || 25;
+        expectedCards = otherCards + batch;
         const start = await ui.evaluate(() => performance.now());
         await more.click();
-        await ui.waitForFunction(count => document.querySelectorAll('article').length === count, expectedCards);
+        const nav = ui.getByRole('navigation', { name: saved ? 'LinkShelf result pages' : 'Chrome bookmark pages' });
+        await nav.getByText(new RegExp(`Showing ${loaded + 1}–${loaded + batch} of ${loaded + batch}`)).waitFor();
+        const visible = await cards.locator('h3').allTextContents();
+        assert.equal(visible.length, expectedCards);
+        collected.push(...(saved ? visible.slice(0, batch) : visible.slice(otherCards)));
         report.timings.push({ query: 'load more', cards: expectedCards, clickToCardsMs: await ui.evaluate(start => performance.now() - start, start) });
       }
       await more.waitFor({ state: 'detached' });
+      assert.deepEqual(collected, expected);
     }
-    assert.deepEqual(await cards.locator('h3').allTextContents(), [
-      ...full.results.map(item => item.link.title), ...full.bookmarks.map(item => item.title),
-    ]);
+    const savedNav = ui.getByRole('navigation', { name: 'LinkShelf result pages' });
+    const jump = savedNav.getByRole('spinbutton', { name: 'Page number' });
+    await jump.fill('1');
+    await jump.press('Enter');
+    await savedNav.getByText(/Showing 1–25/).waitFor();
+    assert.deepEqual((await cards.locator('h3').allTextContents()).slice(0, 25), expectedSaved.slice(0, 25));
     report.checks.push('Actual sidebar reaches every result in both categories in legacy order');
 
-    await query('synthetic', 50, expectedCards);
+    await query('synthetic', 50, expectedSaved.length + expectedBookmarks.length);
     const first = await rpc('synthetic', {});
     await h.stopWorker();
     assert.equal((await rpc('synthetic', { cursor: first.page.cursor, category: 'results', offset: 25 })).error.code, 'SEARCH_EXPIRED');
@@ -115,7 +131,7 @@ try {
     await moreLinks.waitFor({ state: 'visible' });
     await ui.waitForFunction(() => !document.querySelector('button[disabled]') || [...document.querySelectorAll('button')].some(button => button.textContent === 'Load more LinkShelf links' && !button.disabled));
     await moreLinks.click();
-    await ui.waitForFunction(() => document.querySelectorAll('article').length === 75);
+    await savedNav.getByText(/Showing 26–50 of 50/).waitFor();
     report.checks.push('Worker restart expires cursor and sidebar restarts the query');
 
     await ui.evaluate(() => { globalThis.searchProbe.hold = message => message.payload.page?.offset === 50; });

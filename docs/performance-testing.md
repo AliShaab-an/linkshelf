@@ -50,6 +50,33 @@ representative baseline. The same seed and origin produce identical fixture
 bytes; the local test server's ephemeral port varies across runs. Raw reports
 record sizes, counts, state mix and a fixture hash. No real browsing data is used.
 
+## Sidebar rendering comparison
+
+With the production build and disposable Chrome setup ready:
+
+```sh
+node scripts/performance/rendering.mjs
+node scripts/native/rendering.mjs
+node scripts/native/search.mjs
+```
+
+For a matched baseline, build the Phase 2.3 merge
+`45a486a8daa0e0198e8cb7068ea4ebe3f2ee5fc8` in a separate checkout. Pass the
+path to its built extension directory as the first argument to
+`scripts/performance/rendering.mjs`. The harness copies that build into a
+disposable profile snapshot. Run baseline and optimized measurements
+sequentially. Archive tests both distributions at 100, 1,000, 5,000 and
+10,000 records. Search measures the first batch and the last continuation
+after 12 saved-link batches and three additional bookmark batches. Projects
+includes Expand All and, where available, Show More and Show All.
+
+The JSON records mounted cards, DOM elements, browser RPCs, observed frames,
+main-thread long tasks, cumulative layout counts and page heap. Frame
+measurements include browser scheduling and Playwright interaction. They
+cannot isolate React commit time. Heap readings are snapshots without forced
+GC. The rendering regression script separately checks keyboard navigation,
+focus, variable-height notes, widths, zoom, and cross-document updates.
+
 ## Search comparison
 
 Run the following against a completed production build using the same
