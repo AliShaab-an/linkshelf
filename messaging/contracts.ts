@@ -104,7 +104,21 @@ export interface BookmarkFolderOption {
 
 export interface SearchLinksMessage {
   type: 'SEARCH_LINKS';
-  payload: { query: string };
+  payload: { query: string; page?: SearchPageRequest };
+}
+
+export type SearchPageRequest = Record<string, never> | {
+  cursor: string;
+  category: 'results' | 'bookmarks';
+  offset: number;
+};
+
+export interface SearchPage {
+  cursor: string;
+  totalResults: number;
+  totalBookmarks: number;
+  nextResults?: number;
+  nextBookmarks?: number;
 }
 
 export type SearchLinksResponse =
@@ -112,8 +126,9 @@ export type SearchLinksResponse =
       success: true;
       results: LinkSearchResult[];
       bookmarks: NativeBookmarkResult[];
+      page?: SearchPage;
     }
-  | { success: false; error: { message: string } };
+  | { success: false; error: { message: string; code?: 'SEARCH_EXPIRED' | 'INVALID_SEARCH_PAGE' } };
 
 export interface GetBookmarkFoldersMessage {
   type: 'GET_BOOKMARK_FOLDERS';
@@ -944,10 +959,10 @@ export async function parkCurrentTab(
   return response as ParkCurrentTabResponse;
 }
 
-export async function searchLinks(query: string): Promise<SearchLinksResponse> {
+export async function searchLinks(query: string, page?: SearchPageRequest): Promise<SearchLinksResponse> {
   const message: SearchLinksMessage = {
     type: 'SEARCH_LINKS',
-    payload: { query },
+    payload: { query, ...(page && { page }) },
   };
   const response = (await browser.runtime.sendMessage(message)) as unknown;
   assertResponse(response);
