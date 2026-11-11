@@ -756,6 +756,33 @@ describe('LinkShelfRepository', () => {
     expect(await repository.searchLinks('   ')).toEqual([]);
   });
 
+  it('preserves legacy search results and ties across statuses, fields, and duplicate URLs', async () => {
+    const storage = new MemoryStorageAdapter();
+    const repository = createRepository(storage);
+    const project = await repository.createProject({ name: 'Étude Portal' });
+    const link = (await repository.parkTab({
+      projectId: project.id, title: 'Résumé C++', url: 'https://example.test/ref?q=blue',
+      note: 'Review launch', pinnedBeforeParking: false,
+    })).link;
+    const original = structuredClone(await repository.getDatabase());
+    original.links = (['parked', 'archived', 'archived', 'restored', 'removed'] as const).map((status, i) => ({
+      ...link, id: `search-${i}`, status, updatedAt: i === 2 ? '2099-01-01T00:00:00.000Z' : link.updatedAt,
+    }));
+    await storage.set(DATABASE_STORAGE_KEY, original);
+    repository.invalidateCache();
+    for (const query of [link.url, 'ref?q=', 'example.test', 'RÉSUMÉ', 'launch', 'étude portal', '  c++\tReview  ', ' ', 'absent']) {
+      const tokens = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+      const expected = tokens.length ? original.links
+        .filter(record => record.status === 'parked' || record.status === 'archived')
+        .map(record => ({ link: record, projectName: project.name }))
+        .filter(({ link, projectName }) => tokens.every(token =>
+          [link.title, link.url, link.domain, link.note ?? '', projectName].join('\n').toLocaleLowerCase().includes(token)))
+        .sort((a, b) => b.link.updatedAt.localeCompare(a.link.updatedAt)) : [];
+      expect(await repository.searchLinks(query)).toEqual(expected);
+    }
+    expect((await repository.searchLinks('portal')).map(result => result.link.id)).toEqual(['search-2', 'search-0', 'search-1']);
+  });
+
   it('searches 5,000 local links within the MVP performance budget', async () => {
     const storage = new MemoryStorageAdapter();
     const database = createEmptyDatabase(now);

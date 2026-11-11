@@ -750,28 +750,18 @@ export class LinkShelfRepository {
       database.projects.map((project) => [project.id, project.name]),
     );
 
-    return database.links
-      .filter((link) => link.status === 'parked' || link.status === 'archived')
-      .map((link) => ({
-        link,
-        projectName: projectNames.get(link.projectId) ?? 'Unknown project',
-      }))
-      .filter(({ link, projectName }) => {
-        const searchableText = [
-          link.title,
-          link.url,
-          link.domain,
-          link.note ?? '',
-          projectName,
-        ]
-          .join('\n')
-          .toLocaleLowerCase();
-
-        return tokens.every((token) => searchableText.includes(token));
-      })
-      .sort((first, second) =>
-        second.link.updatedAt.localeCompare(first.link.updatedAt),
-      );
+    const results: LinkSearchResult[] = [];
+    for (const link of database.links) {
+      if (link.status !== 'parked' && link.status !== 'archived') continue;
+      const projectName = projectNames.get(link.projectId) ?? 'Unknown project';
+      const searchableText = `${link.title}\n${link.url}\n${link.domain}\n${link.note ?? ''}\n${projectName}`.toLocaleLowerCase();
+      if (tokens.every((token) => searchableText.includes(token))) {
+        results.push({ link, projectName });
+      }
+    }
+    return results.sort((first, second) =>
+      second.link.updatedAt.localeCompare(first.link.updatedAt),
+    );
   }
 
   async getLink(linkId: string): Promise<SavedLink | undefined> {

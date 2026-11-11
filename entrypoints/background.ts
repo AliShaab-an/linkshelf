@@ -1,5 +1,8 @@
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import {
+  createSearchPages,
+} from '@/features/search/search-pages';
+import {
   isArchiveLinkMessage,
   isBookmarkLinkMessage,
   isCreateProjectMessage,
@@ -69,9 +72,22 @@ import {
 
 export default defineBackground(() => {
   const repository = new LinkShelfRepository(new ChromeStorageAdapter());
-  browser.storage.onChanged?.addListener((changes, area) => {
-    if (area === 'local' && Object.hasOwn(changes, DATABASE_STORAGE_KEY)) repository.invalidateCache();
+  const searchPages = createSearchPages(async (query) => {
+    if (!query.trim()) return { results: [], bookmarks: [] };
+    const [results, tree] = await Promise.all([repository.searchLinks(query), browser.bookmarks.getTree()]);
+    return { results, bookmarks: searchBookmarkTree(tree, query) };
   });
+  browser.storage.onChanged?.addListener((changes, area) => {
+    if (area === 'local' && Object.hasOwn(changes, DATABASE_STORAGE_KEY)) {
+      repository.invalidateCache();
+      searchPages.invalidate();
+    }
+  });
+  for (const event of [browser.bookmarks?.onCreated, browser.bookmarks?.onRemoved,
+    browser.bookmarks?.onChanged, browser.bookmarks?.onMoved, browser.bookmarks?.onChildrenReordered,
+    browser.bookmarks?.onImportBegan, browser.bookmarks?.onImportEnded]) {
+    event?.addListener(searchPages.invalidate);
+  }
   const operations = new OperationCoordinator();
   const restoration = createRestoreCoordinator(repository, operations, browser.tabs);
   const bookmarking = createBookmarkCoordinator(operations, {
@@ -427,17 +443,8 @@ export default defineBackground(() => {
       }
 
       if (isSearchLinksMessage(message)) {
-        void Promise.all([
-          repository.searchLinks(message.payload.query),
-          browser.bookmarks.getTree(),
-        ])
-          .then(([results, tree]) =>
-            sendResponse({
-              success: true,
-              results,
-              bookmarks: searchBookmarkTree(tree, message.payload.query),
-            }),
-          )
+        void searchPages.search(message.payload.query, message.payload.page)
+          .then(sendResponse)
           .catch((error) => {
             console.error('Failed to search links and Chrome bookmarks:', error);
             sendResponse({

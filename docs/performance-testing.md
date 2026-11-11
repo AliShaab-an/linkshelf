@@ -50,6 +50,32 @@ representative baseline. The same seed and origin produce identical fixture
 bytes; the local test server's ephemeral port varies across runs. Raw reports
 record sizes, counts, state mix and a fixture hash. No real browsing data is used.
 
+## Search comparison
+
+Run the following against a completed production build using the same
+disposable Chrome setup:
+
+```sh
+node scripts/performance/search.mjs
+node scripts/performance/search.mjs --paged
+node scripts/performance/search.mjs --paged --diagnostic
+node scripts/native/search.mjs
+```
+
+The first command measures the legacy full-response protocol and works on
+the Phase 2.2 merge `6cc2afec4856b30d61473785d19496715027d09b` after copying
+the benchmark script into that checkout. The paged run measures the first
+response and every broad continuation in both categories. It checks the
+complete sequence against the full-response protocol outside the timed
+interval. The diagnostic build records worker spans and Chrome API calls
+separately from the production clocks. Each run reports JSON under
+`.output/native-runs/`.
+
+The sidebar script exercises continuation and measures input, response,
+visible-card and frame timing in the real extension document. To repeat only
+the matched baseline UI measurements, pass the earlier RPC run's
+`built-extension` snapshot as the script's first argument.
+
 ## Storage write comparison
 
 The Phase 2.2 write suite measures unchanged and changed settings saves,
