@@ -94,6 +94,34 @@ describe('actual background reminder handlers', () => {
 
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+  it('repairs a missing reminder alarm on an unchanged settings save without rewriting the library', async () => {
+    const [link] = await park();
+    scheduled.clear();
+    api.storage.local.set.mockClear();
+    const before = structuredClone(stored());
+    const response = await settings({});
+    expect(response).toEqual({ success: true, settings: before.settings, warnings: [] });
+    expect(scheduled.has(reminderAlarmName(link.id))).toBe(true);
+    expect(api.storage.local.set).not.toHaveBeenCalled();
+    expect(stored()).toEqual(before);
+  });
+
+  it('returns Merge counts and a reminder warning without rewriting an identical library', async () => {
+    await park();
+    const before = structuredClone(stored());
+    const { backup } = await request({ type: 'EXPORT_DATA' });
+    api.storage.local.set.mockClear();
+    api.alarms.getAll.mockRejectedValueOnce(new Error('alarm access failed'));
+    const response = await importBackup(backup, 'merge');
+    expect(response).toEqual({
+      success: true,
+      result: { mode: 'merge', projectsAdded: 0, sessionsAdded: 0, linksAdded: 0, recordsSkipped: 4 },
+      warnings: ['Your backup was imported, but reminders could not be updated. Reload LinkShelf to retry reminders.'],
+    });
+    expect(api.storage.local.set).not.toHaveBeenCalled();
+    expect(stored()).toEqual(before);
+  });
+
   it('creates one alarm and acknowledges both due links only after notification creation', async () => {
     const links = await park();
     expect([...scheduled]).toEqual([[reminderAlarmName(links[0].id), Date.parse(FUTURE)]]);

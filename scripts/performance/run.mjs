@@ -10,7 +10,7 @@ import { prepare } from './build.mjs';
 import { statistics, eventSummary } from './stats.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).map(arg => { const [name, value = 'true'] = arg.replace(/^--/, '').split('='); return [name, value]; }));
-if (args.help) { console.log('Usage: npm run bench:performance -- --suite=core|bulk|ui|memory|fault --sizes=100,1000,5000,10000 --distributions=few,many --repetitions=7 --warmups=2 --bulk-repetitions=3 [--diagnostic] [--only=operation,...]'); process.exit(0); }
+if (args.help) { console.log('Usage: npm run bench:performance -- --suite=core|bulk|ui|memory|fault|storage-writes --sizes=100,1000,5000,10000 --distributions=few,many --repetitions=7 --warmups=2 --bulk-repetitions=3 [--diagnostic] [--only=operation,...]'); process.exit(0); }
 for (const flag of Object.keys(args)) assert.ok(['sizes', 'distributions', 'repetitions', 'warmups', 'bulk-repetitions', 'suite', 'diagnostic', 'only', 'profile'].includes(flag), `Unknown benchmark option: ${flag}`);
 const options = {
   sizes: (args.sizes || '100,1000,5000,10000').split(',').map(Number),
@@ -23,7 +23,7 @@ const options = {
 };
 for (const value of [options.repetitions, options.bulkRepetitions]) assert.ok(Number.isInteger(value) && value > 0 && value <= 50);
 assert.ok(Number.isInteger(options.warmups) && options.warmups >= 0 && options.warmups <= 10);
-assert.ok(['core', 'bulk', 'ui', 'memory', 'fault'].includes(options.suite));
+assert.ok(['core', 'bulk', 'ui', 'memory', 'fault', 'storage-writes'].includes(options.suite));
 assert.ok(!options.distributions.includes('phase16') || options.suite === 'core', 'Phase 1.6 comparison fixture is for the core suite');
 const h = await createHarness({ pagePath: 'profiling.html', prepareBuild: dir => prepare(dir, options.diagnostic) });
 for (const page of h.context.pages()) if (page !== h.page) await page.close();
@@ -50,13 +50,15 @@ async function rpc(type, payload, full = false) {
     if (!response?.success) throw new Error(JSON.stringify(response?.error || response));
     const count = response.results?.length ?? response.groups?.length ?? response.links?.length ?? response.projects?.length ?? response.openedLinkIds?.length ?? response.backup?.database?.links?.length ?? 0;
     return { ms, count, bookmarks: response.bookmarks?.length, warnings: response.warnings?.length ?? 0,
-      ...(full ? { response } : {}), token: response.preview?.revisionToken };
+      ...(full ? { response } : {}), token: response.preview?.revisionToken,
+      settings: type === 'UPDATE_SETTINGS' ? response.settings : undefined,
+      importResult: type === 'IMPORT_DATA' ? response.result : undefined };
   }, { type, payload, full });
   const { response: _fullPayload, ...summary } = response;
   if (full && type === 'EXPORT_DATA') JSON.stringify(_fullPayload.backup); // Phase 1.6 transport comparison.
   return { ...summary, transportMs: performance.now() - start };
 }
-async function sample(row, name, action, { reset, repetitions = options.repetitions, warmups = options.warmups, capture = options.diagnostic } = {}) {
+async function sample(row, name, action, { reset, verify, repetitions = options.repetitions, warmups = options.warmups, capture = options.diagnostic } = {}) {
   if (options.only && !options.only.includes(name)) return;
   const values = [], transport = [], samples = [];
   for (let i = -warmups; i < repetitions; i++) {
@@ -67,6 +69,7 @@ async function sample(row, name, action, { reset, repetitions = options.repetiti
         if (capture) await h.ok({ type: 'PERF_START' });
         const item = await action();
         const events = capture ? (await h.ok({ type: 'PERF_STOP' })).events : [];
+        await verify?.(item);
         return { item, events };
       })(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Sample exceeded 90-second execution limit')), 90000); })]);
       assert.ok(Number.isFinite(item.ms) && item.ms >= 0);
@@ -195,7 +198,10 @@ try {
     else if (options.suite === 'bulk') { await bulk(row); await reminders(row); }
     else if (options.suite === 'ui') { const suite = await import('./ui.mjs'); await suite.runUI(h, row, { fixture, seed, cleanupTabs, sample, options }); }
     else if (options.suite === 'memory') { const suite = await import('./memory.mjs'); await suite.runMemory(h, row, { fixture, cpu, sample, options }); }
-    else { const suite = await import('./fault.mjs'); await suite.runFault(h, row, { fixture, seed, sample, envelope }); }
+    else if (options.suite === 'storage-writes') {
+      const { runStorageWrites } = await import('./storage-writes.mjs');
+      await runStorageWrites(h, row, { fixture, seed, sample, rpc, envelope, options });
+    } else { const suite = await import('./fault.mjs'); await suite.runFault(h, row, { fixture, seed, sample, envelope }); }
     assert.ok(Object.keys(row.measurements).length, 'No benchmark operations matched --only');
     await persist();
   }

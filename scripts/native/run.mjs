@@ -290,6 +290,53 @@ try {
   results.remoteAssetRequests = h.requests;
   check('UI: sections at 320/400/800px; 200% Chrome zoom; long content; modal focus/Escape; actual export; invalid JSON/large-file rejection; import cancellation; remote favicon probe');
 
+  // Count real database writes through a temporary wrapper on the production worker.
+  await h.import(backup(library()));
+  const initial = await h.raw();
+  const worker = h.worker();
+  await worker.evaluate(() => {
+    const original = chrome.storage.local.set;
+    globalThis.storageWriteProbe = { original, count: 0 };
+    chrome.storage.local.set = async (patch) => {
+      if (Object.hasOwn(patch, 'linkshelfDatabase')) globalThis.storageWriteProbe.count++;
+      return original.call(chrome.storage.local, patch);
+    };
+  });
+  const countWrites = () => worker.evaluate(() => globalThis.storageWriteProbe.count);
+  try {
+    const unchanged = await ok('UPDATE_SETTINGS', initial.settings);
+    assert.deepEqual(unchanged.settings, initial.settings);
+    assert.equal(await countWrites(), 0);
+    const displayDensity = initial.settings.displayDensity === 'compact' ? 'comfortable' : 'compact';
+    const changed = { ...initial, settings: { ...initial.settings, displayDensity } };
+    assert.deepEqual((await ok('UPDATE_SETTINGS', changed.settings)).settings, changed.settings);
+    assert.equal(await countWrites(), 1);
+    assert.deepEqual(await h.raw(), changed);
+    const identical = (await h.import(backup(changed), 'merge')).result;
+    assert.deepEqual(identical, {
+      mode: 'merge', projectsAdded: 0, sessionsAdded: 0, linksAdded: 0,
+      recordsSkipped: changed.projects.length + changed.sessions.length + changed.links.length,
+    });
+    assert.equal(await countWrites(), 1);
+    assert.deepEqual(await h.raw(), changed);
+    const added = structuredClone(changed);
+    added.projects.push({ ...added.projects[1], id: 'native-noop-merge-project' });
+    assert.equal((await h.import(backup(added), 'merge')).result.projectsAdded, 1);
+    assert.equal(await countWrites(), 2);
+    assert.deepEqual(await h.raw(), added);
+    results.storageWriteProbe = { unchangedSettings: 0, changedSettings: 1, identicalMerge: 0, addingMerge: 1 };
+  } finally {
+    await worker.evaluate(() => {
+      chrome.storage.local.set = globalThis.storageWriteProbe.original;
+      delete globalThis.storageWriteProbe;
+    });
+  }
+  const beforeRestart = await h.raw();
+  await h.stopWorker({ wake: false });
+  assert.deepEqual((await ok('UPDATE_SETTINGS', beforeRestart.settings)).settings, beforeRestart.settings);
+  assert.deepEqual(await h.raw(), beforeRestart);
+  check('F: production worker skips unchanged settings and identical Merge writes, persists changes, and accepts an unchanged save after restart');
+
   if (process.argv.includes('--performance')) {
     const { measure } = await import('./performance.mjs');
     results.performance = await measure(h);
