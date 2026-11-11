@@ -112,6 +112,9 @@ update. Uninstall/reinstall is not a data-preservation procedure.
 
 ## Performance smoke baseline
 
+For controlled Phase 2.1 profiling, see [performance testing](performance-testing.md).
+The original Phase 1.6 smoke command below remains available for comparison.
+
 `npm run test:native -- --performance` measures 100/1,000/5,000/10,000 synthetic links
 in one session. Three samples and medians cover project/group RPCs, search, storage
 validation recheck, verified settings writes, export plus Node serialization, and
