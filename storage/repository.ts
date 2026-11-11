@@ -257,7 +257,7 @@ export class LinkShelfRepository {
       const raw = await this.readStored();
       await this.requireRecoveryRevision(raw, rawRevisionToken);
       if (revisionToken !== await this.createImportRevision(raw, parsed, 'replace')) throw new StorageValidationError('The recovery preview changed. Review the backup again.');
-      await this.writeValidated(parsed.database, raw, true);
+      await this.writeValidated(parsed.database, raw, { alwaysRollback: true });
       this.recoveryDiagnostics = undefined;
       return { mode: 'replace', projectsAdded: parsed.database.projects.length, sessionsAdded: parsed.database.sessions.length, linksAdded: parsed.database.links.length, recordsSkipped: 0 };
     });
@@ -268,21 +268,14 @@ export class LinkShelfRepository {
   }
 
   async updateSettings(update: SettingsUpdate): Promise<Settings> {
-    let updatedSettings: Settings | undefined;
-
-    await this.updateDatabase((database) => {
+    const updated = await this.mutateDatabase((database) => {
       if (!database.projects.some((project) => project.id === update.defaultProjectId)) {
         throw new ProjectNotFoundError('The selected default project no longer exists.');
       }
 
-      updatedSettings = { ...database.settings, ...update };
-      return { ...database, settings: updatedSettings };
-    });
-
-    if (!updatedSettings) {
-      throw new StorageIntegrityError('LinkShelf did not update its settings.');
-    }
-    return updatedSettings;
+      return { ...database, settings: { ...database.settings, ...update } };
+    }, { skipIfUnchanged: true });
+    return structuredClone(updated.settings);
   }
 
   async exportBackup(): Promise<LinkShelfBackup> {
@@ -348,7 +341,11 @@ export class LinkShelfRepository {
         );
       }
 
-      await this.writeValidated(plan.candidate, original, true);
+      await this.writeValidated(plan.candidate, original, {
+        alwaysRollback: true,
+        skipIfUnchanged: mode === 'merge' &&
+          plan.result.projectsAdded === 0 && plan.result.sessionsAdded === 0 && plan.result.linksAdded === 0,
+      });
 
       return plan.result;
     });
@@ -359,12 +356,19 @@ export class LinkShelfRepository {
       current: LinkShelfDatabase,
     ) => LinkShelfDatabase | Promise<LinkShelfDatabase>,
   ): Promise<LinkShelfDatabase> {
+    return this.mutateDatabase(update);
+  }
+
+  private async mutateDatabase(
+    update: (current: LinkShelfDatabase) => LinkShelfDatabase | Promise<LinkShelfDatabase>,
+    options?: { skipIfUnchanged: boolean },
+  ): Promise<LinkShelfDatabase> {
     return this.runExclusive(async () => {
       const state = await this.initializeStateUnsafe();
       const original = state.original;
       const candidate = await update(structuredClone(state.database));
 
-      return this.writeValidated(candidate, original);
+      return this.writeValidated(candidate, original, options);
     });
   }
 
@@ -1290,11 +1294,22 @@ export class LinkShelfRepository {
     if (!token || token !== await this.rawRevision(raw)) throw new StorageValidationError('Stored data changed after raw export. Export the current recovery data and review the backup again.');
   }
 
-  private async writeValidated(database: LinkShelfDatabase, original: unknown = this.storedSnapshot, alwaysRollback = false): Promise<LinkShelfDatabase> {
+  private async writeValidated(
+    database: LinkShelfDatabase,
+    original: unknown,
+    { alwaysRollback = false, skipIfUnchanged = false }: { alwaysRollback?: boolean; skipIfUnchanged?: boolean } = {},
+  ): Promise<LinkShelfDatabase> {
     const result = LinkShelfDatabaseSchema.safeParse(database);
     if (!result.success) throw new StorageValidationError('LinkShelf refused to write data with invalid fields or relationships.');
     const before = await this.readStored();
     if (!storedValuesEqual(before, original)) throw this.enterRecovery([this.diagnostic('STORAGE_CHANGED', 'Stored data changed outside the current operation. Check it again before making changes.')]);
+    // Compare against raw storage so normalization and repairs still persist.
+    // Leave the cache alone in case a storage event invalidated it during the read.
+    if (skipIfUnchanged &&
+        storedValuesEqual((before as LinkShelfDatabase | undefined)?.settings, result.data.settings) &&
+        storedValuesEqual(before, result.data)) {
+      return result.data;
+    }
     let writeError: unknown;
     let writeFailed = false;
     try { await this.storage.set(DATABASE_STORAGE_KEY, result.data); }

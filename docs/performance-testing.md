@@ -50,6 +50,34 @@ representative baseline. The same seed and origin produce identical fixture
 bytes; the local test server's ephemeral port varies across runs. Raw reports
 record sizes, counts, state mix and a fixture hash. No real browsing data is used.
 
+## Storage write comparison
+
+The Phase 2.2 write suite measures unchanged and changed settings saves,
+identical and repeated Merge commits, a Merge that adds a project, session and
+link, and a changed Replace commit as the verified-write control.
+
+```sh
+npm run build
+npm run bench:performance -- --suite=storage-writes --diagnostic
+```
+
+The default matrix retains three samples per case after one warm-up. For each
+sample the suite resets the synthetic fixture and obtains a fresh preview token
+outside the measured interval. For the repeated case, it first imports the
+additions so the timed import sees already-present records. The suite verifies
+the reply, counts and persisted state after stopping the diagnostic trace.
+Remove `--diagnostic` to time the unmodified production worker.
+
+For a matched before/after comparison, use a separate checkout of the Phase
+2.1 merge `d8068d2773977d90b1c25fe3888617ceeef8d0d3`. Copy only
+`scripts/performance/run.mjs` and `scripts/performance/storage-writes.mjs`
+from Phase 2.2 into that checkout, then install from the lockfile, build and
+run the same command. Run the two checkouts sequentially on the same machine.
+Report the candidate validation span (`schema.database`) separately from the
+backup parser. For the successful fixture operations, the precondition read
+is recorded by `repo.readStored` and a changed write also has a post-write
+storage get. Check the actual span counts for extra cache reloads.
+
 ## Clocks and what they mean
 
 - **Production RPC:** the bridge page starts its clock immediately before

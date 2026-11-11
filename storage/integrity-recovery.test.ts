@@ -48,6 +48,207 @@ const invalidCases: Array<[string, (database: LinkShelfDatabase) => void, string
   ['session project mismatch', (d) => { d.projects.push({ ...d.projects[0], id: 'other', isInbox: false }); d.links[0].projectId = 'other'; }, 'LINK_PROJECT_MISMATCH'],
 ];
 
+describe('verified no-op writes', () => {
+  it('checks persisted settings once on each unchanged save and writes and reads back a real change', async () => {
+    const initial = fixture();
+    initial.links[0].faviconUrl = undefined;
+    const { repository, storage } = setup(JSON.parse(JSON.stringify(initial)));
+    await repository.initialize();
+    storage.get.mockClear();
+    for (let i = 0; i < 2; i++) {
+      expect(await repository.updateSettings(initial.settings)).toEqual(initial.settings);
+    }
+    expect(storage.get).toHaveBeenCalledTimes(2);
+    expect(storage.set).not.toHaveBeenCalled();
+    expect(storage.value).toStrictEqual(JSON.parse(JSON.stringify(initial)));
+
+    storage.get.mockClear();
+    const settings = { ...initial.settings, defaultRestoreMode: 'unloaded' as const };
+    const updated = await repository.updateSettings(settings);
+    expect(updated).toEqual(settings);
+    expect(storage.set).toHaveBeenCalledTimes(1);
+    expect(storage.get).toHaveBeenCalledTimes(2);
+    expect(storage.value).toEqual({ ...initial, settings });
+    updated.trackingParamsToRemove.push('caller-only');
+    expect(await repository.getSettings()).toEqual(settings);
+  });
+
+  it('persists schema normalization when an unchanged settings save would change raw storage', async () => {
+    const initial = fixture();
+    initial.projects[0].name = '  Inbox  ';
+    const { repository, storage } = setup(initial);
+    await repository.initialize();
+    expect(storage.set).not.toHaveBeenCalled();
+    await repository.updateSettings(initial.settings);
+    expect(storage.set).toHaveBeenCalledTimes(1);
+    expect((storage.value as LinkShelfDatabase).projects[0].name).toBe('Inbox');
+  });
+
+  it.each([
+    { change: 'order', trackingParamsToRemove: ['second', 'first'] },
+    { change: 'length', trackingParamsToRemove: ['first'] },
+  ])('persists a change to tracking parameter $change', async ({ trackingParamsToRemove }) => {
+    const initial = fixture();
+    initial.settings.trackingParamsToRemove = ['first', 'second'];
+    const { repository, storage } = setup(initial);
+    await repository.initialize();
+    const settings = { ...initial.settings, trackingParamsToRemove };
+    expect(await repository.updateSettings(settings)).toEqual(settings);
+    expect(storage.set).toHaveBeenCalledTimes(1);
+    expect(storage.value).toEqual({ ...initial, settings });
+  });
+
+  it('preserves Merge counts, existing metadata and settings over repeated identical-ID imports', async () => {
+    const initial = fixture();
+    const { repository, storage } = setup(initial);
+    const identical = backup(initial);
+    const differentMetadata = backup(structuredClone(initial));
+    differentMetadata.database.links[0].note = 'Incoming note';
+    differentMetadata.database.links[0].updatedAt = '2026-11-10T10:00:00.000Z';
+    delete differentMetadata.database.links[0].reminderNotifiedAt;
+    differentMetadata.database.settings.notificationsEnabled = !initial.settings.notificationsEnabled;
+    for (const source of [identical, differentMetadata, differentMetadata]) {
+      const preview = await repository.previewImportBackup(source, 'merge');
+      storage.get.mockClear();
+      const result = await repository.importBackup(source, 'merge', preview.revisionToken);
+      expect(result).toEqual({ mode: 'merge', projectsAdded: 0, sessionsAdded: 0, linksAdded: 0, recordsSkipped: 6 });
+      expect(storage.get).toHaveBeenCalledTimes(1);
+      expect(storage.set).not.toHaveBeenCalled();
+      expect(storage.value).toStrictEqual(initial);
+    }
+  });
+
+  it('writes Merge additions, then skips a repeat while retaining identical Replace writes', async () => {
+    const initial = fixture();
+    const { repository, storage } = setup(initial);
+    const added = structuredClone(initial);
+    added.projects.push({ ...initial.projects[0], id: 'added-project', isInbox: false });
+    added.sessions.push({ ...initial.sessions[0], id: 'added-session', projectId: 'added-project' });
+    added.links.push({ ...initial.links[0], id: 'added-link', projectId: 'added-project', sessionId: 'added-session' });
+    const source = backup(added);
+    const preview = await repository.previewImportBackup(source, 'merge');
+    storage.get.mockClear();
+    expect(await repository.importBackup(source, 'merge', preview.revisionToken)).toMatchObject({
+      projectsAdded: 1, sessionsAdded: 1, linksAdded: 1, recordsSkipped: 6,
+    });
+    expect(storage.set).toHaveBeenCalledTimes(1);
+    expect(storage.get).toHaveBeenCalledTimes(2);
+    expect(storage.value).toStrictEqual(added);
+    await expect(repository.importBackup(source, 'merge', preview.revisionToken)).rejects.toThrow(/data changed/);
+    const repeat = await repository.previewImportBackup(source, 'merge');
+    expect(await repository.importBackup(source, 'merge', repeat.revisionToken)).toMatchObject({ linksAdded: 0, recordsSkipped: 9 });
+    expect(storage.set).toHaveBeenCalledTimes(1);
+    const replace = await repository.previewImportBackup(source, 'replace');
+    await repository.importBackup(source, 'replace', replace.revisionToken);
+    expect(storage.set).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a same-ID Merge with conflicting relationships before persistence', async () => {
+    const initial = fixture();
+    const { repository, storage } = setup(initial);
+    const other = structuredClone(initial);
+    other.projects.push({ ...initial.projects[0], id: 'other-project', isInbox: false });
+    other.sessions[0].projectId = 'other-project';
+    other.links.forEach(link => { link.projectId = 'other-project'; });
+    const source = backup(other);
+    const preview = await repository.previewImportBackup(source, 'merge');
+    expect(preview.conflicts).toBeGreaterThan(0);
+    await expect(repository.importBackup(source, 'merge', preview.revisionToken)).rejects.toThrow(/conflicts/);
+    expect(storage.value).toStrictEqual(initial);
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it.each(['settings', 'merge'] as const)('rejects a cached no-op %s after an external change and blocks further mutations', async (mode) => {
+    const initial = fixture();
+    const { repository, storage } = setup(initial);
+    const source = backup(initial);
+    const preview = await repository.previewImportBackup(source, 'merge');
+    const external = structuredClone(initial);
+    external.links[0].reminderNotifiedAt = '2026-11-10T10:00:00.000Z';
+    storage.value = external;
+    const operation = mode === 'settings'
+      ? repository.updateSettings(initial.settings)
+      : repository.importBackup(source, 'merge', preview.revisionToken);
+    await expect(operation).rejects.toBeInstanceOf(StorageIntegrityError);
+    expect(await repository.getStorageStatus()).toMatchObject({ state: 'recovery', diagnostics: [{ code: 'STORAGE_CHANGED' }] });
+    await expect(repository.updateSettings(initial.settings)).rejects.toBeInstanceOf(StorageIntegrityError);
+    await expect(repository.importBackup(source, 'merge', preview.revisionToken)).rejects.toBeInstanceOf(StorageIntegrityError);
+    expect(storage.value).toStrictEqual(external);
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it('does not repopulate the cache when an event invalidates it during a no-op read', async () => {
+    const initial = fixture();
+    const { repository, storage } = setup(initial);
+    await repository.initialize();
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    storage.get.mockImplementationOnce(async () => {
+      entered.resolve();
+      await resume.promise;
+      return structuredClone(storage.value);
+    });
+    const pending = repository.updateSettings(initial.settings);
+    await entered.promise;
+    repository.invalidateCache();
+    resume.resolve();
+    expect(await pending).toEqual(initial.settings);
+    expect(storage.set).not.toHaveBeenCalled();
+    storage.get.mockClear();
+    await repository.getDatabase();
+    expect(storage.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('validates before checking equality and still enters recovery if the precondition is unreadable', async () => {
+    const initial = fixture();
+    const { repository, storage } = setup(initial);
+    await repository.initialize();
+    storage.get.mockClear();
+    const invalid = { ...initial.settings, trackingParamsToRemove: [''] };
+    await expect(repository.updateSettings(invalid)).rejects.toBeInstanceOf(StorageValidationError);
+    expect(storage.get).not.toHaveBeenCalled();
+    storage.get.mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(repository.updateSettings(initial.settings)).rejects.toBeInstanceOf(StorageIntegrityError);
+    expect(await repository.getStorageStatus()).toMatchObject({ state: 'recovery', diagnostics: [{ code: 'STORAGE_UNAVAILABLE' }] });
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it('verifies rollback when a changed settings write mutates storage and then fails', async () => {
+    const initial = fixture();
+    const { repository, storage } = setup(initial);
+    await repository.initialize();
+    storage.get.mockClear();
+    storage.set.mockImplementationOnce(async (_key, value) => {
+      storage.value = structuredClone(value);
+      throw new Error('synthetic write failure');
+    });
+    await expect(repository.updateSettings({ ...initial.settings, defaultRestoreMode: 'unloaded' }))
+      .rejects.toThrow('synthetic write failure');
+    expect(storage.set).toHaveBeenCalledTimes(2);
+    expect(storage.get).toHaveBeenCalledTimes(3);
+    expect(storage.value).toStrictEqual(initial);
+  });
+
+  it('validates persisted state after restart and skips an unchanged settings write', async () => {
+    const initial = fixture();
+    const { storage } = setup(initial);
+    const restarted = new LinkShelfRepository(storage);
+    expect(await restarted.updateSettings(initial.settings)).toEqual(initial.settings);
+    expect(storage.get).toHaveBeenCalledTimes(2);
+    expect(storage.set).not.toHaveBeenCalled();
+  });
+
+  it('persists a legacy migration before skipping an unchanged settings save', async () => {
+    const initial = fixture();
+    initial.settings.displayDensity = 'comfortable';
+    initial.settings.defaultRestoreMode = 'normal';
+    const { repository, storage } = setup(legacy(initial));
+    expect(await repository.updateSettings(initial.settings)).toEqual(initial.settings);
+    expect(storage.set).toHaveBeenCalledTimes(1);
+    expect(storage.value).toStrictEqual(initial);
+  });
+});
+
 describe('shared integrity validation and safe initialization', () => {
   // Fixed 2,048-element fixtures exercise invalid-array handling without probing
   // resource exhaustion or making timing/heap assumptions about the machine.
