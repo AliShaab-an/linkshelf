@@ -19,6 +19,8 @@ import { BookmarkLinkDialog } from './BookmarkLinkDialog';
 import { NativeBookmarkCard } from './NativeBookmarkCard';
 import { RemoveLinkDialog } from './RemoveLinkDialog';
 import { SavedLinkCard } from './SavedLinkCard';
+import { ListNavigation } from './ui/ListNavigation';
+import { listRange, LIST_PAGE_SIZE } from '../list-range';
 
 export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -28,6 +30,10 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
   const [bookmarks, setBookmarks] = useState<NativeBookmarkResult[]>([]);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [page, setPage] = useState<SearchPage>();
+  const [savedPage, setSavedPage] = useState(0);
+  const [bookmarkPage, setBookmarkPage] = useState(0);
+  const savedHeading = useRef<HTMLHeadingElement>(null);
+  const bookmarkHeading = useRef<HTMLHeadingElement>(null);
   const [loadingMore, setLoadingMore] = useState<'results' | 'bookmarks'>();
   const [pageError, setPageError] = useState<string>();
   const requestVersion = useRef(0);
@@ -85,9 +91,21 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
         .then((response) => {
           if (requestVersion.current !== version) return;
           if (!response.success) throw new Error(response.error.message);
+          const active = document.activeElement;
+          const focusedCard = active?.closest('article')?.id;
+          const focusedRange = active?.closest('nav')?.getAttribute('aria-label');
+          const keepLoadMore = active?.hasAttribute('data-search-more') &&
+            (focusedRange === 'LinkShelf result pages' ? response.page?.nextResults : response.page?.nextBookmarks) !== undefined;
+          if ((focusedCard?.startsWith('search-link-') && !response.results.some(({ link }) => focusedCard === `search-link-${link.id}`)) ||
+              (focusedCard?.startsWith('search-bookmark-') && !response.bookmarks.some(bookmark => focusedCard === `search-bookmark-${bookmark.id}`)) ||
+              ((focusedRange === 'LinkShelf result pages' || focusedRange === 'Chrome bookmark pages') && !keepLoadMore)) {
+            searchInputRef.current?.focus();
+          }
           setResults(response.results);
           setBookmarks(response.bookmarks);
           setPage(response.page);
+          setSavedPage(0);
+          setBookmarkPage(0);
         })
         .catch((caughtError) => {
           if (requestVersion.current === version) setPageError(errorMessage(caughtError, 'LinkShelf could not search saved links.'));
@@ -106,6 +124,8 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
     setResults([]);
     setBookmarks([]);
     setPage(undefined);
+    setSavedPage(0);
+    setBookmarkPage(0);
     setLoadingMore(undefined);
     setPageError(undefined);
     setIsSearching(!!value.trim());
@@ -115,6 +135,7 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
     const offset = category === 'results' ? page?.nextResults : page?.nextBookmarks;
     if (!page || offset === undefined || pagePending.current || isSearching) return;
     const version = requestVersion.current;
+    const trigger = document.activeElement;
     pagePending.current = true;
     setLoadingMore(category);
     setPageError(undefined);
@@ -131,9 +152,13 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
       if (!response.page) throw new Error('LinkShelf could not load this search page.');
       if (category === 'results') {
         setResults(current => [...current, ...response.results]);
+        setSavedPage(Math.floor(offset / LIST_PAGE_SIZE));
+        if (response.page.nextResults === undefined && document.activeElement === trigger && trigger instanceof HTMLButtonElement) savedHeading.current?.focus();
         setPage({ ...page, nextResults: response.page.nextResults });
       } else {
         setBookmarks(current => [...current, ...response.bookmarks]);
+        setBookmarkPage(Math.floor(offset / LIST_PAGE_SIZE));
+        if (response.page.nextBookmarks === undefined && document.activeElement === trigger && trigger instanceof HTMLButtonElement) bookmarkHeading.current?.focus();
         setPage({ ...page, nextBookmarks: response.page.nextBookmarks });
       }
     } catch (caughtError) {
@@ -174,11 +199,14 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
   async function confirmRemove() {
     if (!removeCandidate) return;
     const link = removeCandidate;
+    const hadFocus = !!document.activeElement?.closest('[role="dialog"]');
     setWorkingId(link.id); setError(null);
     try {
       const response = await removeLink(link.id);
       setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
+      if (document.activeElement?.closest('[role="dialog"]') ||
+          (hadFocus && document.activeElement === document.body)) searchInputRef.current?.focus();
       refreshSearch(); setRemoveCandidate(null);
       setMessage(`Removed “${link.title}” from LinkShelf.`);
     } catch (caughtError) {
@@ -236,6 +264,8 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
   }
 
   const resultCount = (page?.totalResults ?? results.length) + (page?.totalBookmarks ?? bookmarks.length);
+  const savedRange = listRange(results.length, savedPage);
+  const bookmarkRange = listRange(bookmarks.length, bookmarkPage);
 
   return (
     <>
@@ -255,17 +285,21 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
       {error && <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</p>}
       {!isSearching && query.trim() && !error && !pageError && resultCount === 0 && <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center"><h3 className="font-semibold">No matching links</h3><p className="mt-1 text-sm text-slate-500">Try a title, domain, note, or project name.</p></div>}
 
-      {results.length > 0 && <h3 className="mt-5 text-xs font-bold uppercase tracking-wide text-slate-500">LinkShelf · {results.length} of {page?.totalResults ?? results.length}</h3>}
+      {results.length > 0 && <h3 ref={savedHeading} tabIndex={-1} className="mt-5 text-xs font-bold uppercase tracking-wide text-slate-500">LinkShelf · {results.length} of {page?.totalResults ?? results.length}</h3>}
+      <ListNavigation label="LinkShelf result pages" range={savedRange} count={results.length} onPage={setSavedPage}>
+        {page?.nextResults !== undefined && <button type="button" data-search-more className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold aria-disabled:opacity-60" aria-disabled={isSearching || !!loadingMore} onClick={() => void loadMore('results')}>{loadingMore === 'results' ? 'Loading links…' : 'Load more LinkShelf links'}</button>}
+      </ListNavigation>
       <div className="mt-2 space-y-3">
-        {results.map(({ link, projectName }) => <SavedLinkCard key={link.id} link={link} projectName={projectName} showStatus isRestoring={workingId === link.id} onRestore={link.status === 'parked' ? () => void handleRestore(link) : undefined} onArchive={link.status === 'parked' ? () => void runAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`) : undefined} onUnarchive={link.status === 'archived' ? () => void runAction(link, () => unarchiveLink(link.id), `Returned “${link.title}” to its project.`) : undefined} onBookmark={link.status === 'parked' ? () => void startBookmarking(link) : undefined} onRemove={() => setRemoveCandidate(link)} />)}
+        {results.slice(savedRange.start, savedRange.end).map(({ link, projectName }) => <SavedLinkCard key={link.id} cardId={`search-link-${link.id}`} link={link} projectName={projectName} showStatus isRestoring={workingId === link.id} onRestore={link.status === 'parked' ? () => void handleRestore(link) : undefined} onArchive={link.status === 'parked' ? () => void runAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`) : undefined} onUnarchive={link.status === 'archived' ? () => void runAction(link, () => unarchiveLink(link.id), `Returned “${link.title}” to its project.`) : undefined} onBookmark={link.status === 'parked' ? () => void startBookmarking(link) : undefined} onRemove={() => setRemoveCandidate(link)} />)}
       </div>
-      {page?.nextResults !== undefined && <button type="button" className="mt-3 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-60" disabled={isSearching || !!loadingMore} onClick={() => void loadMore('results')}>{loadingMore === 'results' ? 'Loading links…' : 'Load more LinkShelf links'}</button>}
 
-      {bookmarks.length > 0 && <h3 className="mt-5 text-xs font-bold uppercase tracking-wide text-slate-500">Chrome bookmarks · {bookmarks.length} of {page?.totalBookmarks ?? bookmarks.length}</h3>}
+      {bookmarks.length > 0 && <h3 ref={bookmarkHeading} tabIndex={-1} className="mt-5 text-xs font-bold uppercase tracking-wide text-slate-500">Chrome bookmarks · {bookmarks.length} of {page?.totalBookmarks ?? bookmarks.length}</h3>}
+      <ListNavigation label="Chrome bookmark pages" range={bookmarkRange} count={bookmarks.length} onPage={setBookmarkPage}>
+        {page?.nextBookmarks !== undefined && <button type="button" data-search-more className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold aria-disabled:opacity-60" aria-disabled={isSearching || !!loadingMore} onClick={() => void loadMore('bookmarks')}>{loadingMore === 'bookmarks' ? 'Loading bookmarks…' : 'Load more Chrome bookmarks'}</button>}
+      </ListNavigation>
       <div className="mt-2 space-y-3">
-        {bookmarks.map((bookmark) => <NativeBookmarkCard key={bookmark.id} bookmark={bookmark} isOpening={workingId === `bookmark:${bookmark.id}`} onOpen={() => void handleOpen(bookmark)} />)}
+        {bookmarks.slice(bookmarkRange.start, bookmarkRange.end).map((bookmark) => <NativeBookmarkCard key={bookmark.id} cardId={`search-bookmark-${bookmark.id}`} bookmark={bookmark} isOpening={workingId === `bookmark:${bookmark.id}`} onOpen={() => void handleOpen(bookmark)} />)}
       </div>
-      {page?.nextBookmarks !== undefined && <button type="button" className="mt-3 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-60" disabled={isSearching || !!loadingMore} onClick={() => void loadMore('bookmarks')}>{loadingMore === 'bookmarks' ? 'Loading bookmarks…' : 'Load more Chrome bookmarks'}</button>}
       {pageError && <div className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700"><p role="alert">{pageError}</p><button type="button" className="mt-2 underline" onClick={refreshSearch}>Refresh search</button></div>}
     </>
   );

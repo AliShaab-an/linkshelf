@@ -2,11 +2,14 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { DisplayDensity, SavedLink } from '@/domain/schemas';
 import { Icon } from './ui/Icon';
 
+const linkDateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
 export function formatLinkDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+  return linkDateFormatter.format(new Date(value));
 }
 
 interface SavedLinkCardProps {
+  cardId?: string;
   link: SavedLink;
   note?: string;
   projectName?: string;
@@ -22,19 +25,21 @@ interface SavedLinkCardProps {
   onRemove?: () => void;
 }
 
-export function SavedLinkCard({ link, note = link.note, projectName, isDue = false, showStatus = false, density = 'comfortable', isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
+export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, showStatus = false, density = 'comfortable', isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const secondaryActions = Boolean(onMove || onArchive || onUnarchive || onRemove);
   const favicon = link.faviconUrl;
 
   function action(callback?: () => void) {
+    menuButton.current?.focus({ preventScroll: true });
     setIsMenuOpen(false);
     callback?.();
   }
 
   const compact = density === 'compact';
 
-  return <article className={`relative border bg-white shadow-sm shadow-slate-200/60 transition hover:-translate-y-px hover:shadow-md ${compact ? 'rounded-xl p-3' : 'rounded-2xl p-4'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}>
+  return <article id={cardId} className={`relative border bg-white shadow-sm shadow-slate-200/60 transition hover:-translate-y-px hover:shadow-md ${compact ? 'rounded-xl p-3' : 'rounded-2xl p-4'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}>
     <div className="flex items-start gap-3">
       <div className={`flex shrink-0 items-center justify-center overflow-hidden bg-slate-100 text-sm font-extrabold text-slate-500 ${compact ? 'size-8 rounded-lg' : 'size-10 rounded-xl'}`}>
         {favicon ? <img src={favicon} alt="" className="size-5"/> : link.domain.charAt(0).toUpperCase()}
@@ -56,7 +61,7 @@ export function SavedLinkCard({ link, note = link.note, projectName, isDue = fal
     <div className={`${compact ? 'mt-2' : 'mt-3'} flex items-center gap-2`}>
       {onRestore && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-45" disabled={isRestoring} onClick={onRestore}><Icon name="undo"/>{isRestoring ? 'Working...' : 'Restore'}</button>}
       {onBookmark && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-45" disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark"/>Keep</button>}
-      {secondaryActions && <button type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" aria-label="More link actions" aria-expanded={isMenuOpen} disabled={isRestoring} onClick={() => setIsMenuOpen((open) => !open)}><Icon name="more"/></button>}
+      {secondaryActions && <button ref={menuButton} type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" aria-label="More link actions" aria-expanded={isMenuOpen} disabled={isRestoring} onClick={() => setIsMenuOpen((open) => !open)}><Icon name="more"/></button>}
     </div>
 
     {isMenuOpen && <div className="absolute bottom-14 right-4 z-20 min-w-40 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl" role="menu">
