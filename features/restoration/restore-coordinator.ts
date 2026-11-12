@@ -1,4 +1,5 @@
 import type { SavedLink } from '@/domain/schemas';
+import { restoreIdentity, sameRestoreIdentity, type RestoreIdentity } from '@/domain/restore-identity';
 import type { RestoreLinkMessage, RestoreProjectMessage, RestoreSessionMessage } from '@/messaging/contracts';
 import type { LinkShelfRepository } from '@/storage/repository';
 import { OperationCoordinator } from '@/features/operations/operation-coordinator';
@@ -15,16 +16,28 @@ interface RestoreTabsApi {
 
 export function createRestoreCoordinator(repository: LinkShelfRepository, operations: OperationCoordinator, tabs: RestoreTabsApi) {
   // Receipts are recovery data, not locks. Keep only confirmed opens awaiting persistence.
-  const opened = new Map<string, { url: string; createdAt: string; outcome: RestoreTabOutcome }>();
-  async function open(link: SavedLink, markAsRestored: boolean, create: () => Promise<RestoreTabOutcome>) {
+  const opened = new Map<string, { identity: RestoreIdentity; outcome: RestoreTabOutcome }>();
+  async function open(link: SavedLink, markAsRestored: boolean, create: () => Promise<{ id?: number }>, unloaded = false) {
     const previous = opened.get(link.id);
-    if (previous?.url === link.url && previous.createdAt === link.createdAt) return previous.outcome;
-    const outcome = await create();
-    if (markAsRestored) opened.set(link.id, { url: link.url, createdAt: link.createdAt, outcome });
+    if (previous) {
+      if (!sameRestoreIdentity(previous.identity, link)) throw new Error('The saved link no longer matches an unacknowledged tab opening.');
+      return previous.outcome;
+    }
+    const tab = await create();
+    const outcome = { discarded: false, fallback: unloaded };
+    if (markAsRestored) opened.set(link.id, { identity: restoreIdentity(link), outcome });
+    if (unloaded && tab.id !== undefined) {
+      try {
+        if ((await tabs.discard(tab.id))?.discarded) {
+          outcome.discarded = true;
+          outcome.fallback = false;
+        }
+      } catch { /* Chrome confirmed opening. Discard failure is a fallback. */ }
+    }
     return outcome;
   }
   async function markRestored(id: string) {
-    const result = await repository.markLinkRestored(id);
+    const result = await repository.markLinkRestored(id, opened.get(id)?.identity);
     opened.delete(id);
     return result;
   }
@@ -38,14 +51,11 @@ export function createRestoreCoordinator(repository: LinkShelfRepository, operat
           let captured: SavedLink;
           const result = await executeRestoreLink(message, {
             getLink: async (id) => { const link = await repository.getLink(id); if (link) captured = link; return link; },
-            openTab: () => open(captured, settings.defaultRestoreBehavior === 'restore-and-remove', async () => {
-              await tabs.create({ url: captured.url, active: true, windowId });
-              return { discarded: false, fallback: false };
-            }).then(() => undefined),
+            openTab: () => open(captured, settings.defaultRestoreBehavior === 'restore-and-remove',
+              () => tabs.create({ url: captured.url, active: true, windowId })).then(() => undefined),
             markLinkRestored: markRestored,
             markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
           });
-          if (result.success) opened.delete(message.payload.linkId);
           return result;
         });
       });
@@ -70,20 +80,25 @@ export function createRestoreCoordinator(repository: LinkShelfRepository, operat
             openTab: (url: string, link?: SavedLink) => open(link!, markAsRestored, async () => {
               const tab = await tabs.create({ url, active: false, windowId, index: nextIndex });
               nextIndex += 1;
-              if (mode === 'normal' || tab.id === undefined) return { discarded: false, fallback: mode === 'unloaded' };
-              try {
-                const discarded = await tabs.discard(tab.id);
-                if (discarded?.discarded) return { discarded: true, fallback: false };
-              } catch { /* Confirmed open; report an unloaded-mode fallback rather than retrying creation. */ }
-              return { discarded: false, fallback: true };
-            }),
+              return tab;
+            }, mode === 'unloaded'),
             markLinkRestored: markRestored,
+            async markLinksRestoredBatch(confirmed: readonly SavedLink[]) {
+              const identities = confirmed.map(link => {
+                const receipt = opened.get(link.id);
+                if (!receipt || !sameRestoreIdentity(receipt.identity, link)) {
+                  throw new Error('A saved link has no matching confirmed tab opening.');
+                }
+                return receipt.identity;
+              });
+              await repository.markLinksRestoredBatch(identities);
+              for (const link of confirmed) opened.delete(link.id);
+            },
             markAsRestored,
           };
           const result = message.type === 'RESTORE_SESSION'
             ? await executeRestoreSession(message, dependencies)
             : await executeRestoreProject(message, dependencies);
-          if (result.success) result.openedLinkIds.forEach((id) => opened.delete(id));
           return result;
         });
       });

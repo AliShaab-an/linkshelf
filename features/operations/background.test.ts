@@ -175,14 +175,30 @@ describe('background operation outcomes', () => {
   });
 
   it('reports opened tabs and completed records on a mid-restore write failure', async () => {
-    await park(false, [1, 2]);
+    const { linkIds } = await park(false, [1, 2, 3, 4, 5]);
     const original = api.storage.local.set.getMockImplementation();
     api.storage.local.set.mockImplementationOnce(original).mockRejectedValueOnce(new Error('Second state write failed'));
-    const result = await request({ type: 'RESTORE_SESSION', payload: { sessionId: stored().sessions[0].id } });
+    const message = { type: 'RESTORE_SESSION', payload: { sessionId: stored().sessions[0].id } };
+    const result = await request(message);
     expect(result).toMatchObject({ success: false, opened: true, error: { code: 'STORAGE_FAILED' } });
-    expect(result.progress.openedLinkIds).toHaveLength(2);
-    expect(result.progress.restoredLinkIds).toHaveLength(1);
-    expect(stored().links.map((link: SavedLink) => link.status)).toEqual(['restored', 'parked']);
+    expect(result.progress.openedLinkIds).toEqual(linkIds.slice(0, 4));
+    expect(result.progress.restoredLinkIds).toEqual(linkIds.slice(0, 2));
+    expect(result.error.message).toContain('1 link was not attempted');
+    expect(stored().links.map((link: SavedLink) => link.status)).toEqual(['restored', 'restored', 'parked', 'parked', 'parked']);
+    expect(api.tabs.create).toHaveBeenCalledTimes(4);
+    expect(await request(message)).toMatchObject({ success: true, restoredLinkIds: linkIds.slice(2) });
+    expect(api.tabs.create).toHaveBeenCalledTimes(5);
+  });
+
+  it.each(['RESTORE_SESSION', 'RESTORE_PROJECT'])('persists ten confirmed %s openings in five verified checkpoints', async (type) => {
+    const { linkIds } = await park(false, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    api.storage.local.get.mockClear();
+    api.storage.local.set.mockClear();
+    const payload = type === 'RESTORE_SESSION' ? { sessionId: stored().sessions[0].id } : { projectId: 'inbox', mode: 'normal' };
+    expect(await request({ type, payload })).toMatchObject({ success: true, complete: true, openedLinkIds: linkIds, restoredLinkIds: linkIds });
+    expect(api.tabs.create).toHaveBeenCalledTimes(10);
+    expect(api.storage.local.set).toHaveBeenCalledTimes(5);
+    expect(api.storage.local.get).toHaveBeenCalledTimes(10);
   });
 
   it('preserves opened=true when a single restore state write fails', async () => {

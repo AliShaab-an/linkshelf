@@ -48,6 +48,88 @@ const invalidCases: Array<[string, (database: LinkShelfDatabase) => void, string
   ['session project mismatch', (d) => { d.projects.push({ ...d.projects[0], id: 'other', isInbox: false }); d.links[0].projectId = 'other'; }, 'LINK_PROJECT_MISMATCH'],
 ];
 
+describe('verified restoration checkpoints', () => {
+  const timestamp = '2026-11-10T10:00:00.000Z';
+  function parkedFixture(count = 11) {
+    const database = fixture(count);
+    for (const link of database.links) link.status = 'parked';
+    return database;
+  }
+
+  it.each([2, 5, 10])('commits %i confirmed identities with one set and verified readback', async count => {
+    const initial = parkedFixture();
+    const storage = new MemoryStorage(initial);
+    const repository = new LinkShelfRepository(storage, () => timestamp);
+    await repository.initialize();
+    storage.get.mockClear();
+    await repository.markLinksRestoredBatch(initial.links.slice(0, count));
+    expect(storage.set).toHaveBeenCalledTimes(1);
+    expect(storage.get).toHaveBeenCalledTimes(2);
+    expect(storage.value).toEqual({
+      ...initial,
+      links: initial.links.map((link, index) => index < count
+        ? { ...link, status: 'restored', restoredAt: timestamp, updatedAt: timestamp }
+        : link),
+    });
+  });
+
+  it.each(['empty', 'duplicate', 'missing', 'moved', 'replaced', 'archived', 'restored', 'removed'] as const)(
+    'rejects a checkpoint containing a %s identity without partial mutation', async kind => {
+      const initial = parkedFixture();
+      const [first, second] = structuredClone(initial.links);
+      const confirmed = [first, second];
+      if (kind === 'empty') confirmed.length = 0;
+      else if (kind === 'duplicate') confirmed.push(first);
+      else if (kind === 'missing') second.id = 'missing';
+      else if (kind === 'moved') second.sessionId = 'other';
+      else if (kind === 'replaced') second.url += '/replacement';
+      else initial.links[1].status = kind;
+      const { repository, storage } = setup(initial);
+      await expect(repository.markLinksRestoredBatch(confirmed)).rejects.toThrow();
+      expect(storage.set).not.toHaveBeenCalled();
+      expect(storage.value).toEqual(initial);
+    },
+  );
+
+  it('rolls back the full checkpoint if Chrome applies the write then rejects it', async () => {
+    const initial = parkedFixture();
+    const { repository, storage } = setup(initial);
+    await repository.initialize();
+    storage.get.mockClear();
+    storage.set.mockImplementationOnce(async (_key, value) => {
+      storage.value = structuredClone(value);
+      throw new Error('Injected quota failure');
+    });
+    await expect(repository.markLinksRestoredBatch(initial.links.slice(0, 2))).rejects.toThrow(/storage space/);
+    expect(storage.set).toHaveBeenCalledTimes(2);
+    expect(storage.get).toHaveBeenCalledTimes(3);
+    expect(storage.value).toEqual(initial);
+  });
+
+  it('enters recovery after uncertain readback and prevents further checkpoint writes', async () => {
+    const initial = parkedFixture();
+    const { repository, storage } = setup(initial);
+    await repository.initialize();
+    storage.get.mockResolvedValueOnce(initial).mockRejectedValueOnce(new Error('Injected readback failure'));
+    await expect(repository.markLinksRestoredBatch(initial.links.slice(0, 2))).rejects.toBeInstanceOf(StorageIntegrityError);
+    expect((await repository.getStorageStatus()).state).toBe('recovery');
+    await expect(repository.markLinksRestoredBatch(initial.links.slice(2, 4))).rejects.toBeInstanceOf(StorageIntegrityError);
+    expect(storage.set).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves an external change made after the original snapshot was captured', async () => {
+    const initial = parkedFixture();
+    const { repository, storage } = setup(initial);
+    await repository.initialize();
+    const external = structuredClone(initial);
+    external.links[2].note = 'Changed in another context';
+    storage.value = external;
+    await expect(repository.markLinksRestoredBatch(initial.links.slice(0, 2))).rejects.toBeInstanceOf(StorageIntegrityError);
+    expect(storage.set).not.toHaveBeenCalled();
+    expect(storage.value).toEqual(external);
+  });
+});
+
 describe('verified no-op writes', () => {
   it('checks persisted settings once on each unchanged save and writes and reads back a real change', async () => {
     const initial = fixture();

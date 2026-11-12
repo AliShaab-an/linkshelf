@@ -187,15 +187,26 @@ describe('concurrent operations through actual background handlers', () => {
   });
 
   it('recovers partial collection writes and does not reopen its confirmed earlier tab', async () => {
-    const links = await park();
+    const links = await park([1, 2, 3, 4]);
     const set = api.storage.local.set.getMockImplementation();
     api.storage.local.set.mockImplementationOnce(set).mockRejectedValueOnce(new Error('Second write fails'));
     const result = await session(links[0]);
-    expect(result).toMatchObject({ success: false, opened: true, progress: { openedLinkIds: links.map((link) => link.id), restoredLinkIds: [links[0].id] } });
-    expect(stored().links.map((link) => link.status)).toEqual(['restored', 'parked']);
+    expect(result).toMatchObject({ success: false, opened: true, progress: { openedLinkIds: links.map((link) => link.id), restoredLinkIds: links.slice(0, 2).map(link => link.id) } });
+    expect(stored().links.map((link) => link.status)).toEqual(['restored', 'restored', 'parked', 'parked']);
     expect((await project()).success).toBe(true);
-    expect(api.tabs.create).toHaveBeenCalledTimes(2);
+    expect(api.tabs.create).toHaveBeenCalledTimes(4);
     expect(stored().links.every((link) => link.status === 'restored')).toBe(true);
+  });
+
+  it('does not reuse or replay a failed checkpoint receipt for a moved record', async () => {
+    const [link] = await park();
+    api.storage.local.set.mockRejectedValueOnce(new Error('First checkpoint fails'));
+    expect(await session(link)).toMatchObject({ success: false, opened: true, progress: { restoredLinkIds: [] } });
+    const { project: destination } = await request({ type: 'CREATE_PROJECT', payload: { name: 'Destination' } });
+    expect(await request({ type: 'MOVE_LINK', payload: { linkId: link.id, projectId: destination.id } })).toMatchObject({ success: true });
+    expect(await project(destination.id)).toMatchObject({ success: false, opened: false, error: { code: 'TAB_OPEN_FAILED' } });
+    expect(api.tabs.create).toHaveBeenCalledTimes(2);
+    expect(stored().links.find(item => item.id === link.id)?.status).toBe('parked');
   });
 
   it.each(['ARCHIVE_LINK', 'REMOVE_LINK', 'MOVE_LINK', 'BOOKMARK_LINK'])('coordinates %s against a running restore', async (type) => {
