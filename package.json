@@ -17,6 +17,8 @@
     "test:integration": "vitest run features/operations features/reminders/reminder-background.test.ts storage",
     "test:native": "node scripts/native/run.mjs",
     "bench:performance": "node scripts/performance/run.mjs",
+    "perf:baseline": "node scripts/performance/baseline.mjs",
+    "perf:compare": "node scripts/performance/compare.mjs",
     "check:package": "node scripts/check-package.mjs",
     "verify": "npm run compile && npm test && npm run build",
     "release": "npm run verify && npm run zip",

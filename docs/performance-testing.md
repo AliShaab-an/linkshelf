@@ -1,8 +1,10 @@
 # LinkShelf performance baseline
 
-Phase 2.1 measures the merged reliability build. It does not change application
-behavior, permissions, database format, backup semantics, or ordinary CI. See
-[the report](../PHASE_2_1_PERFORMANCE_REPORT.md) for findings and exact evidence.
+Phase 2.1 established the original profiling baseline for the merged reliability
+build. Phase 2.6 establishes the consolidated reference after the Phase 2
+storage, Search, rendering, and restoration optimizations.
+[Original profiling report](../PHASE_2_1_PERFORMANCE_REPORT.md) ·
+[Phase 2.6 release baseline](../PHASE_2_6_IMPLEMENTATION_REPORT.md)
 
 ## Setup
 
@@ -19,6 +21,75 @@ npm run build
 npm run bench:performance -- --help
 npm run bench:performance
 ```
+
+## Phase 2 release baseline and regression checks
+
+Run `npm run verify` for ordinary automated verification. Deterministic
+assertions about results, ordering, invalidation, recovery, and controlled
+storage work counts are blocking. The native suites check the actual
+extension in Chrome and also treat correctness failures as blocking:
+
+```sh
+npm run test:native
+node scripts/native/search.mjs
+node scripts/native/rendering.mjs
+node scripts/native/bulk-restore.mjs
+```
+
+With the production build ready, use the small default matrix or the full
+baseline. Run them sequentially on the same machine when comparing.
+
+```sh
+npm run perf:baseline
+npm run perf:baseline -- --full
+npm run perf:compare -- <baseline.json> <candidate.json>
+npm run perf:compare -- <baseline.json> <candidate.json> --json
+```
+
+The full baseline uses both distributions at 100, 1,000, 5,000 and 10,000
+links for core, paged Search and Archive. Storage mutations and bulk
+restoration use the 100- and 10,000-link few-session cases. The smoke matrix
+uses 100 links for core, storage, bulk and paged Search, and 100/1,000 for
+Archive. Both include a 1,000-link sidebar Search workload. The full
+matrix also records the Projects scenarios and marks absent continuation
+controls as intentionally skipped. The raw runners remain
+available for choosing individual operations.
+
+Normalized reports are written under ignored `.output/performance-baselines/`.
+They link to raw reports under ignored `.output/native-runs/`. The canonical
+fixture hash uses the fixed seed and a stable synthetic origin so an ephemeral
+loopback port does not make equivalent fixtures incomparable. Raw reports
+retain the actual fixture hash where supported. The baseline command closes
+Chrome and the loopback server and removes its own disposable profiles
+after shutdown. Build snapshots and metrics remain available locally.
+
+A failed or unsupported suite exits nonzero and leaves prior measurements
+available. A skipped or failed operation is not used for timing comparison.
+The comparator checks workload, clock, environment, instrumentation,
+sampling and result counts. A median change of at least 15% and 1 ms is
+highlighted for review, with the absolute difference used near zero. That
+is a review heuristic rather than a confidence test or a CI threshold.
+Nearest-rank p95 effectively equals the observed maximum for two or
+three samples. Byte size, heap, long tasks and other work metrics appear
+separately from timing classifications.
+
+For the warm synthetic fixtures, unchanged settings and no-change Merge
+must do zero sets and readbacks. Changed settings, Merge additions, and
+explicit Replace require one validated write and readback. The diagnostic
+checks also require a precondition read and reminder reconciliation.
+Ten successful collection targets require five verified writes, and 25
+targets require 13. Copies do zero lifecycle writes. Search allows at most
+25 records per category in each reply and reuses one repository scan and
+one bookmark tree read across continuation. Archive mounts at most 25
+cards. Search mounts at most 25 cards per category even after additional
+loads. These counts protect behavior and the chosen work bounds. Timing,
+transfer size, heap, and incidental Chrome activity remain observations.
+
+Ordinary GitHub Actions continues to run the existing Verify workflow.
+Native Chrome and statistical benchmarking remain manual. The extension
+CDP loader is verified in the documented local Chrome environment. The
+hosted runner setup has not been verified, so this phase adds no optional
+browser workflow or artifact upload.
 
 Default core runs use 100, 1,000, 5,000 and 10,000 links, both distributions,
 two warm-ups and seven retained samples. Mutations that require import preview,

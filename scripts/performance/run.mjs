@@ -7,7 +7,7 @@ import { performance } from 'node:perf_hooks';
 import { createHarness } from '../native/harness.mjs';
 import { dataset, describe, envelope } from './fixtures.mjs';
 import { prepare } from './build.mjs';
-import { statistics, eventSummary } from './stats.mjs';
+import { statistics, eventSummary, verifiedReadbacks } from './stats.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).map(arg => { const [name, value = 'true'] = arg.replace(/^--/, '').split('='); return [name, value]; }));
 if (args.help) { console.log('Usage: npm run bench:performance -- --suite=core|bulk|ui|memory|fault|storage-writes --sizes=100,1000,5000,10000 --distributions=few,many --repetitions=7 --warmups=2 --bulk-repetitions=3 [--diagnostic] [--only=operation,...]'); process.exit(0); }
@@ -70,6 +70,7 @@ async function sample(row, name, action, { reset, verify, repetitions = options.
         const item = await action();
         const events = capture ? (await h.ok({ type: 'PERF_STOP' })).events : [];
         await verify?.(item);
+        if (capture) verifyWorkCounts(name, item, events);
         return { item, events };
       })(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Sample exceeded 90-second execution limit')), 90000); })]);
       assert.ok(Number.isFinite(item.ms) && item.ms >= 0);
@@ -89,6 +90,28 @@ async function sample(row, name, action, { reset, verify, repetitions = options.
   row.measurements[name] = { clock: 'browser performance.now; outer Playwright/Node only where measured', ...statistics(values), transport: statistics(transport), samples };
   console.log(`${row.distribution}/${row.links} ${name}: ${values.length ? statistics(values).medianMs.toFixed(2) : 'FAILED'} ms (${values.length} samples)`);
   await persist();
+}
+
+function verifyWorkCounts(name, item, events) {
+  let writes, validations;
+  if (options.suite === 'storage-writes') {
+    writes = ['settings.unchanged', 'merge.identical', 'merge.repeated'].includes(name) ? 0 : 1;
+    validations = 1;
+  } else if (options.suite === 'bulk' && name.startsWith('restore.')) {
+    const isCollection = ['restore.session10', 'restore.project10', 'restore.unloaded10'].includes(name);
+    writes = name === 'restore.copies10' ? 0 : isCollection ? Math.ceil(item.count / 2) : item.count;
+    validations = writes;
+  } else return;
+  const counts = eventSummary(events);
+  const calls = label => counts[label]?.calls ?? 0;
+  const readbacks = verifiedReadbacks(events);
+  assert.equal(calls('chrome.storage.local.set'), writes, 'Database set count');
+  assert.equal(readbacks, writes, 'Database post-write readbacks');
+  assert.equal(calls('schema.database'), validations, 'Candidate validation count');
+  assert.ok(calls('repo.readStored') >= validations, 'Fresh storage precondition reads');
+  assert.ok(calls('reminder.reconcile') >= 1, 'Reminder reconciliation');
+  item.databaseSets = writes;
+  item.readbacks = readbacks;
 }
 const cpu = name => h.page.evaluate(name => globalThis.linkshelfCPU.run(name), name);
 

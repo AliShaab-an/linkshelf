@@ -12,6 +12,8 @@ describe('bounded search results', () => {
     const service = createSearchPages(find);
     const first = await service.search('needle', {});
     if (!first.success || !first.page) throw new Error('Expected initial page');
+    expect(first.results).toHaveLength(25);
+    expect(first.bookmarks).toHaveLength(25);
     expect(first.page).toMatchObject({ totalResults: results.length, totalBookmarks: bookmarks.length });
     for (const category of ['results', 'bookmarks'] as const) {
       const next = category === 'results' ? 'nextResults' : 'nextBookmarks';

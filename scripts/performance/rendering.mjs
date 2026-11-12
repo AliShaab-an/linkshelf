@@ -4,18 +4,22 @@ import path from 'node:path';
 import { createHarness } from '../native/harness.mjs';
 import { dataset } from './fixtures.mjs';
 
-const baseline = process.argv[2];
+const smoke = process.argv.includes('--smoke');
+const baseline = process.argv.slice(2).find(arg => !arg.startsWith('--'));
 const h = await createHarness(baseline ? {
   prepareBuild: destination => fs.cp(baseline, destination, { recursive: true }),
 } : undefined);
 const report = { baseline: !!baseline, chrome: h.context.browser().version(), node: process.version, archive: [], search: [], projects: [] };
+const file = path.join(h.output, 'rendering-performance.json');
+let active;
 let page, cdp;
 try {
-  for (const distribution of ['few', 'many']) for (const size of [100, 1000, 5000, 10000]) {
+  for (const distribution of smoke ? ['few'] : ['few', 'many']) for (const size of smoke ? [100, 1000] : [100, 1000, 5000, 10000]) {
     const fixture = dataset(size, distribution, h.base);
     assert.equal((await h.seed(fixture)).status.state, 'healthy');
     const archived = fixture.links.filter(link => link.status === 'archived').length;
     const samples = [];
+    active = { operation: 'archive', distribution, size, samples };
     for (let i = 0; i < 4; i++) {
       await open('archive');
       await start();
@@ -29,6 +33,7 @@ try {
       await page.close();
     }
     report.archive.push({ distribution, size, archived, samples });
+    active = undefined;
     console.log(distribution, size, 'Archive cards', samples[0].cards);
   }
   const fixture = dataset(1000, 'few', h.base);
@@ -41,30 +46,38 @@ try {
     return folder.id;
   }, h.base);
   for (let attempt = 0; attempt < 3; attempt++) {
+    active = { operation: 'search', attempt };
     await open('search');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await start();
     await page.getByRole('searchbox').fill('synthetic');
     await waitCards(50);
     const initial = await read(['SEARCH_LINKS']);
+    if (!baseline) await assertSearchCards();
     for (let i = 1; i <= 12; i++) {
       await start();
       await page.getByRole('button', { name: 'Load more LinkShelf links', exact: true }).click();
       await page.getByRole('heading', { name: `LinkShelf · ${25 * (i + 1)} of ${count}`, exact: true }).waitFor();
+      if (!baseline && i < 12) await assertSearchCards();
     }
     const loaded = await read(['SEARCH_LINKS']);
+    if (!baseline) await assertSearchCards();
     for (let i = 1; i <= 3; i++) {
       await start();
       await page.getByRole('button', { name: 'Load more Chrome bookmarks', exact: true }).click();
       await page.getByRole('heading', { name: `Chrome bookmarks · ${25 * (i + 1)} of 100`, exact: true }).waitFor();
+      if (!baseline && i < 3) await assertSearchCards();
     }
     const bookmarks = await read(['SEARCH_LINKS']);
+    if (!baseline) await assertSearchCards();
     assert.equal(bookmarks.cards, baseline ? 425 : 50);
     report.search.push({ initial, loaded, bookmarks });
+    active = undefined;
     await page.close();
   }
   assert.ok(folder);
-  for (const distribution of ['few', 'many']) {
+  for (const distribution of smoke ? [] : ['few', 'many']) {
+    active = { operation: 'projects', distribution, size: 10000 };
     await h.seed(dataset(10000, distribution, h.base));
     await open('projects');
     await page.getByRole('button', { name: 'Projects', exact: true }).click();
@@ -74,18 +87,25 @@ try {
     const expanded = await read([]);
     let showMore, showAll;
     const more = page.getByRole('button', { name: /^Show \d+ more$/ }).first();
-    if (await more.count()) {
+    const hasMore = await more.count() > 0;
+    if (distribution === 'few') assert.ok(hasMore, 'Few-session Projects fixture must expose Show More');
+    if (hasMore) {
       await start(); await more.click(); showMore = await read([]);
       await start(); await page.getByRole('button', { name: 'Show all', exact: true }).first().click(); showAll = await read([]);
     }
-    report.projects.push({ distribution, expanded, showMore, showAll });
+    const skipped = hasMore ? undefined : 'Fixture has no Projects continuation controls';
+    report.projects.push({ distribution, expanded, showMore, showAll, skipped });
+    active = undefined;
     await page.close();
   }
-  const file = path.join(h.output, 'rendering-performance.json');
-  await fs.writeFile(file, JSON.stringify(report, null, 2));
-  console.log(file);
+} catch (error) {
+  report.failure = { ...active, error: error.message };
+  process.exitCode = 1;
 } finally {
-  await h.close();
+  try {
+    await fs.writeFile(file, JSON.stringify(report, null, 2));
+    console.log(file);
+  } finally { await h.close(); }
 }
 
 async function open(section) {
@@ -115,6 +135,10 @@ async function start() {
 }
 async function waitCards(cards) {
   await page.waitForFunction(cards => document.querySelectorAll('article').length === cards, cards);
+}
+async function assertSearchCards() {
+  assert.equal(await page.locator('article[id^="search-link-"]').count(), 25);
+  assert.equal(await page.locator('article[id^="search-bookmark-"]').count(), 25);
 }
 async function read(types) {
   const sample = await page.evaluate(async types => {

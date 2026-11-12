@@ -24,12 +24,25 @@ export async function createHarness({ pagePath = 'sidepanel.html', prepareBuild 
   const output = path.resolve('.output/native-runs', new Date().toISOString().replaceAll(':', '-') + '-' + process.pid);
   await fs.mkdir(output, { recursive: true });
   const profile = await fs.mkdtemp(path.join(output, 'disposable-profile-'));
+  async function removeProfile() {
+    if (process.env.LINKSHELF_DISCARD_PROFILE !== '1') return;
+    const target = await fs.realpath(profile).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+    if (!target) return;
+    const relative = path.relative(await fs.realpath(output), target);
+    assert.match(relative, /^disposable-profile-[a-z0-9]+$/i, 'Remove only the generated profile inside this run');
+    await fs.rm(target, { recursive: true, force: true, maxRetries: 3 });
+  }
   const extensionPath = path.join(output, 'built-extension');
   try {
     await fs.access('.output/chrome-mv3/manifest.json');
     await fs.cp('.output/chrome-mv3', extensionPath, { recursive: true });
-  } catch { throw new Error('Build output is missing or changing. Finish npm run build before starting native tests.'); }
-  await prepareBuild?.(extensionPath);
+  } catch {
+    await removeProfile();
+    throw new Error('Build output is missing or changing. Finish npm run build before starting native tests.');
+  }
+  try { await prepareBuild?.(extensionPath); } catch (error) { await removeProfile(); throw error; }
   const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end(`<title>Synthetic ${req.url}</title><p>Disposable LinkShelf test page</p>`);
@@ -55,7 +68,7 @@ export async function createHarness({ pagePath = 'sidepanel.html', prepareBuild 
     h.id = (await cdp.send('Extensions.loadUnpacked', { path: extensionPath })).id;
     h.page = await h.context.newPage();
     await h.page.goto(`chrome-extension://${h.id}/${pagePath}`);
-    await h.rpc({ type: 'GET_STORAGE_STATUS' });
+    await h.ok({ type: 'GET_STORAGE_STATUS' });
   };
   h.rpc = (message, page = h.page) => page.evaluate(message => chrome.runtime.sendMessage(message), message);
   h.ok = async (message, page) => {
@@ -113,7 +126,13 @@ export async function createHarness({ pagePath = 'sidepanel.html', prepareBuild 
     return wake ? h.ok({ type: 'GET_STORAGE_STATUS' }) : undefined;
   };
   h.restart = async () => { await h.context.close(); await h.start(); };
-  h.close = async () => { await h.context?.close(); await new Promise(resolve => server.close(resolve)); };
+  h.close = async () => {
+    try { await h.context?.close(); }
+    finally {
+      await new Promise(resolve => server.close(resolve));
+      await removeProfile();
+    }
+  };
   try { await h.start(); } catch (error) { await h.close(); throw error; }
   return h;
 }

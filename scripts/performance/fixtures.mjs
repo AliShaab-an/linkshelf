@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { library as phase16Library } from '../native/fixtures.mjs';
 
 export const epoch = '2026-11-01T10:00:00.000Z';
-export function dataset(count, distribution, origin = 'https://benchmark.invalid', seed = 326) {
+export const FIXTURE_SEED = 326;
+export function dataset(count, distribution, origin = 'https://benchmark.invalid', seed = FIXTURE_SEED) {
   if (!Number.isInteger(count) || count < 100 || count > 15000) throw new Error('Size must be an integer from 100 to 15000');
   if (distribution === 'phase16') {
     const value = phase16Library(count);
