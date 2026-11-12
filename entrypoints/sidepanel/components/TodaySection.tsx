@@ -1,4 +1,4 @@
-import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
+import { OperationFeedback } from './ui/OperationFeedback';
 import { useEffect, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
 import {
@@ -15,6 +15,7 @@ export function TodaySection() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,8 +40,10 @@ export function TodaySection() {
   }, []);
 
   async function handleRestore(linkId: string) {
+    setWarnings([]);
     setRestoringId(linkId);
     setError(null);
+    setMessage(null);
     try {
       const response = await restoreLink(linkId);
       setWarnings(response.warnings ?? []);
@@ -50,6 +53,9 @@ export function TodaySection() {
       }
       if (response.restored) {
         setLinks((current) => current.filter((link) => link.id !== linkId));
+        setMessage('Link restored.');
+      } else {
+        setMessage('Opened a copy. The link remains parked.');
       }
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not restore this link.');
@@ -58,16 +64,17 @@ export function TodaySection() {
     }
   }
 
+  const feedback = <OperationFeedback pending={restoringId ? 'Restoring link…' : undefined} message={message} error={error} warnings={warnings} />;
+
   return (
     <>
-      <OperationWarnings warnings={warnings} />
+      {feedback}
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Due and overdue</p>
         <h2 className="mt-1 text-lg font-bold">Today</h2>
         <p className="mt-1 text-sm text-slate-500">Reminders stay here until you restore or organize their links.</p>
       </div>
       {isLoading && <SkeletonCards count={2} />}
-      {error && <p className="mb-3 rounded-xl bg-red-50 p-4 text-sm text-red-700" role="alert">{error}</p>}
       {!isLoading && !error && links.length === 0 && (
         <EmptyState title="Nothing due">Links appear here when their reminder time arrives. Enjoy the clear runway.</EmptyState>
       )}

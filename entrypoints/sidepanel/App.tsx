@@ -14,6 +14,7 @@ import { TodaySection } from './components/TodaySection';
 import { Icon } from './components/ui/Icon';
 import { QuickSettings } from './components/QuickSettings';
 import { StorageRecoveryGate } from './components/StorageRecovery';
+import { hasActiveModal } from './components/ui/Modal';
 import { loadUiState, readWindowIntent, updateUiState } from './ui-state';
 
 function App() {
@@ -32,18 +33,22 @@ function App() {
   useEffect(() => {
     let disposed = false;
     let currentWindowId: number | undefined;
+    let lastHandledRequestId: string | undefined;
 
     async function consumeIntent(value: unknown) {
       if (currentWindowId === undefined) return;
       const intent = readWindowIntent(value, currentWindowId);
       if (!intent || disposed) return;
-      applyIntent(intent);
+      const blockedOnReceipt = hasActiveModal();
       const stored = await browser.storage.session.get(SIDE_PANEL_INTENTS_KEY);
       const latest = stored[SIDE_PANEL_INTENTS_KEY];
       if (!latest || typeof latest !== 'object') return;
       const intents = { ...latest as Record<string, unknown> };
       const candidate = readWindowIntent(intents, currentWindowId);
-      if (candidate?.requestId !== intent.requestId) return;
+      if (disposed || candidate?.requestId !== intent.requestId) return;
+      const alreadyHandled = intent.requestId === lastHandledRequestId;
+      lastHandledRequestId = intent.requestId;
+      if (!alreadyHandled && !blockedOnReceipt && !hasActiveModal()) applyIntent(intent);
       delete intents[String(currentWindowId)];
       await browser.storage.session.set({ [SIDE_PANEL_INTENTS_KEY]: intents });
     }

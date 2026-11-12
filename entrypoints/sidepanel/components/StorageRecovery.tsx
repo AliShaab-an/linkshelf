@@ -4,6 +4,7 @@ import { stringifyRecoveryExport, type StorageStatus } from '@/domain/recovery';
 import type { LinkShelfBackup } from '@/domain/schemas';
 import type { RecoveryBackupPreview } from '@/storage/repository';
 import { exportRecoveryData, getStorageStatus, previewRecoveryBackup, restoreRecoveryBackup } from '@/messaging/contracts';
+import { InlineConfirmation } from './ui/InlineConfirmation';
 import { OperationWarnings } from './ui/OperationWarnings';
 
 export function StorageRecoveryGate({ children }: { children: ReactNode }) {
@@ -80,6 +81,8 @@ function StorageRecoveryPanel({ status, onBusy, onRecheck, onRecovered }: {
     if (!file) return;
     await act(async () => { setBackup(await readBackupFile(file)); });
   }
+  const reviewTrigger = useRef<HTMLButtonElement>(null);
+
   async function review() {
     if (!backup || !rawToken || !savedRaw) return;
     await act(async () => {
@@ -119,13 +122,13 @@ function StorageRecoveryPanel({ status, onBusy, onRecheck, onRecovered }: {
       <h3 className="font-semibold">2. Choose a trusted backup</h3>
       <p className="mt-1 text-sm text-slate-600">Choose a valid version-1 or version-2 LinkShelf backup, up to 32 MiB. Recovery replaces stored data; it does not merge or guess how to fix broken records.</p>
       <label className="mt-3 block text-sm font-medium">Recovery backup file<input type="file" accept="application/json,.json" className="mt-2 block w-full text-xs" disabled={working || !savedRaw} onChange={(event) => void selectFile(event.target.files?.[0])} /></label>
-      <button type="button" className="mt-3 w-full rounded-lg bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || !backup || !savedRaw} onClick={() => void review()}>Review recovery backup</button>
+      <button ref={reviewTrigger} type="button" className="mt-3 w-full rounded-lg bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || !backup || !savedRaw} onClick={() => void review()}>Review recovery backup</button>
     </div>
-    {preview && <div role="alertdialog" aria-labelledby="confirm-recovery-title" className="rounded-lg border border-red-300 bg-red-50 p-3">
-      <h3 id="confirm-recovery-title" className="font-semibold">3. Confirm recovery replacement</h3>
+    {preview && <InlineConfirmation titleId="confirm-recovery-title" title="3. Confirm recovery replacement"
+      className="rounded-lg border border-red-300 bg-red-50 p-3" returnFocus={() => reviewTrigger.current}>
       <p className="mt-2 text-sm">This will replace the currently stored value with {preview.source.projects} projects, {preview.source.sessions} sessions, and {preview.source.links} links, including backup settings. Your raw recovery file is the independent copy of the original data.</p>
       <div className="mt-3 flex gap-2"><button type="button" className="flex-1 rounded-lg bg-red-700 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || !savedRaw} onClick={() => void restore()}>{working ? 'Restoring...' : 'Replace stored data from backup'}</button><button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold" disabled={working} onClick={() => setPreview(null)}>Cancel</button></div>
-    </div>}
+    </InlineConfirmation>}
     <button type="button" className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working} onClick={() => void act(onRecheck)}>Check stored data again</button>
   </section>;
 }

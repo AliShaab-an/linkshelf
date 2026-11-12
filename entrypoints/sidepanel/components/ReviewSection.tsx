@@ -1,5 +1,5 @@
-import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
-import { useEffect, useState } from 'react';
+import { OperationFeedback } from './ui/OperationFeedback';
+import { useEffect, useRef, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
 import {
   archiveLink,
@@ -21,6 +21,7 @@ import { SavedLinkCard } from './SavedLinkCard';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 
 export function ReviewSection() {
+  const sectionHeading = useRef<HTMLHeadingElement>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [links, setLinks] = useState<SavedLink[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -28,11 +29,13 @@ export function ReviewSection() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [dialogPending, setDialogPending] = useState(false);
   const [removeCandidate, setRemoveCandidate] = useState<SavedLink | null>(null);
   const [moveCandidate, setMoveCandidate] = useState<SavedLink | null>(null);
   const [moveProjectId, setMoveProjectId] = useState('');
   const [bookmarkCandidate, setBookmarkCandidate] = useState<SavedLink | null>(null);
   const [folders, setFolders] = useState<BookmarkFolderOption[]>([]);
+  const bookmarkFolderRequest = useRef(0);
   const [selectedFolderId, setSelectedFolderId] = useState('');
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [duplicate, setDuplicate] = useState<NativeBookmarkResult>();
@@ -59,6 +62,7 @@ export function ReviewSection() {
     action: () => Promise<{ success: true; warnings?: string[] } | { success: false; error: { message: string }; warnings?: string[] }>,
     successMessage: string,
   ) {
+    setWarnings([]);
     setWorkingId(link.id); setError(null); setMessage(null);
     try {
       const response = await action();
@@ -73,6 +77,7 @@ export function ReviewSection() {
   }
 
   async function restoreReviewLink(link: SavedLink) {
+    setWarnings([]);
     setWorkingId(link.id); setError(null); setMessage(null);
     try {
       const response = await restoreLink(link.id);
@@ -88,26 +93,56 @@ export function ReviewSection() {
     } finally { setWorkingId(null); }
   }
 
+  function startRemoving(link: SavedLink) {
+    setMessage(null);
+    setError(null);
+    setWarnings([]);
+    setRemoveCandidate(link);
+  }
+
   async function confirmRemove() {
-    if (!removeCandidate) return;
+    if (dialogPending || !removeCandidate) return;
     const link = removeCandidate;
-    const removed = await runLinkAction(link, () => removeLink(link.id), `Removed “${link.title}” from LinkShelf.`);
-    if (removed) setRemoveCandidate(null);
+    setDialogPending(true);
+    try {
+      const removed = await runLinkAction(link, () => removeLink(link.id), `Removed “${link.title}” from LinkShelf.`);
+      if (removed) setRemoveCandidate(null);
+    } finally {
+      setDialogPending(false);
+    }
+  }
+
+  function closeBookmark() {
+    bookmarkFolderRequest.current++;
+    setIsLoadingFolders(false);
+    setBookmarkCandidate(null);
+    setError(null);
   }
 
   async function startBookmarking(link: SavedLink) {
+    const request = ++bookmarkFolderRequest.current;
+    setWarnings([]);
+    setMessage(null);
+    setSelectedFolderId('');
     setBookmarkCandidate(link); setDuplicate(undefined); setIsLoadingFolders(true); setError(null);
     try {
       const response = await getBookmarkFolders();
+      if (request !== bookmarkFolderRequest.current) return;
       if (!response.success) throw new Error(response.error.message);
       setFolders(response.folders);
       setSelectedFolderId(response.folders[0]?.id ?? '');
     } catch (caughtError) {
-      setError(toMessage(caughtError, 'LinkShelf could not load bookmark folders.'));
-    } finally { setIsLoadingFolders(false); }
+      if (request === bookmarkFolderRequest.current) {
+        setError(toMessage(caughtError, 'LinkShelf could not load bookmark folders.'));
+      }
+    } finally {
+      if (request === bookmarkFolderRequest.current) setIsLoadingFolders(false);
+    }
   }
 
   function startMoving(link: SavedLink) {
+    setWarnings([]);
+    setMessage(null);
     const destinations = projects.filter((project) => project.id !== link.projectId);
     setMoveCandidate(link);
     setMoveProjectId(destinations[0]?.id ?? '');
@@ -115,8 +150,10 @@ export function ReviewSection() {
   }
 
   async function confirmMove() {
-    if (!moveCandidate || !moveProjectId) return;
+    if (dialogPending || !moveCandidate || !moveProjectId) return;
     const link = moveCandidate;
+    setWarnings([]);
+    setDialogPending(true);
     setWorkingId(link.id); setError(null); setMessage(null);
     try {
       const response = await moveLink(link.id, moveProjectId);
@@ -127,12 +164,15 @@ export function ReviewSection() {
       setMessage(`Moved “${link.title}” to ${projects.find((project) => project.id === moveProjectId)?.name ?? 'its new project'}.`);
     } catch (caughtError) {
       setError(toMessage(caughtError, 'LinkShelf could not move this link.'));
-    } finally { setWorkingId(null); }
+    } finally { setWorkingId(null); setDialogPending(false); }
   }
 
   async function confirmBookmark() {
-    if (!bookmarkCandidate || !selectedFolderId) return;
+    if (dialogPending || !bookmarkCandidate || !selectedFolderId) return;
     const link = bookmarkCandidate;
+    setWarnings([]);
+    setDialogPending(true);
+    setMessage(null);
     setWorkingId(link.id); setError(null);
     try {
       const response = await bookmarkLink(link.id, selectedFolderId);
@@ -149,33 +189,46 @@ export function ReviewSection() {
       finish(link, `Saved “${link.title}” as a Chrome bookmark.`);
     } catch (caughtError) {
       setError(toMessage(caughtError, 'LinkShelf could not create the bookmark.'));
-    } finally { setWorkingId(null); }
+    } finally { setWorkingId(null); setDialogPending(false); }
   }
 
   async function openDuplicate() {
-    if (!duplicate) return;
-    const response = await openBookmark(duplicate.url);
-    if (!response.success) setError(response.error.message);
+    if (dialogPending || !duplicate || !bookmarkCandidate || workingId) return;
+    setWorkingId(bookmarkCandidate.id);
+    setMessage(null);
+    setError(null);
+    setWarnings([]);
+    setDialogPending(true);
+    try {
+      const response = await openBookmark(duplicate.url);
+      if (!response.success) throw new Error(response.error.message);
+      setMessage('Opened the existing Chrome bookmark.');
+    } catch (caughtError) {
+      setError(toMessage(caughtError, 'Chrome could not open this bookmark.'));
+    } finally {
+      setWorkingId(null);
+      setDialogPending(false);
+    }
   }
+
+  const feedback = { pending: isLoadingFolders ? 'Loading bookmark folders…' : workingId ? 'Updating link…' : undefined, message, error: error, warnings };
+  const dialogFeedback = <OperationFeedback {...feedback}
+    pending={isLoadingFolders ? 'Loading bookmark folders…' : dialogPending ? 'Updating link…' : undefined} />;
 
   return (
     <>
-      <OperationWarnings warnings={warnings} />
+      <OperationFeedback {...(!(removeCandidate || moveCandidate || bookmarkCandidate) ? feedback : {})} />
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Decision queue</p>
-        <h2 className="mt-1 text-lg font-bold">Review parked links</h2>
+        <h2 ref={sectionHeading} tabIndex={-1} className="mt-1 text-lg font-bold">Review parked links</h2>
         <p className="mt-1 text-sm text-slate-500">Oldest links appear first. Restore, keep permanently, archive, or remove each one.</p>
       </div>
       {!isLoading && links.length > 0 && <p className="mb-3 rounded-xl bg-violet-50 p-3 text-sm text-violet-800"><strong>{links.length}</strong> parked link{links.length === 1 ? '' : 's'} waiting for a decision.</p>}
-      {bookmarkCandidate && <div className="mb-4"><BookmarkLinkDialog link={bookmarkCandidate} folders={folders} selectedFolderId={selectedFolderId} duplicate={duplicate} isLoadingFolders={isLoadingFolders} isSaving={workingId === bookmarkCandidate.id} onSelectFolder={setSelectedFolderId} onCancel={() => setBookmarkCandidate(null)} onConfirm={() => void confirmBookmark()} onOpenDuplicate={() => void openDuplicate()} /></div>}
-      {moveCandidate && <div className="mb-4"><MoveLinkDialog link={moveCandidate} projects={projects.filter((project) => project.id !== moveCandidate.projectId)} selectedProjectId={moveProjectId} isMoving={workingId === moveCandidate.id} onSelect={setMoveProjectId} onCancel={() => setMoveCandidate(null)} onConfirm={() => void confirmMove()} /></div>}
-      {removeCandidate && <div className="mb-4"><RemoveLinkDialog link={removeCandidate} isRemoving={workingId === removeCandidate.id} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} /></div>}
-      {message && <p className="mb-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
-      {error && <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</p>}
+      {bookmarkCandidate ? <div className="mb-4"><BookmarkLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={bookmarkCandidate} folders={folders} selectedFolderId={selectedFolderId} duplicate={duplicate} isLoadingFolders={isLoadingFolders} isSaving={dialogPending} onSelectFolder={setSelectedFolderId} onCancel={closeBookmark} onConfirm={() => void confirmBookmark()} onOpenDuplicate={() => void openDuplicate()} /></div> : moveCandidate ? <div className="mb-4"><MoveLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={moveCandidate} projects={projects.filter((project) => project.id !== moveCandidate.projectId)} selectedProjectId={moveProjectId} isMoving={dialogPending} onSelect={setMoveProjectId} onCancel={() => setMoveCandidate(null)} onConfirm={() => void confirmMove()} /></div> : removeCandidate ? <div className="mb-4"><RemoveLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={removeCandidate} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} /></div> : null}
       {isLoading && <SkeletonCards />}
       {!isLoading && !error && links.length === 0 && <EmptyState title="Review queue is clear">Parked links will appear here when they need a decision.</EmptyState>}
       <div className="space-y-3">
-        {links.map((link) => <SavedLinkCard key={link.id} link={link} projectName={projects.find((project) => project.id === link.projectId)?.name} isRestoring={workingId === link.id} onRestore={() => void restoreReviewLink(link)} onBookmark={() => void startBookmarking(link)} onMove={() => startMoving(link)} onArchive={() => void runLinkAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`)} onRemove={() => setRemoveCandidate(link)} />)}
+        {links.map((link) => <SavedLinkCard key={link.id} link={link} projectName={projects.find((project) => project.id === link.projectId)?.name} isRestoring={workingId === link.id} onRestore={() => void restoreReviewLink(link)} onBookmark={() => void startBookmarking(link)} onMove={() => startMoving(link)} onArchive={() => void runLinkAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`)} onRemove={() => startRemoving(link)} />)}
       </div>
     </>
   );
