@@ -1,5 +1,28 @@
 @import "tailwindcss";
 
+.linkshelf-modal {
+  position: fixed;
+  inset: auto 0 0.75rem;
+  margin: 0 auto;
+  width: min(28rem, calc(100% - 1.5rem));
+  max-height: 85dvh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+
+.linkshelf-modal::backdrop {
+  background: rgb(2 6 23 / 45%);
+  backdrop-filter: blur(2px);
+}
+
+@media (min-width: 640px) {
+  .linkshelf-modal {
+    inset: 0;
+    margin: auto;
+  }
+}
+
 @layer base {
   html {
     scrollbar-color: #cbd5e1 transparent;

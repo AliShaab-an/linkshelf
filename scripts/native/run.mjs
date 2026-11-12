@@ -236,11 +236,12 @@ try {
   assert.ok(await h.page.evaluate(() => document.activeElement !== document.body));
   const modalTrigger = h.page.getByRole('button', { name: 'More link actions', exact: true }).first();
   await modalTrigger.click();
-  await h.page.getByRole('menuitem', { name: 'Remove', exact: true }).click();
+  await h.page.getByRole('group', { name: 'Link actions' }).getByRole('button', { name: 'Remove', exact: true }).click();
   await h.page.getByRole('dialog').waitFor();
-  results.ui.push({ modalInitialFocusInside: await h.page.evaluate(() => !!document.activeElement?.closest('[role=dialog]')) });
+  results.ui.push({ modalInitialFocusInside: await h.page.evaluate(() => !!document.activeElement?.closest('dialog[open]')) });
   await h.page.keyboard.press('Tab'); await h.page.keyboard.press('Tab');
-  results.ui.push({ modalFocusContainedAfterTwoTabs: await h.page.evaluate(() => !!document.activeElement?.closest('[role=dialog]')) });
+  results.ui.push({ modalFocusContainedAfterTwoTabs: await h.page.evaluate(() => !!document.activeElement?.closest('dialog[open]')) });
+  assert.equal(results.ui.at(-1).modalFocusContainedAfterTwoTabs, true);
   await h.page.keyboard.press('Escape');
   await h.page.getByRole('dialog').waitFor({ state: 'detached' });
   results.ui.push({ modalReturnFocusConnected: await h.page.evaluate(() => document.activeElement !== document.body && !!document.activeElement?.isConnected) });
@@ -272,13 +273,17 @@ try {
   await fileInput.setInputFiles({ name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('{invalid') });
   await h.page.getByText(/This file could not be read as JSON/).waitFor();
   const beforeLarge = await h.database();
-  await fileInput.setInputFiles({ name: 'oversized.json', mimeType: 'application/json', buffer: Buffer.alloc(32 * 1024 * 1024 + 1, 32) });
+  const oversizedPath = path.join(h.output, 'synthetic-oversized-backup.json');
+  const oversized = await fs.open(oversizedPath, 'w');
+  try { await oversized.truncate(32 * 1024 * 1024 + 1); }
+  finally { await oversized.close(); }
+  await fileInput.setInputFiles(oversizedPath);
   await h.page.getByText(/Choose a LinkShelf JSON backup of 32 MiB or less/).waitFor();
   assert.deepEqual(await h.database(), beforeLarge);
   await fileInput.setInputFiles(exportPath);
   for (const mode of ['Merge', 'Replace all']) {
     await h.page.getByRole('button', { name: mode, exact: true }).click();
-    await h.page.getByRole('alertdialog').waitFor();
+    await h.page.getByRole('region', { name: /^Confirm (merge|replace) import$/ }).waitFor();
     await h.page.getByRole('button', { name: 'Cancel', exact: true }).click();
     assert.deepEqual(await h.database(), beforeLarge);
   }

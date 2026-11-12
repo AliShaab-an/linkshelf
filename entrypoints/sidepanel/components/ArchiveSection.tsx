@@ -1,4 +1,4 @@
-import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
+import { OperationFeedback } from './ui/OperationFeedback';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
 import {
@@ -22,6 +22,7 @@ export function ArchiveSection() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [dialogPending, setDialogPending] = useState(false);
   const [removeCandidate, setRemoveCandidate] = useState<SavedLink | null>(null);
   const [page, setPage] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -32,8 +33,7 @@ export function ArchiveSection() {
 
   function focusBeforeRemoval(linkId: string) {
     const active = document.activeElement;
-    if (active?.closest('[role="dialog"]') ||
-        (cards.current?.contains(active) && active?.closest('article')?.id === `archived-${linkId}`)) {
+    if (cards.current?.contains(active) && active?.closest('article')?.id === `archived-${linkId}`) {
       heading.current?.focus();
     }
   }
@@ -87,6 +87,8 @@ export function ArchiveSection() {
   async function returnToProject(link: SavedLink) {
     if (isRefreshing) return;
     const hadFocus = document.activeElement?.closest('article')?.id === `archived-${link.id}`;
+    setWarnings([]);
+    setMessage(null);
     setWorkingId(link.id);
     setError(null);
     try {
@@ -104,24 +106,30 @@ export function ArchiveSection() {
     }
   }
 
+  function startRemoving(link: SavedLink) {
+    setMessage(null);
+    setError(null);
+    setWarnings([]);
+    setRemoveCandidate(link);
+  }
+
   async function confirmRemove() {
-    if (!removeCandidate || isRefreshing) return;
+    if (dialogPending || !removeCandidate || isRefreshing) return;
     const link = removeCandidate;
     if (!links.some(candidate => candidate.id === link.id)) {
-      focusBeforeRemoval(link.id);
       setRemoveCandidate(null);
       setError('This link is no longer in the archive.');
       return;
     }
-    const hadFocus = !!document.activeElement?.closest('[role="dialog"]');
+    setWarnings([]);
+    setDialogPending(true);
+    setMessage(null);
     setWorkingId(link.id);
     setError(null);
     try {
       const response = await removeLink(link.id);
       setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(response.error.message);
-      focusBeforeRemoval(link.id);
-      if (hadFocus && document.activeElement === document.body) heading.current?.focus();
       setLinks((current) => current.filter((candidate) => candidate.id !== link.id));
       setRemoveCandidate(null);
       setMessage(`Removed “${link.title}” from LinkShelf.`);
@@ -129,21 +137,22 @@ export function ArchiveSection() {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not remove this link.');
     } finally {
       setWorkingId(null);
+      setDialogPending(false);
     }
   }
 
+  const feedback = { pending: workingId ? 'Updating link…' : undefined, message, error: error || loadError, warnings };
+
   return (
     <>
-      <OperationWarnings warnings={warnings} />
+      <OperationFeedback {...(!(removeCandidate) ? feedback : {})} />
       <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inactive links</p><h2 ref={heading} tabIndex={-1} className="mt-1 text-lg font-bold">Archive</h2><p className="mt-1 text-sm text-slate-500">Archived links stay local and searchable without cluttering active projects.</p></div>
-      {removeCandidate && <RemoveLinkDialog link={removeCandidate} isRemoving={workingId === removeCandidate.id} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} />}
-      {message && <p className="mb-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
-      {(error || loadError) && <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">{error || loadError}</p>}
+      {removeCandidate && <RemoveLinkDialog link={removeCandidate} feedback={<OperationFeedback {...feedback} pending={dialogPending ? 'Updating link…' : undefined} />} returnFocus={(invoker) => invoker ?? heading.current} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} />}
       {isLoading && <SkeletonCards count={2} />}
       {!isLoading && !error && !loadError && links.length === 0 && <EmptyState title="Archive is empty">Links you archive remain searchable and will appear here.</EmptyState>}
       <ListNavigation label="Archived links pages" range={range} count={links.length} onPage={setPage} />
       <div ref={cards} data-page={range.page} className="space-y-3">
-        {links.slice(range.start, range.end).map((link) => <SavedLinkCard key={link.id} cardId={`archived-${link.id}`} link={link} projectName={projectNames.get(link.projectId)} isRestoring={workingId === link.id} onUnarchive={() => void returnToProject(link)} onRemove={() => { if (!isRefreshing) setRemoveCandidate(link); }} />)}
+        {links.slice(range.start, range.end).map((link) => <SavedLinkCard key={link.id} cardId={`archived-${link.id}`} link={link} projectName={projectNames.get(link.projectId)} isRestoring={workingId === link.id} onUnarchive={() => void returnToProject(link)} onRemove={() => { if (!isRefreshing) startRemoving(link); }} />)}
       </div>
     </>
   );

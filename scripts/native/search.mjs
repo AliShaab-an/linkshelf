@@ -176,11 +176,11 @@ try {
     await query('search-lifecycle', 3);
     const beforeArchive = await rpc('synthetic', {});
     await cards.first().getByRole('button', { name: 'More link actions' }).click();
-    await ui.getByRole('menuitem', { name: 'Archive', exact: true }).click();
+    await ui.getByRole('group', { name: 'Link actions' }).getByRole('button', { name: 'Archive', exact: true }).click();
     await ui.getByText('archived', { exact: true }).waitFor();
     assert.equal((await rpc('synthetic', continuation(beforeArchive))).error.code, 'SEARCH_EXPIRED');
     await ui.getByText('archived', { exact: true }).locator('xpath=ancestor::article').getByRole('button', { name: 'More link actions' }).click();
-    await ui.getByRole('menuitem', { name: 'Return to project' }).click();
+    await ui.getByRole('group', { name: 'Link actions' }).getByRole('button', { name: 'Return to project' }).click();
     await ui.getByText(/Returned .* to its project/).waitFor();
     const [restoreId, bookmarkId, removeId] = parked.linkIds;
     const beforeRemove = await rpc('synthetic', {});

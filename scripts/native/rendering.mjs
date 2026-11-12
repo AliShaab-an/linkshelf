@@ -89,14 +89,14 @@ try {
 
   const menu = longCard.getByRole('button', { name: 'More link actions' });
   await menu.press('Enter');
-  await page.getByRole('menuitem', { name: 'Remove', exact: true }).press('Enter');
+  await page.getByRole('group', { name: 'Link actions' }).getByRole('button', { name: 'Remove', exact: true }).press('Enter');
   await page.getByRole('dialog').waitFor();
   await page.keyboard.press('Escape');
   await page.getByRole('dialog').waitFor({ state: 'detached' });
   assert.ok(await menu.evaluate(node => document.activeElement === node));
   await h.stopWorker();
   await menu.press('Enter');
-  await page.getByRole('menuitem', { name: 'Remove', exact: true }).press('Enter');
+  await page.getByRole('group', { name: 'Link actions' }).getByRole('button', { name: 'Remove', exact: true }).press('Enter');
   const removeStart = performance.now();
   await page.getByRole('button', { name: 'Remove link', exact: true }).press('Enter');
   await longCard.waitFor({ state: 'detached' });
@@ -128,7 +128,7 @@ try {
     };
   });
   await page.locator(`[id="archived-${pendingId}"]`).getByRole('button', { name: 'More link actions' }).click();
-  await page.getByRole('menuitem', { name: 'Return to project' }).click();
+  await page.getByRole('group', { name: 'Link actions' }).getByRole('button', { name: 'Return to project' }).click();
   await page.waitForFunction(() => typeof globalThis.releaseArchiveAction === 'function');
   await go(3);
   await page.evaluate(() => globalThis.releaseArchiveAction());

@@ -1,6 +1,7 @@
-import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
+import { InlineConfirmation } from './ui/InlineConfirmation';
+import { OperationFeedback } from './ui/OperationFeedback';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { INBOX_PROJECT_ID } from '@/domain/constants';
 import type { DisplayDensity, Project, RestoreMode, SavedLink } from '@/domain/schemas';
 import {
@@ -38,6 +39,11 @@ function sortProjects(projects: Project[]): Project[] {
 }
 
 export function ProjectsSection() {
+  const sectionHeading = useRef<HTMLHeadingElement>(null);
+  const projectSelector = useRef<HTMLSelectElement>(null);
+  const restoreTrigger = useRef<HTMLButtonElement>(null);
+  const renameTrigger = useRef<HTMLButtonElement>(null);
+  const deleteTrigger = useRef<HTMLButtonElement>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState(INBOX_PROJECT_ID);
@@ -45,6 +51,7 @@ export function ProjectsSection() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [partialRestore, setPartialRestore] = useState(false);
   const [newName, setNewName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [renameName, setRenameName] = useState('');
@@ -57,6 +64,7 @@ export function ProjectsSection() {
   const [isConfirmingRestoreProject, setIsConfirmingRestoreProject] = useState(false);
   const [isRestoringProject, setIsRestoringProject] = useState(false);
   const [lifecycleWorkingId, setLifecycleWorkingId] = useState<string | null>(null);
+  const [dialogPending, setDialogPending] = useState(false);
   const [removeCandidate, setRemoveCandidate] = useState<SavedLink | null>(null);
   const [filter, setFilter] = useState('');
   const [sessionOrder, setSessionOrder] = useState<SessionOrder>('newest');
@@ -157,6 +165,9 @@ export function ProjectsSection() {
   async function addProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!newName.trim() || isCreating) return;
+    setWarnings([]);
+    setPartialRestore(false);
+    setMessage(null);
     setIsCreating(true);
     setError(null);
     try {
@@ -203,6 +214,9 @@ export function ProjectsSection() {
   async function saveRename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProject || !renameName.trim() || isSavingRename) return;
+    setWarnings([]);
+    setPartialRestore(false);
+    setMessage(null);
     setIsSavingRename(true);
     setError(null);
     try {
@@ -221,12 +235,16 @@ export function ProjectsSection() {
   async function removeProject() {
     if (!selectedProject || selectedProject.isInbox || isDeleting) return;
     const projectName = selectedProject.name;
+    setWarnings([]);
+    setPartialRestore(false);
+    setMessage(null);
     setIsDeleting(true);
     setError(null);
     try {
       const response = await deleteProject(selectedProject.id);
       if (!response.success) throw new Error(response.error.message);
       setProjects((current) => current.filter((project) => project.id !== response.deletedProjectId));
+      setIsConfirmingDelete(false);
       setSelectedId(response.inboxProjectId);
       setGroups([]);
       const completed = await withSecondaryWarning({ ...response, warnings: [] as string[] }, async () => {
@@ -238,7 +256,6 @@ export function ProjectsSection() {
         await updateUiState({ selectedProjectId: response.inboxProjectId, expandedSessionIds: [...nextExpanded] });
       }, 'The project was deleted and its links moved to Inbox, but this view could not refresh. Reopen Projects.');
       setWarnings(completed.warnings ?? []);
-      setIsConfirmingDelete(false);
       setMessage(`Deleted “${projectName}” and moved its links to Inbox.`);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not delete the project.');
@@ -248,6 +265,9 @@ export function ProjectsSection() {
   }
 
   async function handleRestore(linkId: string) {
+    setWarnings([]);
+    setPartialRestore(false);
+    setMessage(null);
     setRestoringId(linkId);
     setError(null);
     try {
@@ -267,6 +287,8 @@ export function ProjectsSection() {
   }
 
   async function handleRestoreSession(sessionId: string) {
+    setWarnings([]);
+    setPartialRestore(false);
     setRestoringSessionId(sessionId);
     setError(null);
     setMessage(null);
@@ -278,6 +300,7 @@ export function ProjectsSection() {
         throw new Error(response.error.message);
       }
 
+      setPartialRestore(!response.complete || response.failedLinkIds.length > 0 || response.fallbackLinkIds.length > 0);
       const restoredIds = new Set(response.restoredLinkIds);
       setGroups((current) =>
         current
@@ -317,6 +340,8 @@ export function ProjectsSection() {
 
   async function handleRestoreProject(mode: RestoreMode) {
     if (!selectedProject || parkedLinkCount === 0 || isRestoringProject) return;
+    setWarnings([]);
+    setPartialRestore(false);
     setIsRestoringProject(true);
     setError(null);
     setMessage(null);
@@ -329,6 +354,7 @@ export function ProjectsSection() {
         throw new Error(response.error.message);
       }
 
+      setPartialRestore(!response.complete || response.failedLinkIds.length > 0 || response.fallbackLinkIds.length > 0);
       const restoredIds = new Set(response.restoredLinkIds);
       setGroups((current) =>
         current
@@ -385,6 +411,8 @@ export function ProjectsSection() {
   }
 
   async function handleArchive(link: SavedLink) {
+    setWarnings([]);
+    setPartialRestore(false);
     setLifecycleWorkingId(link.id);
     setError(null);
     setMessage(null);
@@ -401,9 +429,19 @@ export function ProjectsSection() {
     }
   }
 
+  function startRemoving(link: SavedLink) {
+    setMessage(null);
+    setError(null);
+    setWarnings([]);
+    setRemoveCandidate(link);
+  }
+
   async function confirmRemoveLink() {
-    if (!removeCandidate) return;
+    if (dialogPending || !removeCandidate) return;
     const link = removeCandidate;
+    setWarnings([]);
+    setDialogPending(true);
+    setPartialRestore(false);
     setLifecycleWorkingId(link.id);
     setError(null);
     setMessage(null);
@@ -418,16 +456,20 @@ export function ProjectsSection() {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not remove this link.');
     } finally {
       setLifecycleWorkingId(null);
+      setDialogPending(false);
     }
   }
 
+  const managingProject = isDeleting || isRestoringProject || isSavingRename;
+  const feedback = { pending: isDeleting ? 'Moving links to Inbox…' : isRestoringProject || restoringSessionId || restoringId ? 'Restoring links…' : isCreating || isSavingRename ? 'Saving project…' : lifecycleWorkingId ? 'Updating link…' : undefined, message, error, warnings, partial: partialRestore };
+
   return (
     <>
-      <OperationWarnings warnings={warnings} />
+      <OperationFeedback {...(!(removeCandidate) ? feedback : {})} />
       <div className="sticky top-[130px] z-20 mb-4 rounded-2xl border border-slate-200 bg-white/95 p-3.5 shadow-sm backdrop-blur">
         <div className="flex items-center gap-2">
           <label className="sr-only" htmlFor="project-selector">Project</label>
-          <select id="project-selector" className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold" value={selectedId} onChange={(event) => void selectProject(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
+          <select ref={projectSelector} disabled={managingProject} id="project-selector" className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold" value={selectedId} onChange={(event) => void selectProject(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
           <select aria-label="Session order" className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold" value={sessionOrder} onChange={(event) => setOrder(event.target.value as SessionOrder)}><option value="newest">Newest</option><option value="oldest">Oldest</option></select>
           <button type="button" className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold" onClick={() => {
             const next = density === 'comfortable' ? 'compact' : 'comfortable';
@@ -454,27 +496,26 @@ export function ProjectsSection() {
       </div>
 
       <div className="mb-3 flex items-start justify-between gap-3">
-        <div><p className="text-xs font-semibold uppercase text-slate-500">Selected project</p><h2 className="mt-1 text-lg font-bold">{selectedProject?.name ?? 'Inbox'}</h2></div>
+        <div><p className="text-xs font-semibold uppercase text-slate-500">Selected project</p><h2 ref={sectionHeading} tabIndex={-1} className="mt-1 text-lg font-bold">{selectedProject?.name ?? 'Inbox'}</h2></div>
         <div className="flex flex-wrap justify-end gap-2">
           {parkedLinkCount > 0 && (
-            <button type="button" className="rounded-lg bg-blue-700 px-2.5 py-1.5 text-xs font-semibold text-white" onClick={() => { setIsConfirmingRestoreProject(true); setIsConfirmingDelete(false); setIsRenaming(false); }}>
+            <button ref={restoreTrigger} type="button" disabled={managingProject} className="rounded-lg bg-blue-700 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50" onClick={() => { setIsConfirmingRestoreProject(true); setIsConfirmingDelete(false); setIsRenaming(false); }}>
               Restore all
             </button>
           )}
           {selectedProject && !selectedProject.isInbox && (
             <>
-              <button type="button" className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold" onClick={() => { setRenameName(selectedProject.name); setIsRenaming(true); setIsConfirmingDelete(false); setIsConfirmingRestoreProject(false); }}>Rename</button>
-              <button type="button" className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700" onClick={() => { setIsConfirmingDelete(true); setIsRenaming(false); setIsConfirmingRestoreProject(false); }}>Delete</button>
+              <button ref={renameTrigger} type="button" disabled={managingProject} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50" onClick={() => { setRenameName(selectedProject.name); setIsRenaming(true); setIsConfirmingDelete(false); setIsConfirmingRestoreProject(false); }}>Rename</button>
+              <button ref={deleteTrigger} type="button" disabled={managingProject} className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700 disabled:opacity-50" onClick={() => { setIsConfirmingDelete(true); setIsRenaming(false); setIsConfirmingRestoreProject(false); }}>Delete</button>
             </>
           )}
         </div>
       </div>
 
       {isConfirmingRestoreProject && selectedProject && (
-        <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 p-3.5" role="alertdialog" aria-labelledby="restore-project-title">
-          <h3 id="restore-project-title" className="font-semibold text-blue-950">
-            Restore all {parkedLinkCount} links from {selectedProject.name}?
-          </h3>
+        <InlineConfirmation titleId="restore-project-title" title={<>Restore all {parkedLinkCount} links from {selectedProject.name}?</>}
+          className="mb-3 rounded-xl border border-blue-200 bg-blue-50 p-3.5" titleClassName="font-semibold text-blue-950"
+          returnFocus={() => restoreTrigger.current ?? sectionHeading.current}>
           <p className="mt-1 text-sm text-blue-900">
             Choose whether Chrome should load every page normally or keep tabs unloaded until you activate them.
           </p>
@@ -494,36 +535,40 @@ export function ProjectsSection() {
           <div className="mt-2 flex justify-end">
             <button type="button" className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold" disabled={isRestoringProject} onClick={() => setIsConfirmingRestoreProject(false)}>Cancel</button>
           </div>
-        </div>
+        </InlineConfirmation>
       )}
 
       {isRenaming && (
-        <form className="mb-3 rounded-xl border border-slate-200 bg-white p-3.5" onSubmit={saveRename}>
-          <label className="text-sm font-semibold" htmlFor="rename-project">Rename project</label>
+        <InlineConfirmation titleId="rename-project-title" title="Rename project" className="mb-3 rounded-xl border border-slate-200 bg-white p-3.5"
+          returnFocus={() => renameTrigger.current ?? projectSelector.current}>
+          <form onSubmit={saveRename}>
+          <label className="sr-only" htmlFor="rename-project">Project name</label>
           <input id="rename-project" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={renameName} onChange={(event) => setRenameName(event.target.value)} />
-          <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-lg border px-3 py-2 text-sm" onClick={() => setIsRenaming(false)}>Cancel</button><button className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white" disabled={isSavingRename}>{isSavingRename ? 'Saving...' : 'Save name'}</button></div>
+          <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-lg border px-3 py-2 text-sm" disabled={isSavingRename} onClick={() => setIsRenaming(false)}>Cancel</button><button className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white" disabled={isSavingRename}>{isSavingRename ? 'Saving...' : 'Save name'}</button></div>
         </form>
+        </InlineConfirmation>
       )}
 
       {isConfirmingDelete && selectedProject && (
-        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3.5" role="alertdialog">
-          <h3 className="font-semibold text-red-900">Delete “{selectedProject.name}”?</h3>
+        <InlineConfirmation titleId="delete-project-title" title={<>Delete “{selectedProject.name}”?</>}
+          className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3.5" titleClassName="font-semibold text-red-900"
+          returnFocus={() => deleteTrigger.current ?? sectionHeading.current}>
           <p className="mt-1 text-sm text-red-800">Its links and sessions will move to Inbox. Nothing is permanently deleted.</p>
-          <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-lg border bg-white px-3 py-2 text-sm" onClick={() => setIsConfirmingDelete(false)}>Cancel</button><button type="button" className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white" disabled={isDeleting} onClick={() => void removeProject()}>{isDeleting ? 'Moving...' : 'Move to Inbox and delete'}</button></div>
-        </div>
+          <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-lg border bg-white px-3 py-2 text-sm" disabled={isDeleting} onClick={() => setIsConfirmingDelete(false)}>Cancel</button><button type="button" className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white" disabled={isDeleting} onClick={() => void removeProject()}>{isDeleting ? 'Moving...' : 'Move to Inbox and delete'}</button></div>
+        </InlineConfirmation>
       )}
 
       {removeCandidate && (
         <RemoveLinkDialog
           link={removeCandidate}
-          isRemoving={lifecycleWorkingId === removeCandidate.id}
+          feedback={<OperationFeedback {...feedback} pending={dialogPending ? 'Updating link…' : undefined} />}
+          returnFocus={(invoker) => invoker ?? sectionHeading.current}
+          isRemoving={dialogPending}
           onCancel={() => setRemoveCandidate(null)}
           onConfirm={() => void confirmRemoveLink()}
         />
       )}
 
-      {message && <p className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
-      {error && <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</p>}
       {isLoading && <SkeletonCards count={2} />}
       {!isLoading && !error && groups.length === 0 && <EmptyState title="This project is empty">Park tabs into {selectedProject?.name ?? 'this project'} to start a focused workspace.</EmptyState>}
       {!isLoading && !error && groups.length > 0 && visibleGroups.length === 0 && <EmptyState title="No matching tabs">Clear the project filter or try a different title, URL, domain, or note.</EmptyState>}
@@ -562,7 +607,7 @@ export function ProjectsSection() {
                   isRestoring={restoringId === link.id || restoringSessionId === group.session.id || isRestoringProject || lifecycleWorkingId === link.id}
                   onRestore={() => void handleRestore(link.id)}
                   onArchive={() => void handleArchive(link)}
-                  onRemove={() => setRemoveCandidate(link)}
+                  onRemove={() => startRemoving(link)}
                 />
               ))}
               {shownLinks.length < group.links.length && <div className="flex gap-2 pt-1"><button type="button" className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-blue-700" onClick={() => setSessionLimits((current) => ({ ...current, [group.session.id]: limit + PROJECT_LINK_BATCH_SIZE }))}>Show {Math.min(PROJECT_LINK_BATCH_SIZE, group.links.length - shownLinks.length)} more</button><button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600" onClick={() => setSessionLimits((current) => ({ ...current, [group.session.id]: group.links.length }))}>Show all</button></div>}

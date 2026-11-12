@@ -26,20 +26,44 @@ interface SavedLinkCardProps {
 }
 
 export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, showStatus = false, density = 'comfortable', isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const menuButton = useRef<HTMLButtonElement>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsButton = useRef<HTMLButtonElement>(null);
+  const actionsPanel = useRef<HTMLDivElement>(null);
+  const actionsId = useId();
   const secondaryActions = Boolean(onMove || onArchive || onUnarchive || onRemove);
   const favicon = link.faviconUrl;
 
+  useEffect(() => {
+    if (!actionsOpen) return;
+    function closeOutside(event: Event) {
+      if (!(event.target instanceof Node) || actionsButton.current?.contains(event.target) ||
+          actionsPanel.current?.contains(event.target)) return;
+      setActionsOpen(false);
+    }
+    document.addEventListener('pointerdown', closeOutside, true);
+    document.addEventListener('focusin', closeOutside);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside, true);
+      document.removeEventListener('focusin', closeOutside);
+    };
+  }, [actionsOpen]);
+
   function action(callback?: () => void) {
-    menuButton.current?.focus({ preventScroll: true });
-    setIsMenuOpen(false);
+    actionsButton.current?.focus({ preventScroll: true });
+    setActionsOpen(false);
     callback?.();
   }
 
   const compact = density === 'compact';
 
-  return <article id={cardId} className={`relative border bg-white shadow-sm shadow-slate-200/60 transition hover:-translate-y-px hover:shadow-md ${compact ? 'rounded-xl p-3' : 'rounded-2xl p-4'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}>
+  return <article id={cardId} className={`relative border bg-white shadow-sm shadow-slate-200/60 transition hover:-translate-y-px hover:shadow-md ${compact ? 'rounded-xl p-3' : 'rounded-2xl p-4'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}
+    onKeyDown={(event) => {
+      if (event.key !== 'Escape' || !actionsOpen) return;
+      event.preventDefault();
+      event.stopPropagation();
+      actionsButton.current?.focus();
+      setActionsOpen(false);
+    }}>
     <div className="flex items-start gap-3">
       <div className={`flex shrink-0 items-center justify-center overflow-hidden bg-slate-100 text-sm font-extrabold text-slate-500 ${compact ? 'size-8 rounded-lg' : 'size-10 rounded-xl'}`}>
         {favicon ? <img src={favicon} alt="" className="size-5"/> : link.domain.charAt(0).toUpperCase()}
@@ -61,14 +85,17 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
     <div className={`${compact ? 'mt-2' : 'mt-3'} flex items-center gap-2`}>
       {onRestore && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-45" disabled={isRestoring} onClick={onRestore}><Icon name="undo"/>{isRestoring ? 'Working...' : 'Restore'}</button>}
       {onBookmark && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-45" disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark"/>Keep</button>}
-      {secondaryActions && <button ref={menuButton} type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" aria-label="More link actions" aria-expanded={isMenuOpen} disabled={isRestoring} onClick={() => setIsMenuOpen((open) => !open)}><Icon name="more"/></button>}
+      {secondaryActions && <button ref={actionsButton} type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" aria-label="More link actions" aria-expanded={actionsOpen && !isRestoring} aria-controls={actionsId} disabled={isRestoring} onClick={() => setActionsOpen((open) => !open)}><Icon name="more"/></button>}
     </div>
 
-    {isMenuOpen && <div className="absolute bottom-14 right-4 z-20 min-w-40 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl" role="menu">
-      {onMove && <MenuButton onClick={() => action(onMove)}>Move to project</MenuButton>}
-      {onArchive && <MenuButton onClick={() => action(onArchive)}>Archive</MenuButton>}
-      {onUnarchive && <MenuButton onClick={() => action(onUnarchive)}>Return to project</MenuButton>}
-      {onRemove && <MenuButton danger onClick={() => action(onRemove)}>Remove</MenuButton>}
+    {secondaryActions && <div id={actionsId} ref={actionsPanel} hidden={!actionsOpen || isRestoring}
+      className="absolute bottom-14 right-4 z-20 min-w-40 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl" role="group" aria-label="Link actions">
+      {actionsOpen && !isRestoring && <>
+        {onMove && <ActionButton onClick={() => action(onMove)}>Move to project</ActionButton>}
+        {onArchive && <ActionButton onClick={() => action(onArchive)}>Archive</ActionButton>}
+        {onUnarchive && <ActionButton onClick={() => action(onUnarchive)}>Return to project</ActionButton>}
+        {onRemove && <ActionButton danger onClick={() => action(onRemove)}>Remove</ActionButton>}
+      </>}
     </div>}
   </article>;
 }
@@ -91,6 +118,6 @@ function NotePreview({ note }: { note: string }) {
   </div>;
 }
 
-function MenuButton({ children, danger = false, onClick }: { children: string; danger?: boolean; onClick(): void }) {
-  return <button type="button" role="menuitem" className={`block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold hover:bg-slate-50 ${danger ? 'text-red-700' : 'text-slate-700'}`} onClick={onClick}>{children}</button>;
+function ActionButton({ children, danger = false, onClick }: { children: string; danger?: boolean; onClick(): void }) {
+  return <button type="button" className={`block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold hover:bg-slate-50 ${danger ? 'text-red-700' : 'text-slate-700'}`} onClick={onClick}>{children}</button>;
 }
