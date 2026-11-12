@@ -13,3 +13,16 @@ export function eventSummary(events) {
   }
   return groups;
 }
+
+export function verifiedReadbacks(events) {
+  let pending = false;
+  let count = 0;
+  for (const { label } of events) {
+    if (label === 'chrome.storage.local.set') pending = true;
+    if (pending && label === 'chrome.storage.local.get') {
+      count++;
+      pending = false;
+    }
+  }
+  return count;
+}

@@ -3,17 +3,20 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHarness } from '../native/harness.mjs';
 import { dataset } from './fixtures.mjs';
-import { statistics } from './stats.mjs';
+import { statistics, eventSummary } from './stats.mjs';
 
 const paged = process.argv.includes('--paged');
 const diagnostic = process.argv.includes('--diagnostic');
+const smoke = process.argv.includes('--smoke');
 const h = await createHarness(diagnostic ? { prepareBuild: (await import('./instrument.mjs')).instrumentBuild } : undefined);
 const report = { paged, diagnostic, chrome: h.context.browser().version(), node: process.version, rows: [] };
+const file = path.join(h.output, 'search-performance.json');
+let active;
 try {
   for (let i = 0; i < 100; i++) {
     await h.page.evaluate(({ i, base }) => chrome.bookmarks.create({ title: `Synthetic bookmark ${i}`, url: `${base}/bookmark/${i}` }), { i, base: h.base });
   }
-  for (const distribution of ['few', 'many']) for (const size of [100, 1000, 5000, 10000]) {
+  for (const distribution of smoke ? ['few'] : ['few', 'many']) for (const size of smoke ? [100] : [100, 1000, 5000, 10000]) {
     const fixture = dataset(size, distribution, h.base);
     assert.equal((await h.seed(fixture)).status.state, 'healthy');
     const queries = {
@@ -23,6 +26,7 @@ try {
     };
     for (const [name, query] of Object.entries(queries)) {
       const samples = [];
+      active = { distribution, size, operation: name, samples };
       for (let i = 0; i < 4; i++) {
         const sample = await h.page.evaluate(async ({ query, paged, all, diagnostic }) => {
           const encoder = new TextEncoder();
@@ -33,6 +37,7 @@ try {
           const first = await send(paged ? {} : undefined);
           const firstMs = performance.now() - start;
           if (!first.success || (paged && !first.page)) throw new Error('Search failed');
+          if (paged && (first.results.length > 25 || first.bookmarks.length > 25)) throw new Error('Initial search page exceeds category limits');
           const firstBytes = bytes(first);
           const saved = first.results.map(item => item.link.id);
           const bookmarks = first.bookmarks.map(item => item.id);
@@ -49,6 +54,7 @@ try {
                 const next = await send({ cursor: first.page.cursor, category, offset });
                 const ms = performance.now() - pageStart;
                 if (!next.success) throw new Error(next.error.message);
+                if (next[category].length > 25) throw new Error('Continuation exceeds category limit');
                 fullMs += ms;
                 continuations.push(ms);
                 fullBytes += bytes(next);
@@ -69,15 +75,24 @@ try {
           return { firstMs, firstBytes, fullMs, fullBytes, continuations, firstCount: first.results.length + first.bookmarks.length,
             total: (first.page?.totalResults ?? saved.length) + (first.page?.totalBookmarks ?? bookmarks.length), events };
         }, { query, paged, diagnostic, all: name === 'broad' });
+        if (diagnostic) {
+          const counts = eventSummary(sample.events);
+          assert.equal(counts['repo.searchLinks']?.calls, 1, 'One repository scan per query including continuations');
+          assert.equal(counts['chrome.bookmarks.getTree']?.calls, 1, 'One bookmark tree read per query including continuations');
+        }
         if (i) samples.push(sample);
       }
       report.rows.push({ distribution, size, name, samples, first: statistics(samples.map(s => s.firstMs)), full: statistics(samples.map(s => s.fullMs)) });
+      active = undefined;
     }
     console.log(distribution, size, report.rows.at(-3).first.medianMs, 'ms broad');
   }
-  const file = path.join(h.output, 'search-performance.json');
-  await fs.writeFile(file, JSON.stringify(report, null, 2));
-  console.log(file);
+} catch (error) {
+  report.failure = { ...active, error: error.message };
+  process.exitCode = 1;
 } finally {
-  await h.close();
+  try {
+    await fs.writeFile(file, JSON.stringify(report, null, 2));
+    console.log(file);
+  } finally { await h.close(); }
 }
