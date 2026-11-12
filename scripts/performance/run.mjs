@@ -178,9 +178,17 @@ async function bulk(row) {
       }, { type, count, mode });
       assert.equal(reply.count, count);
       return { ...reply, transportMs: performance.now() - start };
-    }, { reset: async () => {
-      await cleanupTabs(); value = structuredClone(fixture); value.settings.defaultRestoreBehavior = copy ? 'open-copy' : 'restore-and-remove'; value.settings.defaultRestoreMode = mode; await seed(value);
-    }, repetitions: options.bulkRepetitions, warmups: 1 });
+    }, {
+      reset: async () => {
+        await cleanupTabs(); value = structuredClone(fixture); value.settings.defaultRestoreBehavior = copy ? 'open-copy' : 'restore-and-remove'; value.settings.defaultRestoreMode = mode; await seed(value);
+      },
+      verify: async item => {
+        item.persisted = await h.page.evaluate(count => chrome.storage.local.get('linkshelfDatabase').then(({ linkshelfDatabase }) =>
+          linkshelfDatabase.links.slice(0, count).filter(link => link.status === 'restored').length), count);
+        assert.equal(item.persisted, copy ? 0 : count);
+      },
+      repetitions: options.bulkRepetitions, warmups: 1,
+    });
   }
   await cleanupTabs();
 }

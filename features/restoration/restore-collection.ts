@@ -1,10 +1,14 @@
 import type { SavedLink } from '@/domain/schemas';
 import type { RestoreProgress } from '@/messaging/contracts';
+import { sameRestoreIdentity } from '@/domain/restore-identity';
+
+export const RESTORE_CHECKPOINT_SIZE = 2;
 
 export interface RestoreCollectionDependencies {
   openTab(url: string, link?: SavedLink): Promise<RestoreTabOutcome>;
   getLink?(id: string): Promise<SavedLink | undefined>;
   markLinkRestored(linkId: string): Promise<SavedLink>;
+  markLinksRestoredBatch?(confirmed: readonly SavedLink[]): Promise<void>;
 }
 
 export interface RestoreTabOutcome {
@@ -47,23 +51,48 @@ export async function restoreLinkCollection(
   const failedLinkIds: string[] = [];
   const discardedLinkIds: string[] = [];
   const fallbackLinkIds: string[] = [];
+  const pending: SavedLink[] = [];
+  const checkpointSize = dependencies.markLinksRestoredBatch ? RESTORE_CHECKPOINT_SIZE : 1;
 
-  for (const link of links) {
+  async function checkpoint() {
+    if (!pending.length) return;
+    if (dependencies.markLinksRestoredBatch) await dependencies.markLinksRestoredBatch(pending);
+    else await dependencies.markLinkRestored(pending[0].id);
+    restoredLinkIds.push(...pending.map(link => link.id));
+    pending.length = 0;
+  }
+
+  function storageFailure(unprocessed: number): RestoreCollectionResult {
+    return {
+      success: false,
+      opened: openedLinkIds.length > 0,
+      progress: { openedLinkIds, restoredLinkIds, failedLinkIds, discardedLinkIds, fallbackLinkIds },
+      error: {
+        code: 'STORAGE_FAILED',
+        message: `Confirmed opening ${openedLinkIds.length} tabs and saving ${restoredLinkIds.length} restored records before storage could not be verified. ${unprocessed === 1 ? '1 link was' : `${unprocessed} links were`} not attempted. Check your tabs and saved list before retrying.`,
+      },
+    };
+  }
+
+  for (const [index, link] of links.entries()) {
+    if (pending.length && index % checkpointSize === 0) {
+      try {
+        await checkpoint();
+      } catch {
+        return storageFailure(links.length - index);
+      }
+    }
     let current = link;
     if (dependencies.getLink) {
       try {
         const saved = await dependencies.getLink(link.id);
-        if (!saved || saved.status !== 'parked' || saved.sessionId !== link.sessionId || saved.projectId !== link.projectId) {
+        if (!saved || saved.status !== 'parked' || !sameRestoreIdentity(saved, link)) {
           failedLinkIds.push(link.id);
           continue;
         }
         current = saved;
       } catch {
-        return {
-          success: false, opened: openedLinkIds.length > 0,
-          progress: { openedLinkIds, restoredLinkIds, failedLinkIds, discardedLinkIds, fallbackLinkIds },
-          error: { code: 'STORAGE_FAILED', message: 'LinkShelf could not confirm the remaining saved links. Check completed progress before retrying.' },
-        };
+        return storageFailure(links.length - index);
       }
     }
     let tabOutcome: RestoreTabOutcome;
@@ -79,22 +108,13 @@ export async function restoreLinkCollection(
       continue;
     }
 
-    if (!options.markAsRestored) continue;
-
+    if (options.markAsRestored) pending.push(current);
+  }
+  if (pending.length) {
     try {
-      await dependencies.markLinkRestored(link.id);
-      restoredLinkIds.push(link.id);
+      await checkpoint();
     } catch {
-      return {
-        success: false,
-        opened: true,
-        progress: { openedLinkIds, restoredLinkIds, failedLinkIds, discardedLinkIds, fallbackLinkIds },
-        error: {
-          code: 'STORAGE_FAILED',
-          message:
-            `Opened ${openedLinkIds.length} tabs and confirmed ${restoredLinkIds.length} saved-state updates before storage failed. Unprocessed links remain parked. Check your open tabs and saved list before retrying.`,
-        },
-      };
+      return storageFailure(0);
     }
   }
 

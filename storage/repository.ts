@@ -1,5 +1,6 @@
 import { createEmptyDatabase, createInboxProject, INBOX_PROJECT_ID } from '@/domain/defaults';
 import { stringifyBackup } from '@/domain/backup';
+import { sameRestoreIdentity, type RestoreIdentity } from '@/domain/restore-identity';
 import {
   LinkShelfDatabaseSchema,
   LinkShelfBackupSchema,
@@ -817,7 +818,7 @@ export class LinkShelfRepository {
     return movedLink;
   }
 
-  async markLinkRestored(linkId: string): Promise<SavedLink> {
+  async markLinkRestored(linkId: string, expected?: RestoreIdentity): Promise<SavedLink> {
     let restoredLink: SavedLink | undefined;
 
     await this.updateDatabase((database) => {
@@ -829,6 +830,9 @@ export class LinkShelfRepository {
 
       if (existingLink.status !== 'parked') {
         throw new InvalidLinkStateError('Only parked links can be restored.');
+      }
+      if (expected && !sameRestoreIdentity(existingLink, expected)) {
+        throw new InvalidLinkStateError('The saved link changed after Chrome opened the tab.');
       }
 
       const timestamp = this.now();
@@ -852,6 +856,28 @@ export class LinkShelfRepository {
     }
 
     return restoredLink;
+  }
+
+  async markLinksRestoredBatch(confirmed: readonly RestoreIdentity[]): Promise<void> {
+    const identities = new Map(confirmed.map(link => [link.id, link]));
+    if (identities.size === 0 || identities.size !== confirmed.length) {
+      throw new StorageValidationError('A restoration checkpoint requires distinct saved links.');
+    }
+    await this.updateDatabase(database => {
+      const timestamp = this.now();
+      let matched = 0;
+      const links = database.links.map(link => {
+        const expected = identities.get(link.id);
+        if (!expected) return link;
+        if (link.status !== 'parked' || !sameRestoreIdentity(link, expected)) {
+          throw new InvalidLinkStateError('A saved link changed after Chrome opened the tab.');
+        }
+        matched++;
+        return { ...link, status: 'restored' as const, restoredAt: timestamp, updatedAt: timestamp };
+      });
+      if (matched !== identities.size) throw new LinkNotFoundError('A confirmed saved link no longer exists.');
+      return { ...database, links };
+    });
   }
 
   async archiveLink(linkId: string): Promise<SavedLink> {

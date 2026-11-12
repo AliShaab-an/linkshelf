@@ -50,6 +50,30 @@ representative baseline. The same seed and origin produce identical fixture
 bytes; the local test server's ephemeral port varies across runs. Raw reports
 record sizes, counts, state mix and a fixture hash. No real browsing data is used.
 
+## Bulk restoration checkpoints
+
+Use the disposable Chrome setup and a completed production build:
+
+```sh
+node scripts/native/bulk-restore.mjs
+npm run bench:performance -- --suite=bulk --diagnostic --sizes=100,1000,5000,10000 --distributions=few --bulk-repetitions=2 --only=restore.session10,restore.project10,restore.unloaded10,restore.copies10
+npm run bench:performance -- --suite=bulk --diagnostic --sizes=10000 --distributions=many --bulk-repetitions=2 --only=restore.one,restore.project10,restore.copies10
+```
+
+For the before run, use the Phase 2.4 merge
+`95fd171c000eb1159e6f0f513743c8699a959744` in a separate checkout and run the
+same benchmark. Run the builds sequentially. The diagnostic intervals start
+and end inside the extension, use synthetic local pages, and include
+reminder reconciliation. The driver checks persisted target counts after
+the optimized RPC and outside diagnostic capture. The observed maximum
+uses only two retained samples per case.
+
+The native suite exercises the production worker with temporary Chrome API
+probes. It checks real tab IDs and indexes, discards, verified saved state,
+failure and retry, and stops the service worker at controlled boundaries.
+The probes and evidence remain in disposable profiles under
+`.output/native-runs/`.
+
 ## Sidebar rendering comparison
 
 With the production build and disposable Chrome setup ready:

@@ -190,14 +190,14 @@ describe('actual background reminder handlers', () => {
   });
 
   it('repairs alarms after partial collection persistence failure without misreporting progress', async () => {
-    const links = await park();
+    const links = await park(FUTURE, [1, 2, 3, 4]);
     const set = api.storage.local.set.getMockImplementation();
     api.storage.local.set.mockImplementationOnce(set).mockRejectedValueOnce(new Error('Second write failed'));
     const result = await request({ type: 'RESTORE_SESSION', payload: { sessionId: links[0].sessionId } });
     expect(result).toMatchObject({ success: false, error: { code: 'STORAGE_FAILED' } });
-    expect(result.progress.restoredLinkIds).toHaveLength(1);
-    expect(stored().links.map((link) => link.status)).toEqual(['restored', 'parked']);
-    expect([...scheduled.keys()]).toEqual([reminderAlarmName(links[1].id)]);
+    expect(result.progress.restoredLinkIds).toHaveLength(2);
+    expect(stored().links.map((link) => link.status)).toEqual(['restored', 'restored', 'parked', 'parked']);
+    expect([...scheduled.keys()]).toEqual([reminderAlarmName(links[2].id)]);
   });
 
   it('reconciles archive, unarchive, and removal while retaining reminder history', async () => {
