@@ -50,6 +50,7 @@ import { createRestoreCoordinator } from '@/features/restoration/restore-coordin
 import type { SavedLink } from '@/domain/schemas';
 import {
   SIDE_PANEL_INTENTS_KEY,
+  SIDE_PANEL_INTENTS_LOCK,
   type SidePanelNavigationIntent,
 } from '@/domain/side-panel';
 import {
@@ -131,16 +132,13 @@ export default defineBackground(() => {
     windowId: number,
     intent: SidePanelNavigationIntent,
   ) {
-    const stored = await browser.storage.session.get(SIDE_PANEL_INTENTS_KEY);
-    const current = stored[SIDE_PANEL_INTENTS_KEY];
-    const intents = current && typeof current === 'object'
-      ? current as Record<string, unknown>
-      : {};
-    await browser.storage.session.set({
-      [SIDE_PANEL_INTENTS_KEY]: {
-        ...intents,
-        [String(windowId)]: intent,
-      },
+    await navigator.locks.request(SIDE_PANEL_INTENTS_LOCK, async () => {
+      const stored = await browser.storage.session.get(SIDE_PANEL_INTENTS_KEY);
+      const current = stored[SIDE_PANEL_INTENTS_KEY];
+      const intents = current && typeof current === 'object' ? current : {};
+      await browser.storage.session.set({
+        [SIDE_PANEL_INTENTS_KEY]: { ...intents, [String(windowId)]: intent },
+      });
     });
   }
 

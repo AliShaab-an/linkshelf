@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { createHarness, poll } from './harness.mjs';
+import { navigateSidebar, createHarness, poll } from './harness.mjs';
 import { backup, library } from './fixtures.mjs';
 
 const h = await createHarness();
@@ -223,13 +223,19 @@ try {
   for (const width of [320, 400, 800]) {
     await h.page.setViewportSize({ width, height: 800 });
     for (const name of ['Projects', 'Today', 'Review', 'Search', 'Archive', 'Settings']) {
-      await h.page.getByRole('button', { name, exact: true }).click();
-      await h.page.getByRole('button', { name, exact: true }).getAttribute('aria-current').then(value => assert.equal(value, 'page'));
+      await navigateSidebar(h.page, name);
+      const navigation = h.page.getByRole('navigation', { name: 'LinkShelf sections' });
+      if (['Review', 'Archive', 'Settings'].includes(name)) {
+        await navigation.getByRole('button', { name: 'More, current section ' + name }).waitFor();
+      } else {
+        const label = name === 'Projects' ? 'Saved' : name;
+        assert.equal(await navigation.getByRole('button', { name: label, exact: true }).getAttribute('aria-current'), 'page');
+      }
       results.ui.push({ width, section: name, ...await h.page.evaluate(() => ({ viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, headings: [...document.querySelectorAll('h1,h2')].map(el => el.textContent) })) });
     }
     await h.page.screenshot({ path: path.join(h.output, `settings-${width}.png`), fullPage: true });
   }
-  await h.page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await navigateSidebar(h.page, 'Projects');
   await h.page.getByLabel('Project', { exact: true }).selectOption('legacy-project');
   await h.page.getByLabel('Filter this project').fill('Synthetic');
   await h.page.keyboard.press('Tab');
@@ -262,7 +268,7 @@ try {
   await h.page.setViewportSize({ width: 320, height: 800 });
   results.ui.push({ longContent: true, ...await h.page.evaluate(() => ({ viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth })) });
   await h.page.screenshot({ path: path.join(h.output, 'long-content-320.png'), fullPage: true });
-  await h.page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await navigateSidebar(h.page, 'Settings');
   await h.page.getByRole('button', { name: 'Save settings', exact: true }).waitFor();
   const exportDownload = h.page.waitForEvent('download');
   await h.page.getByRole('button', { name: 'Export LinkShelf data', exact: true }).click();
@@ -287,8 +293,12 @@ try {
     await h.page.getByRole('button', { name: 'Cancel', exact: true }).click();
     assert.deepEqual(await h.database(), beforeLarge);
   }
-  await h.page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await navigateSidebar(h.page, 'Projects');
   // Probe existing remote favicon behavior without allowing an external request.
+  await poll(() => h.page.evaluate(async () => {
+    const { linkshelfUiState } = await chrome.storage.local.get('linkshelfUiState');
+    return linkshelfUiState?.lastSection;
+  }), section => section === 'projects', 'Saved destination persisted before reload');
   const remote = await h.database(); remote.links[0].faviconUrl = 'https://example.invalid/privacy-probe.png';
   await h.seed(remote); await h.page.reload();
   await poll(() => h.requests, urls => urls.some(url => url.includes('privacy-probe')), 'Record remote favicon request attempt');

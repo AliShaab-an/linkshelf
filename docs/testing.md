@@ -24,6 +24,18 @@ count to the full suite. Generated `.output`/`.wxt` directories are excluded.
 Run `npm test -- path/to/file.test.ts` for one file or `npm run test:watch` while
 editing. No coverage percentage or React DOM component coverage is claimed.
 
+## Development reload and standalone builds
+
+`npm run dev` generates `.output/chrome-mv3-dev`. Its popup and sidebar
+use WXT's local hot-reload connection. If Chrome reports that WXT cannot
+connect to the dev server, start that command and reload the unpacked
+development extension in `chrome://extensions`.
+
+For standalone testing, run `npm run build` and load
+`.output/chrome-mv3`. This build works without a dev server. Chrome may
+assign a different extension ID to a different unpacked directory, so
+keep the existing installation if you still need its saved data.
+
 ## Disposable native Chrome testing
 
 Build first; the runner never builds or changes the extension version. It requires
@@ -46,6 +58,7 @@ $env:CHROME_PATH = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 npm run build
 npm run test:native
 npm run test:native -- --performance
+node scripts/native/navigation.mjs
 ```
 
 On macOS/Linux use normal shell environment syntax and the installed browser path.

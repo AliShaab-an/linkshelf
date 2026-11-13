@@ -23,4 +23,5 @@ export type SidePanelNavigationIntent = z.infer<
 >;
 
 export const SIDE_PANEL_INTENTS_KEY = 'linkshelfSidePanelIntents';
+export const SIDE_PANEL_INTENTS_LOCK = 'linkshelf:side-panel-intents';
 

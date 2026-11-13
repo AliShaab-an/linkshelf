@@ -466,7 +466,7 @@ export function ProjectsSection() {
   return (
     <>
       <OperationFeedback {...(!(removeCandidate) ? feedback : {})} />
-      <div className="sticky top-[130px] z-20 mb-4 rounded-2xl border border-slate-200 bg-white/95 p-3.5 shadow-sm backdrop-blur">
+      <div className="projects-toolbar sticky z-20 mb-4 rounded-2xl border border-slate-200 bg-white/95 p-3.5 shadow-sm backdrop-blur">
         <div className="flex items-center gap-2">
           <label className="sr-only" htmlFor="project-selector">Project</label>
           <select ref={projectSelector} disabled={managingProject} id="project-selector" className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold" value={selectedId} onChange={(event) => void selectProject(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>

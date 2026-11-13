@@ -33,7 +33,7 @@ export async function runUI(h, row, { fixture, seed, cleanupTabs, sample, option
       if (capture) { await cdp.send('Profiler.enable'); await cdp.send('Profiler.start'); await cdp.send('HeapProfiler.startSampling', { samplingInterval: 32768 }); }
       try {
         await page.goto(`chrome-extension://${h.id}/sidepanel.html`);
-        await page.getByRole('button', { name: section[0].toUpperCase() + section.slice(1), exact: true }).waitFor();
+        await page.getByRole('navigation', { name: 'LinkShelf sections' }).waitFor();
         if (section === 'search') {
           await page.evaluate(() => { globalThis.__uiProfile.actionStart = performance.now(); });
           await page.locator('input[type=search]').fill(operation === 'searchBroad' ? 'synthetic' : fixture.links[1].url);

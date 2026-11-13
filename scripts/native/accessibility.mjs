@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { build } from 'vite';
-import { createHarness, poll } from './harness.mjs';
+import { navigateSidebar, createHarness, poll } from './harness.mjs';
 import { backup } from './fixtures.mjs';
 import { dataset } from '../performance/fixtures.mjs';
 
@@ -102,7 +102,7 @@ try {
   });
 
   await page.setViewportSize({ width: 400, height: 760 });
-  await button('Projects').click();
+  await navigateSidebar(page, 'Projects');
   await page.getByLabel('Project', { exact: true }).selectOption('restore-probe');
   await button('Expand all').click();
   const first = card(longTitle);
@@ -238,7 +238,7 @@ try {
   });
 
   await scenario('Review move, create bookmark, duplicate prompt, and opening the existing native bookmark', async () => {
-    await button('Review').click();
+    await navigateSidebar(page, 'Review');
     const moving = card(fixture.links[1].title);
     await openAction(moving, 'Move to project');
     const destination = dialog.getByLabel('Destination project');
@@ -272,7 +272,7 @@ try {
   });
 
   await scenario('Inline project confirmations focus their headings and return on cancel and delete', async () => {
-    await button('Projects').click();
+    await navigateSidebar(page, 'Projects');
     await page.getByLabel('Project', { exact: true }).selectOption('restore-probe');
     await button('Restore all').click();
     const restore = page.getByRole('region', { name: /^Restore all/ });
@@ -298,7 +298,7 @@ try {
   });
 
   await scenario('Backup Merge and Replace remain named inline previews with cancel and verified Merge focus', async () => {
-    await button('Settings').click();
+    await navigateSidebar(page, 'Settings');
     const file = { name: 'synthetic.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup(await h.database()))) };
     const chooser = page.getByLabel('Choose backup file');
     await chooser.setInputFiles(file);
@@ -339,7 +339,7 @@ try {
     await waitClosed();
     await active(page.getByRole('searchbox'));
     await searchCard.waitFor({ state: 'hidden' });
-    await button('Archive').click();
+    await navigateSidebar(page, 'Archive');
     await heading('Archive').waitFor();
   });
 

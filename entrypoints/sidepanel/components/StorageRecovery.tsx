@@ -33,12 +33,12 @@ export function StorageRecoveryGate({ children }: { children: ReactNode }) {
     browser.storage.onChanged.addListener(changed);
     return () => { generation.current++; browser.storage.onChanged.removeListener(changed); };
   }, [load]);
-  if (!status) return <p className="rounded-xl bg-white p-4 text-sm text-slate-500">Checking saved data...</p>;
+  if (!status) return <p role="status" className="mx-auto max-w-2xl rounded-xl bg-white p-4 text-sm text-slate-500">Checking saved data...</p>;
   if (status.state === 'healthy') return <>{message && <p role="status" className="mb-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}<OperationWarnings warnings={notice} />{children}</>;
-  return <StorageRecoveryPanel status={status} onBusy={(active) => { busy.current = active; if (active) generation.current++; }} onRecheck={() => load(true)} onRecovered={async (warnings, count) => {
+  return <div className="mx-auto max-w-2xl p-4"><StorageRecoveryPanel status={status} onBusy={(active) => { busy.current = active; if (active) generation.current++; }} onRecheck={() => load(true)} onRecovered={async (warnings, count) => {
     setMessage(`Backup restored: ${count} links loaded.`); setNotice(warnings);
     await load();
-  }} />;
+  }} /></div>;
 }
 
 function StorageRecoveryPanel({ status, onBusy, onRecheck, onRecovered }: {
