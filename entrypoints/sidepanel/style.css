@@ -34,6 +34,10 @@ html {
   top: var(--sidebar-shell-height, 0px);
 }
 
+html:has(.parking-actions) {
+  scroll-padding-block-end: 4.5rem;
+}
+
 .linkshelf-modal {
   position: fixed;
   inset: auto 0 0.75rem;

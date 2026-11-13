@@ -30,6 +30,7 @@ import {
   type SessionOrder,
 } from '../project-view';
 import { loadUiState, updateUiState } from '../ui-state';
+import type { SavedSessionTarget } from '../parking-outcome';
 
 function sortProjects(projects: Project[]): Project[] {
   return [...projects].sort((first, second) => {
@@ -38,7 +39,9 @@ function sortProjects(projects: Project[]): Project[] {
   });
 }
 
-export function ProjectsSection() {
+export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionTarget }) {
+  const target = useRef(savedSession).current;
+  const targetButton = useRef<HTMLButtonElement>(null);
   const sectionHeading = useRef<HTMLHeadingElement>(null);
   const projectSelector = useRef<HTMLSelectElement>(null);
   const restoreTrigger = useRef<HTMLButtonElement>(null);
@@ -95,14 +98,17 @@ export function ProjectsSection() {
   );
 
   useEffect(() => {
+    let current = true;
     void Promise.all([getProjects(), getSettings(), loadUiState()])
       .then(async ([projectsResponse, settingsResponse, uiState]) => {
         if (!projectsResponse.success) throw new Error(projectsResponse.error.message);
         if (!settingsResponse.success) throw new Error(settingsResponse.error.message);
-        const selectedProjectId = projectsResponse.projects.some((project) => project.id === uiState.selectedProjectId)
-          ? uiState.selectedProjectId
+        const requestedProject = target?.projectId ?? uiState.selectedProjectId;
+        const selectedProjectId = projectsResponse.projects.some((project) => project.id === requestedProject)
+          ? requestedProject
           : INBOX_PROJECT_ID;
         const groupsResponse = await getParkedSessionGroups(selectedProjectId);
+        if (!current) return;
         if (!groupsResponse.success) throw new Error(groupsResponse.error.message);
         setProjects(projectsResponse.projects);
         setSelectedId(selectedProjectId);
@@ -111,11 +117,22 @@ export function ProjectsSection() {
         setDensity(settingsResponse.settings.displayDensity);
         setDefaultRestoreMode(settingsResponse.settings.defaultRestoreMode);
         const validExpanded = uiState.expandedSessionIds.filter((id) => groupsResponse.groups.some((group) => group.session.id === id));
+        if (target && groupsResponse.groups.some(group => group.session.id === target.sessionId)) validExpanded.push(target.sessionId);
         setExpandedSessionIds(new Set(validExpanded.length > 0 ? validExpanded : groupsResponse.groups.slice(0, 1).map((group) => group.session.id)));
       })
-      .catch((caughtError) => setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not load projects.'))
-      .finally(() => setIsLoading(false));
-  }, []);
+      .catch((caughtError) => { if (current) setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not load projects.'); })
+      .finally(() => { if (current) setIsLoading(false); });
+    return () => { current = false; };
+  }, [target]);
+
+  useEffect(() => {
+    if (!target || isLoading) return;
+    const destination = targetButton.current ?? sectionHeading.current;
+    if (document.activeElement === document.body) {
+      destination?.focus({ preventScroll: true });
+      destination?.scrollIntoView({ block: 'center' });
+    }
+  }, [target, isLoading]);
 
   useEffect(() => {
     function onSettingsUpdated(event: Event) {
@@ -581,7 +598,7 @@ export function ProjectsSection() {
           <section key={group.session.id} className={`rounded-2xl border border-slate-300 bg-slate-100 ${density === 'compact' ? 'p-2' : 'p-3'}`}>
             <div className={`${isExpanded ? 'mb-3' : ''} rounded-xl bg-white p-3`}>
               <div className="flex items-start justify-between gap-3">
-                <button type="button" className="min-w-0 flex-1 text-left" aria-expanded={isExpanded} onClick={() => toggleSession(group.session.id)}>
+                <button ref={group.session.id === target?.sessionId ? targetButton : undefined} type="button" className="min-w-0 flex-1 text-left" aria-expanded={isExpanded} onClick={() => toggleSession(group.session.id)}>
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Parking session</p>
                   <h3 className="mt-1 font-semibold"><span aria-hidden="true">{isExpanded ? '▾' : '▸'} </span>{formatLinkDate(group.session.createdAt)}</h3>
                   <p className="mt-1 text-sm text-slate-500">{group.links.length} parked link{group.links.length === 1 ? '' : 's'}</p>

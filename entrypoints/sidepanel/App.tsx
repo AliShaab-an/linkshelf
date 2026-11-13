@@ -13,6 +13,7 @@ import { StorageRecoveryGate } from './components/StorageRecovery';
 import { hasActiveModal } from './components/ui/Modal';
 import { consumeWindowIntent, DEFAULT_UI_STATE, loadUiState, readWindowIntent, updateUiState } from './ui-state';
 import { createNavigationIntents } from './navigation-intents';
+import type { SavedSessionTarget } from './parking-outcome';
 
 function App() {
   const [activeSection, setActiveSection] =
@@ -20,12 +21,14 @@ function App() {
   const [ready, setReady] = useState(false);
   const [searchFocusRequestId, setSearchFocusRequestId] = useState<string>();
   const [searchQuery, setSearchQuery] = useState('');
+  const [savedSession, setSavedSession] = useState<SavedSessionTarget>();
   const intents = useRef<ReturnType<typeof createNavigationIntents>>(null);
 
   useLayoutEffect(() => { window.scrollTo(0, 0); }, [activeSection]);
 
-  const navigate = useCallback((section: SidePanelSection, focusRequestId?: string) => {
+  const navigate = useCallback((section: SidePanelSection, focusRequestId?: string, session?: SavedSessionTarget) => {
     setActiveSection(section);
+    setSavedSession(session);
     setSearchFocusRequestId(focusRequestId);
     void updateUiState({ lastSection: section }).catch(reportNavigationError);
   }, []);
@@ -115,9 +118,12 @@ function App() {
             <SidePanelNavigation activeSection={activeSection} onChange={changeSection} />
           </div>
           <section className="mx-auto max-w-2xl p-4 pb-10">
-            {activeSection === 'park' && <ParkTabsSection />}
+            {activeSection === 'park' && <ParkTabsSection onViewSession={target => {
+              intents.current?.supersede();
+              navigate('projects', undefined, target);
+            }} />}
             {activeSection === 'today' && <TodaySection />}
-            {activeSection === 'projects' && <ProjectsSection />}
+            {activeSection === 'projects' && <ProjectsSection savedSession={savedSession} />}
             {activeSection === 'archive' && <ArchiveSection />}
             {activeSection === 'search' && <SearchSection query={searchQuery} onQueryChange={setSearchQuery} focusRequestId={searchFocusRequestId} />}
             {activeSection === 'review' && <ReviewSection />}

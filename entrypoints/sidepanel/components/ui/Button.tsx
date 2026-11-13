@@ -1,8 +1,8 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ComponentPropsWithRef, ReactNode } from 'react';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
-export function Button({ variant = 'secondary', className = '', children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; children: ReactNode }) {
+export function Button({ variant = 'secondary', className = '', children, ...props }: ComponentPropsWithRef<'button'> & { variant?: Variant; children: ReactNode }) {
   const styles: Record<Variant, string> = {
     primary: 'bg-blue-700 text-white shadow-sm shadow-blue-900/10 hover:bg-blue-800',
     secondary: 'border border-slate-200 bg-white text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50',
