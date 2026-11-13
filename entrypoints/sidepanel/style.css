@@ -30,8 +30,11 @@ html {
   overflow: auto;
 }
 
-.projects-toolbar {
-  top: var(--sidebar-shell-height, 0px);
+@media (min-height: 36rem) {
+  .projects-toolbar-sticky {
+    position: sticky;
+    top: var(--sidebar-shell-height, 0px);
+  }
 }
 
 html:has(.parking-actions) {

@@ -1,3 +1,4 @@
+import { describeLinkRestore } from '../restore-feedback';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { useEffect, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
@@ -48,15 +49,13 @@ export function TodaySection() {
       const response = await restoreLink(linkId);
       setWarnings(response.warnings ?? []);
       if (!response.success) {
-        setError(response.error.message);
+        setError(describeLinkRestore(response));
         return;
       }
       if (response.restored) {
         setLinks((current) => current.filter((link) => link.id !== linkId));
-        setMessage('Link restored.');
-      } else {
-        setMessage('Opened a copy. The link remains parked.');
       }
+      setMessage(describeLinkRestore(response));
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not restore this link.');
     } finally {

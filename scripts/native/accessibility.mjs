@@ -250,7 +250,7 @@ try {
     assert.equal((await h.database()).links.find(link => link.id === 'link-1').projectId, 'inbox');
 
     const converted = card(fixture.links[2].title);
-    await converted.getByRole('button', { name: 'Keep', exact: true }).click();
+    await converted.getByRole('button', { name: 'Create Chrome bookmark', exact: true }).click();
     await active(dialog.getByRole('heading'));
     await dialog.getByRole('button', { name: 'Create bookmark' }).click();
     await waitClosed();
@@ -258,7 +258,7 @@ try {
     assert.equal((await h.database()).links.find(link => link.id === 'link-2').status, 'removed');
     const duplicate = fixture.links[3];
     await page.evaluate(link => chrome.bookmarks.create({ title: 'Synthetic duplicate', url: link.url }), duplicate);
-    await card(duplicate.title).getByRole('button', { name: 'Keep', exact: true }).click();
+    await card(duplicate.title).getByRole('button', { name: 'Create Chrome bookmark', exact: true }).click();
     await dialog.getByRole('button', { name: 'Create bookmark' }).click();
     await dialog.getByText(/already has this URL/).waitFor();
     await dialog.getByRole('button', { name: 'Open existing' }).click();
@@ -279,6 +279,7 @@ try {
     await active(restore.getByRole('heading'));
     await restore.getByRole('button', { name: 'Cancel' }).click();
     await active(button('Restore all'));
+    await page.getByText('Manage projects', { exact: true }).click();
     await button('Delete').click();
     const deletion = page.getByRole('region', { name: /^Delete/ });
     await active(deletion.getByRole('heading'));

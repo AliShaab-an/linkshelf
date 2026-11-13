@@ -56,9 +56,10 @@ try {
     await page.setViewportSize({ width: 640, height: 760 });
     const zoom = value => page.evaluate(async value => chrome.tabs.setZoom((await chrome.tabs.getCurrent()).id, value), value);
     await zoom(2);
-    assert.equal(await page.evaluate(() => innerWidth), 320);
+    await poll(() => page.evaluate(() => innerWidth), width => width === 320, '200% zoom applied');
     await layout('200-percent');
     await zoom(1);
+    await poll(() => page.evaluate(() => innerWidth), width => width === 640, 'zoom reset');
   });
 
   await page.setViewportSize({ width: 320, height: 760 });

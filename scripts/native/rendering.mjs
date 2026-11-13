@@ -143,8 +143,8 @@ try {
   const more = page.getByRole('button', { name: /^Show \d+ more$/ }).first();
   await more.click();
   await page.getByRole('button', { name: 'Show all', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Compact', exact: true }).click();
-  await page.getByRole('button', { name: 'Comfortable', exact: true }).click();
+  await page.getByRole('button', { name: 'Compact view', exact: true }).click();
+  await page.getByRole('button', { name: 'Comfortable view', exact: true }).click();
   await page.getByLabel('Session order').selectOption('oldest');
   await page.getByLabel('Filter this project').fill('item 100');
   await page.getByRole('button', { name: 'Collapse all', exact: true }).click();

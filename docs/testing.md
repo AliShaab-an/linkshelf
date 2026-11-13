@@ -86,6 +86,11 @@ not a pass. `results.json`, screenshots and synthetic downloads remain beside th
 generated profile for review. Keep these files out of Git; close the browser before
 deleting its generated directory.
 
+Run `node scripts/native/saved-links.mjs` with the same Chrome setup to check
+project management and Inbox preservation, restore scopes and partial feedback,
+cross-document restore preferences, and large-project controls at 320 CSS pixels
+with 200% Chrome zoom.
+
 ## Native limitations and manual procedure
 
 Extension documents opened as tabs exercise application code but do not verify

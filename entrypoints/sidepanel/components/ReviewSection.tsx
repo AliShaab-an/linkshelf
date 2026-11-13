@@ -1,3 +1,4 @@
+import { describeLinkRestore } from '../restore-feedback';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { useEffect, useRef, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
@@ -82,11 +83,11 @@ export function ReviewSection() {
     try {
       const response = await restoreLink(link.id);
       setWarnings(response.warnings ?? []);
-      if (!response.success) throw new Error(response.error.message);
+      if (!response.success) throw new Error(describeLinkRestore(response));
       if (response.restored) {
-        finish(link, `Restored “${link.title}”.`);
+        finish(link, describeLinkRestore(response));
       } else {
-        setMessage(`Opened a copy of “${link.title}”; it remains parked.`);
+        setMessage(describeLinkRestore(response));
       }
     } catch (caughtError) {
       setError(toMessage(caughtError, 'LinkShelf could not restore this link.'));
@@ -221,7 +222,7 @@ export function ReviewSection() {
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Decision queue</p>
         <h2 ref={sectionHeading} tabIndex={-1} className="mt-1 text-lg font-bold">Review parked links</h2>
-        <p className="mt-1 text-sm text-slate-500">Oldest links appear first. Restore, keep permanently, archive, or remove each one.</p>
+        <p className="mt-1 text-sm text-slate-500">Oldest links appear first. Restore a tab, create a Chrome bookmark, archive the link, or remove it.</p>
       </div>
       {!isLoading && links.length > 0 && <p className="mb-3 rounded-xl bg-violet-50 p-3 text-sm text-violet-800"><strong>{links.length}</strong> parked link{links.length === 1 ? '' : 's'} waiting for a decision.</p>}
       {bookmarkCandidate ? <div className="mb-4"><BookmarkLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={bookmarkCandidate} folders={folders} selectedFolderId={selectedFolderId} duplicate={duplicate} isLoadingFolders={isLoadingFolders} isSaving={dialogPending} onSelectFolder={setSelectedFolderId} onCancel={closeBookmark} onConfirm={() => void confirmBookmark()} onOpenDuplicate={() => void openDuplicate()} /></div> : moveCandidate ? <div className="mb-4"><MoveLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={moveCandidate} projects={projects.filter((project) => project.id !== moveCandidate.projectId)} selectedProjectId={moveProjectId} isMoving={dialogPending} onSelect={setMoveProjectId} onCancel={() => setMoveCandidate(null)} onConfirm={() => void confirmMove()} /></div> : removeCandidate ? <div className="mb-4"><RemoveLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={removeCandidate} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} /></div> : null}
