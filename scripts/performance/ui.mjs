@@ -43,7 +43,7 @@ export async function runUI(h, row, { fixture, seed, cleanupTabs, sample, option
           globalThis.__uiProfile.requests.some(item => item.type === ({ projects: 'GET_PARKED_SESSION_GROUPS', search: 'SEARCH_LINKS', archive: 'GET_ARCHIVED_LINKS', today: 'GET_DUE_REMINDER_LINKS' })[section]), section);
         if (section !== 'today') await page.locator('article').first().waitFor({ state: 'visible' });
         if (operation === 'restoreRefresh') {
-          await page.locator('article').first().getByRole('button', { name: 'Restore', exact: true }).evaluate(button => {
+          await page.locator('article').first().getByRole('button', { name: /^Restore(?: link)?$/ }).evaluate(button => {
             const state = globalThis.__uiProfile; state.actionStart = performance.now(); state.requests = []; button.click();
           });
           await page.waitForFunction(() => globalThis.__uiProfile.pending === 0 && document.querySelectorAll('article').length === 9 &&

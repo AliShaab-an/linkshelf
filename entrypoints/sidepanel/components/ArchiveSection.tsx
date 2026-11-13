@@ -146,7 +146,7 @@ export function ArchiveSection() {
   return (
     <>
       <OperationFeedback {...(!(removeCandidate) ? feedback : {})} />
-      <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inactive links</p><h2 ref={heading} tabIndex={-1} className="mt-1 text-lg font-bold">Archive</h2><p className="mt-1 text-sm text-slate-500">Archived links stay local and searchable without cluttering active projects.</p></div>
+      <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inactive links</p><h2 ref={heading} tabIndex={-1} className="mt-1 text-lg font-bold">Archive</h2><p className="mt-1 text-sm text-slate-500">Archived links stay searchable. Use Return to project to park a link in its original project again.</p></div>
       {removeCandidate && <RemoveLinkDialog link={removeCandidate} feedback={<OperationFeedback {...feedback} pending={dialogPending ? 'Updating link…' : undefined} />} returnFocus={(invoker) => invoker ?? heading.current} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} />}
       {isLoading && <SkeletonCards count={2} />}
       {!isLoading && !error && !loadError && links.length === 0 && <EmptyState title="Archive is empty">Links you archive remain searchable and will appear here.</EmptyState>}

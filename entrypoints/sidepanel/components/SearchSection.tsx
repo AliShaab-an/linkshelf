@@ -1,3 +1,4 @@
+import { describeLinkRestore } from '../restore-feedback';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { useEffect, useRef, useState } from 'react';
 import type { SavedLink } from '@/domain/schemas';
@@ -197,9 +198,9 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
     try {
       const response = await restoreLink(link.id);
       setWarnings(response.warnings ?? []);
-      if (!response.success) throw new Error(response.error.message);
+      if (!response.success) throw new Error(describeLinkRestore(response));
       if (response.restored) refreshSearch();
-      setMessage(response.restored ? `Restored “${link.title}”.` : `Opened a copy of “${link.title}”; it remains parked.`);
+      setMessage(describeLinkRestore(response));
     } catch (caughtError) {
       setError(errorMessage(caughtError, 'LinkShelf could not restore this link.'));
     } finally { setWorkingId(null); }
@@ -326,7 +327,7 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Local search</p>
         <h2 className="mt-1 text-lg font-bold">Search your shelf and bookmarks</h2>
-        <p className="mt-1 text-sm text-slate-500">Search LinkShelf links and native Chrome bookmarks by title, URL, note, or project.</p>
+        <p className="mt-1 text-sm text-slate-500">Search LinkShelf links by title, URL, note, or project. Chrome bookmark matches appear separately.</p>
       </div>
       <label className="sr-only" htmlFor="link-search">Search saved links</label>
       <input ref={searchInputRef} id="link-search" type="search" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="React docs, client project, example.com..." value={query} onChange={(event) => changeQuery(event.target.value)} />
@@ -340,7 +341,7 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
         {page?.nextResults !== undefined && <button type="button" data-search-more className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold aria-disabled:opacity-60" aria-disabled={isSearching || !!loadingMore} onClick={() => void loadMore('results')}>{loadingMore === 'results' ? 'Loading links…' : 'Load more LinkShelf links'}</button>}
       </ListNavigation>
       <div className="mt-2 space-y-3">
-        {results.slice(savedRange.start, savedRange.end).map(({ link, projectName }) => <SavedLinkCard key={link.id} cardId={`search-link-${link.id}`} link={link} projectName={projectName} showStatus isRestoring={workingId === link.id} onRestore={link.status === 'parked' ? () => void handleRestore(link) : undefined} onArchive={link.status === 'parked' ? () => void runAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`) : undefined} onUnarchive={link.status === 'archived' ? () => void runAction(link, () => unarchiveLink(link.id), `Returned “${link.title}” to its project.`) : undefined} onBookmark={link.status === 'parked' ? () => void startBookmarking(link) : undefined} onRemove={() => startRemoving(link)} />)}
+        {results.slice(savedRange.start, savedRange.end).map(({ link, projectName }) => <SavedLinkCard key={link.id} cardId={`search-link-${link.id}`} link={link} projectName={projectName} isRestoring={workingId === link.id} onRestore={link.status === 'parked' ? () => void handleRestore(link) : undefined} onArchive={link.status === 'parked' ? () => void runAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`) : undefined} onUnarchive={link.status === 'archived' ? () => void runAction(link, () => unarchiveLink(link.id), `Returned “${link.title}” to its project.`) : undefined} onBookmark={link.status === 'parked' ? () => void startBookmarking(link) : undefined} onRemove={() => startRemoving(link)} />)}
       </div>
 
       {bookmarks.length > 0 && <h3 ref={bookmarkHeading} tabIndex={-1} className="mt-5 text-xs font-bold uppercase tracking-wide text-slate-500">Chrome bookmarks · {bookmarks.length} of {page?.totalBookmarks ?? bookmarks.length}</h3>}

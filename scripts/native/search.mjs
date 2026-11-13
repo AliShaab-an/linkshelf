@@ -82,7 +82,7 @@ try {
     await query('restoration probe', 10);
     const archived = fixture.links.find(link => link.status === 'archived');
     await query(archived.url, 1);
-    await cards.first().getByText('archived', { exact: true }).waitFor();
+    await cards.first().getByText(/^Archived /).waitFor();
     assert.equal((await rpc(' ', baseline ? undefined : {})).results.length, 0);
     report.checks.push(`${size} links: broad, narrow, empty, no matches, project, archived and native bookmark searches`);
   }
@@ -177,9 +177,9 @@ try {
     const beforeArchive = await rpc('synthetic', {});
     await cards.first().getByRole('button', { name: 'More link actions' }).click();
     await ui.getByRole('group', { name: 'Link actions' }).getByRole('button', { name: 'Archive', exact: true }).click();
-    await ui.getByText('archived', { exact: true }).waitFor();
+    await ui.getByText(/^Archived /).waitFor();
     assert.equal((await rpc('synthetic', continuation(beforeArchive))).error.code, 'SEARCH_EXPIRED');
-    await ui.getByText('archived', { exact: true }).locator('xpath=ancestor::article').getByRole('button', { name: 'More link actions' }).click();
+    await ui.getByText(/^Archived /).locator('xpath=ancestor::article').getByRole('button', { name: 'More link actions' }).click();
     await ui.getByRole('group', { name: 'Link actions' }).getByRole('button', { name: 'Return to project' }).click();
     await ui.getByText(/Returned .* to its project/).waitFor();
     const [restoreId, bookmarkId, removeId] = parked.linkIds;
@@ -190,8 +190,8 @@ try {
     const settings = (await h.database()).settings;
     await h.ok({ type: 'UPDATE_SETTINGS', payload: { ...settings, defaultRestoreBehavior: 'open-copy' } }, other);
     const restoreCard = cards.filter({ hasText: 'search-lifecycle-one' });
-    await restoreCard.getByRole('button', { name: 'Restore', exact: true }).click();
-    await ui.getByText(/Opened a copy of .* remains parked/).waitFor();
+    await restoreCard.getByRole('button', { name: 'Restore link', exact: true }).click();
+    await ui.getByText(/Opened a copy.*remains parked/).waitFor();
     assert.equal((await rpc('search-lifecycle-one')).results[0].link.status, 'parked');
     await h.ok({ type: 'UPDATE_SETTINGS', payload: settings }, other);
     await h.ok({ type: 'RESTORE_LINK', payload: { linkId: restoreId } }, other);
@@ -201,7 +201,7 @@ try {
     const converted = await rpc('search-lifecycle');
     assert.equal(converted.results.length, 0);
     assert.equal(converted.bookmarks.length, 1);
-    await cards.first().getByRole('button', { name: 'Open bookmark', exact: true }).click();
+    await cards.first().getByRole('button', { name: 'Open Chrome bookmark', exact: true }).click();
     await ui.waitForFunction(async url => (await chrome.tabs.query({})).some(tab => (tab.pendingUrl || tab.url) === url), converted.bookmarks[0].url);
     await other.close();
     report.checks.push('Search refreshes after parking, archive, unarchive, removal, restore and conversion, and supports copies and opening bookmarks');

@@ -14,7 +14,6 @@ interface SavedLinkCardProps {
   note?: string;
   projectName?: string;
   isDue?: boolean;
-  showStatus?: boolean;
   density?: DisplayDensity;
   isRestoring: boolean;
   onRestore?: () => void;
@@ -25,7 +24,7 @@ interface SavedLinkCardProps {
   onRemove?: () => void;
 }
 
-export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, showStatus = false, density = 'comfortable', isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
+export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsButton = useRef<HTMLButtonElement>(null);
   const actionsPanel = useRef<HTMLDivElement>(null);
@@ -69,22 +68,16 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
         {favicon ? <img src={favicon} alt="" className="size-5"/> : link.domain.charAt(0).toUpperCase()}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="line-clamp-2 break-words font-bold leading-snug text-slate-900" dir="auto">{link.title}</h3>
-          <div className="flex shrink-0 items-center gap-1">
-            {isDue && <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-amber-800">Due</span>}
-            {showStatus && !isDue && <span className={`rounded-full px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide ${link.status === 'archived' ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700'}`}>{link.status}</span>}
-          </div>
-        </div>
+        <h3 className="line-clamp-2 break-words font-bold leading-snug text-slate-900" dir="auto">{link.title}</h3>
         <p className="mt-1 truncate text-sm text-slate-500">{link.domain}{projectName ? ` · ${projectName}` : ''}</p>
-        <p className={`mt-1.5 text-xs ${isDue ? 'font-semibold text-amber-700' : 'text-slate-400'}`}>{isDue && link.reminderAt ? `Reminder ${formatLinkDate(link.reminderAt)}` : link.status === 'archived' ? `Archived ${formatLinkDate(link.archivedAt ?? link.updatedAt)}` : `Parked ${formatLinkDate(link.createdAt)}`}</p>
+        <p className={`mt-1.5 text-xs ${isDue ? 'font-semibold text-amber-700' : 'text-slate-600'}`}>{isDue && link.reminderAt ? `Parked · Due ${formatLinkDate(link.reminderAt)}` : link.status === 'archived' ? `Archived ${formatLinkDate(link.archivedAt ?? link.updatedAt)}` : `Parked ${formatLinkDate(link.createdAt)}`}</p>
       </div>
     </div>
     {note && <NotePreview note={note} />}
 
-    <div className={`${compact ? 'mt-2' : 'mt-3'} flex items-center gap-2`}>
-      {onRestore && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-45" disabled={isRestoring} onClick={onRestore}><Icon name="undo"/>{isRestoring ? 'Working...' : 'Restore'}</button>}
-      {onBookmark && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-45" disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark"/>Keep</button>}
+    <div className={`${compact ? 'mt-2' : 'mt-3'} flex flex-wrap items-center gap-2`}>
+      {onRestore && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-45" disabled={isRestoring} onClick={onRestore}><Icon name="undo"/>{isRestoring ? 'Working…' : 'Restore link'}</button>}
+      {onBookmark && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-45" disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark"/>Create Chrome bookmark</button>}
       {secondaryActions && <button ref={actionsButton} type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" aria-label="More link actions" aria-expanded={actionsOpen && !isRestoring} aria-controls={actionsId} disabled={isRestoring} onClick={() => setActionsOpen((open) => !open)}><Icon name="more"/></button>}
     </div>
 
