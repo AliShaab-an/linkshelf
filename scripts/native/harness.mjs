@@ -4,6 +4,20 @@ import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
 
+export async function sectionButton(page, name) {
+  const navigation = page.getByRole('navigation', { name: 'LinkShelf sections' });
+  await navigation.waitFor();
+  const label = name === 'Projects' && await navigation.getByRole('button', { name: 'Saved', exact: true }).count()
+    ? 'Saved' : name;
+  const button = navigation.getByRole('button', { name: label, exact: true });
+  if (!(await button.count())) await navigation.getByRole('button', { name: /^More(?:, current section .+)?$/ }).click();
+  return button;
+}
+
+export async function navigateSidebar(page, name) {
+  await (await sectionButton(page, name)).click();
+}
+
 export async function poll(read, matches, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
   let value;

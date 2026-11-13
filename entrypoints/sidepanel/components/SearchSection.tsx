@@ -22,11 +22,14 @@ import { SavedLinkCard } from './SavedLinkCard';
 import { ListNavigation } from './ui/ListNavigation';
 import { listRange, LIST_PAGE_SIZE } from '../list-range';
 
-export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
+export function SearchSection({ focusRequestId, query, onQueryChange }: {
+  focusRequestId?: string;
+  query: string;
+  onQueryChange(value: string): void;
+}) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const focusSearchAfterMutation = useRef(false);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [query, setQuery] = useState('');
   const [results, setResults] = useState<LinkSearchResult[]>([]);
   const [bookmarks, setBookmarks] = useState<NativeBookmarkResult[]>([]);
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -123,7 +126,7 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
     if (value === query) return;
     requestVersion.current++;
     pagePending.current = false;
-    setQuery(value);
+    onQueryChange(value);
     setResults([]);
     setBookmarks([]);
     setPage(undefined);
@@ -326,7 +329,7 @@ export function SearchSection({ focusRequestId }: { focusRequestId?: string }) {
         <p className="mt-1 text-sm text-slate-500">Search LinkShelf links and native Chrome bookmarks by title, URL, note, or project.</p>
       </div>
       <label className="sr-only" htmlFor="link-search">Search saved links</label>
-      <input ref={searchInputRef} id="link-search" type="search" autoFocus className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="React docs, client project, example.com..." value={query} onChange={(event) => changeQuery(event.target.value)} />
+      <input ref={searchInputRef} id="link-search" type="search" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="React docs, client project, example.com..." value={query} onChange={(event) => changeQuery(event.target.value)} />
       <div className="mt-2 flex justify-between text-xs text-slate-500"><span role="status">{isSearching ? 'Searching...' : query.trim() ? `${resultCount} result${resultCount === 1 ? '' : 's'}` : 'Type to search'}</span><span>Stored locally</span></div>
 
       {bookmarkCandidate ? <div className="mt-4"><BookmarkLinkDialog feedback={dialogFeedback} returnFocus={dialogReturnFocus} link={bookmarkCandidate} folders={bookmarkFolders} selectedFolderId={selectedFolderId} duplicate={duplicate} isLoadingFolders={isLoadingFolders} isSaving={dialogPending} onSelectFolder={setSelectedFolderId} onCancel={closeBookmark} onConfirm={() => void confirmBookmark()} onOpenDuplicate={() => duplicate && void handleOpen(duplicate, true)} /></div> : removeCandidate ? <div className="mt-4"><RemoveLinkDialog feedback={dialogFeedback} returnFocus={dialogReturnFocus} link={removeCandidate} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} /></div> : null}

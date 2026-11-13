@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHarness } from '../native/harness.mjs';
+import { createHarness, navigateSidebar, sectionButton } from '../native/harness.mjs';
 import { dataset } from './fixtures.mjs';
 
 const smoke = process.argv.includes('--smoke');
@@ -21,9 +21,10 @@ try {
     const samples = [];
     active = { operation: 'archive', distribution, size, samples };
     for (let i = 0; i < 4; i++) {
-      await open('archive');
+      await open();
+      const archive = await sectionButton(page, 'Archive');
       await start();
-      await page.getByRole('button', { name: 'Archive', exact: true }).click();
+      await archive.click();
       await page.getByRole('heading', { name: 'Archive', exact: true }).waitFor();
       await page.waitForFunction(() => globalThis.renderingProbe.replies.some(reply =>
         reply.type === 'GET_ARCHIVED_LINKS' && reply.start >= globalThis.renderingProbe.start));
@@ -47,7 +48,7 @@ try {
   }, h.base);
   for (let attempt = 0; attempt < 3; attempt++) {
     active = { operation: 'search', attempt };
-    await open('search');
+    await open();
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await start();
     await page.getByRole('searchbox').fill('synthetic');
@@ -79,8 +80,8 @@ try {
   for (const distribution of smoke ? [] : ['few', 'many']) {
     active = { operation: 'projects', distribution, size: 10000 };
     await h.seed(dataset(10000, distribution, h.base));
-    await open('projects');
-    await page.getByRole('button', { name: 'Projects', exact: true }).click();
+    await open();
+    await navigateSidebar(page, 'Projects');
     await page.getByRole('button', { name: 'Expand all', exact: true }).waitFor();
     await start();
     await page.getByRole('button', { name: 'Expand all', exact: true }).click();
@@ -108,7 +109,7 @@ try {
   } finally { await h.close(); }
 }
 
-async function open(section) {
+async function open() {
   await h.page.evaluate(() => chrome.storage.local.set({ linkshelfUiState: {
     lastSection: 'projects', selectedProjectId: 'project-0', expandedSessionIds: [], sessionOrder: 'newest',
   } }));
@@ -127,8 +128,7 @@ async function open(section) {
     };
   });
   await page.goto(h.page.url());
-  await page.getByRole('button', { name: section[0].toUpperCase() + section.slice(1), exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Projects', exact: true }).getAttribute('aria-current');
+  await (await sectionButton(page, 'Projects')).waitFor();
 }
 async function start() {
   await page.evaluate(() => { globalThis.renderingProbe.start = performance.now(); });

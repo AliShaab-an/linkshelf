@@ -1,5 +1,39 @@
 @import "tailwindcss";
 
+html {
+  scroll-padding-block-start: var(--sidebar-shell-height, 0px);
+}
+
+.sidebar-destinations {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 3.4rem), 1fr));
+  gap: 0.25rem;
+}
+
+.sidebar-destination {
+  display: flex;
+  min-height: 2.75rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.05rem;
+}
+
+.sidebar-disclosure {
+  position: absolute;
+  inset-block-start: calc(100% + 0.25rem);
+  inset-inline-end: 0.75rem;
+  width: min(19rem, calc(100% - 1.5rem));
+  max-height: calc(100dvh - var(--sidebar-shell-height, 0px) - 1rem);
+  overflow: auto;
+}
+
+.projects-toolbar {
+  top: var(--sidebar-shell-height, 0px);
+}
+
 .linkshelf-modal {
   position: fixed;
   inset: auto 0 0.75rem;

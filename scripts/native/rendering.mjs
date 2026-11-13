@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHarness } from './harness.mjs';
+import { navigateSidebar, createHarness } from './harness.mjs';
 import { dataset } from '../performance/fixtures.mjs';
 
 const h = await createHarness();
@@ -17,7 +17,7 @@ try {
   const ordered = (await h.ok({ type: 'GET_ARCHIVED_LINKS' })).links;
   const page = await h.surface();
   await page.setViewportSize({ width: 400, height: 800 });
-  await page.getByRole('button', { name: 'Archive', exact: true }).click();
+  await navigateSidebar(page, 'Archive');
   const cards = page.locator('article');
   const nav = page.getByRole('navigation', { name: 'Archived links pages' });
   const jump = nav.getByRole('spinbutton', { name: 'Page number' });
@@ -137,7 +137,7 @@ try {
   assert.equal((await h.raw()).links.find(link => link.id === pendingId).status, 'parked');
   checks.push('An action reply arriving after range navigation preserves the current range and original target identity');
 
-  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await navigateSidebar(page, 'Projects');
   await page.getByLabel('Project', { exact: true }).selectOption('project-0');
   await page.getByRole('button', { name: 'Expand all', exact: true }).click();
   const more = page.getByRole('button', { name: /^Show \d+ more$/ }).first();
