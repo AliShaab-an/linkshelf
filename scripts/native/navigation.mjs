@@ -114,10 +114,11 @@ try {
     await quick.focus();
     await page.keyboard.press('Enter');
     const panel = page.getByRole('group', { name: 'Quick settings' });
-    await panel.getByLabel('Display density').waitFor();
+    const reminders = panel.getByRole('switch', { name: 'Desktop reminders' });
+    await reminders.waitFor();
     assert.ok((await panel.boundingBox()).y >= (await nav(page).boundingBox()).y + (await nav(page).boundingBox()).height - 1);
     await page.keyboard.press('Tab');
-    await active(panel.getByLabel('Display density'));
+    await active(reminders);
     await page.keyboard.press('Escape');
     await active(quick);
     await panel.waitFor({ state: 'hidden' });
@@ -157,7 +158,10 @@ try {
     await page.reload();
     const project = page.getByLabel('Project', { exact: true });
     await poll(() => project.inputValue(), value => value === 'restore-probe', 'persisted project');
+    const view = page.getByRole('button', { name: 'View options' });
+    await view.click();
     assert.equal(await page.getByLabel('Session order').inputValue(), 'oldest');
+    await page.keyboard.press('Escape');
     await page.getByRole('heading', { name: 'Navigation probe updated' }).waitFor();
     await page.evaluate(() => window.scrollTo(0, 280));
     await poll(() => project.evaluate(el => {
@@ -172,6 +176,7 @@ try {
     await page.reload();
     await destination(page, 'Saved').waitFor();
     assert.equal(await destination(page, 'Saved').getAttribute('aria-current'), 'page');
+    await view.click();
     assert.equal(await page.getByLabel('Session order').inputValue(), 'newest');
   });
 

@@ -12,6 +12,7 @@ import {
   type Project,
   type SavedLink,
   type Settings,
+  type SettingsPatch,
 } from '@/domain/schemas';
 import { getDomain, normalizeUrl } from '@/domain/url';
 import type { StorageAdapter } from './storage-adapter';
@@ -268,9 +269,9 @@ export class LinkShelfRepository {
     return (await this.getDatabase()).settings;
   }
 
-  async updateSettings(update: SettingsUpdate): Promise<Settings> {
+  async updateSettings(update: SettingsUpdate | SettingsPatch): Promise<Settings> {
     const updated = await this.mutateDatabase((database) => {
-      if (!database.projects.some((project) => project.id === update.defaultProjectId)) {
+      if (update.defaultProjectId !== undefined && !database.projects.some((project) => project.id === update.defaultProjectId)) {
         throw new ProjectNotFoundError('The selected default project no longer exists.');
       }
 

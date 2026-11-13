@@ -1,6 +1,7 @@
 import type { OperationWarnings } from '@/features/operations/secondary-result';
 import type { RawRecoveryExport, StorageStatus } from '@/domain/recovery';
 import type { RecoveryBackupPreview } from '@/storage/repository';
+import { SettingsPatchSchema, type SettingsPatch } from '@/domain/schemas';
 import type {
   LinkShelfBackup,
   ParkingSession,
@@ -51,6 +52,10 @@ export type GetSettingsResponse =
 export interface UpdateSettingsMessage {
   type: 'UPDATE_SETTINGS';
   payload: Pick<Settings, 'defaultProjectId' | 'includePinnedTabsByDefault' | 'confirmBeforeBulkClose' | 'notificationsEnabled' | 'defaultRestoreBehavior' | 'displayDensity' | 'defaultRestoreMode'>;
+}
+export interface PatchSettingsMessage {
+  type: 'PATCH_SETTINGS';
+  payload: SettingsPatch;
 }
 export type UpdateSettingsResponse = OperationWarnings & (
   | { success: true; settings: Settings }
@@ -609,6 +614,12 @@ export function isUpdateSettingsMessage(message: unknown): message is UpdateSett
     (payload.defaultRestoreMode === 'normal' || payload.defaultRestoreMode === 'unloaded');
 }
 
+export function isPatchSettingsMessage(message: unknown): message is PatchSettingsMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<PatchSettingsMessage>;
+  return candidate.type === 'PATCH_SETTINGS' && SettingsPatchSchema.safeParse(candidate.payload).success;
+}
+
 export function isExportDataMessage(message: unknown): message is ExportDataMessage {
   return typeof message === 'object' && message !== null &&
     (message as Partial<ExportDataMessage>).type === 'EXPORT_DATA';
@@ -902,6 +913,12 @@ export async function updateSettings(
     type: 'UPDATE_SETTINGS',
     payload: settings,
   } satisfies UpdateSettingsMessage)) as unknown;
+  assertResponse(response);
+  return response as UpdateSettingsResponse;
+}
+
+export async function patchSettings(patch: SettingsPatch): Promise<UpdateSettingsResponse> {
+  const response = await browser.runtime.sendMessage({ type: 'PATCH_SETTINGS', payload: patch } satisfies PatchSettingsMessage);
   assertResponse(response);
   return response as UpdateSettingsResponse;
 }

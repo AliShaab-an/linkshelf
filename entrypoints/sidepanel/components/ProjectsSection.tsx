@@ -18,13 +18,15 @@ import {
   restoreLink,
   restoreProject,
   restoreSession,
-  updateSettings,
+  patchSettings,
   type ParkedSessionGroup,
 } from '@/messaging/contracts';
 import { formatLinkDate, SavedLinkCard } from './SavedLinkCard';
 import { RemoveLinkDialog } from './RemoveLinkDialog';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
-import { SETTINGS_UPDATED_EVENT } from './QuickSettings';
+import { Disclosure } from './ui/Disclosure';
+import { Icon } from './ui/Icon';
+import { Select } from './ui/Select';
 import {
   filterAndSortProjectGroups,
   PROJECT_LINK_BATCH_SIZE,
@@ -41,16 +43,17 @@ function sortProjects(projects: Project[]): Project[] {
   });
 }
 
+const toolbarButton = 'inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-lg px-2.5 text-sm font-semibold disabled:opacity-50';
+
 export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionTarget }) {
   const target = useRef(savedSession).current;
   const targetButton = useRef<HTMLButtonElement>(null);
   const sectionHeading = useRef<HTMLHeadingElement>(null);
   const projectSelector = useRef<HTMLSelectElement>(null);
   const restoreTrigger = useRef<HTMLButtonElement>(null);
-  const renameTrigger = useRef<HTMLButtonElement>(null);
-  const deleteTrigger = useRef<HTMLButtonElement>(null);
-  const management = useRef<HTMLDetailsElement>(null);
-  const managementTrigger = useRef<HTMLElement>(null);
+  const createTrigger = useRef<HTMLButtonElement>(null);
+  const createInput = useRef<HTMLInputElement>(null);
+  const projectActionsTrigger = useRef<HTMLButtonElement>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState(INBOX_PROJECT_ID);
@@ -60,6 +63,7 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
   const [message, setMessage] = useState<string | null>(null);
   const [partialRestore, setPartialRestore] = useState(false);
   const [newName, setNewName] = useState('');
+  const [isAddingProject, setIsAddingProject] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [renameName, setRenameName] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
@@ -142,12 +146,6 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
   }, [target, isLoading]);
 
   useEffect(() => {
-    function onSettingsUpdated(event: Event) {
-      const settings = (event as CustomEvent).detail;
-      if (settings?.displayDensity) setDensity(settings.displayDensity);
-      if (settings?.defaultRestoreMode) setDefaultRestoreMode(settings.defaultRestoreMode);
-      if (settings?.defaultRestoreBehavior) setRestoreBehavior(settings.defaultRestoreBehavior);
-    }
     const onStorageChanged: Parameters<typeof browser.storage.onChanged.addListener>[0] = (changes, area) => {
       if (area !== 'local' || !changes.linkshelfDatabase) return;
       const { oldValue, newValue } = changes.linkshelfDatabase;
@@ -162,12 +160,8 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
       setRestoreBehavior(result.data.defaultRestoreBehavior);
       setDensity(result.data.displayDensity);
     };
-    window.addEventListener(SETTINGS_UPDATED_EVENT, onSettingsUpdated);
     browser.storage.onChanged.addListener(onStorageChanged);
-    return () => {
-      window.removeEventListener(SETTINGS_UPDATED_EVENT, onSettingsUpdated);
-      browser.storage.onChanged.removeListener(onStorageChanged);
-    };
+    return () => browser.storage.onChanged.removeListener(onStorageChanged);
   }, []);
 
   useEffect(() => {
@@ -183,6 +177,7 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
     setIsLoading(true);
     setError(null);
     setMessage(null);
+    setIsAddingProject(false);
     setIsRenaming(false);
     setIsConfirmingDelete(false);
     setIsConfirmingRestoreProject(false);
@@ -222,6 +217,8 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
       setExpandedSessionIds(new Set());
       rememberView({ selectedProjectId: response.project.id, expandedSessionIds: [] });
       setNewName('');
+      setFilter('');
+      setIsAddingProject(false);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not create the project.');
     } finally {
@@ -233,6 +230,18 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
     setSessionOrder(order);
     setSessionLimits({});
     rememberView({ sessionOrder: order });
+  }
+
+  async function changeDensity(next: DisplayDensity) {
+    setError(null);
+    try {
+      const response = await patchSettings({ displayDensity: next });
+      setWarnings(response.warnings ?? []);
+      if (!response.success) throw new Error(response.error.message);
+      setDensity(response.settings.displayDensity);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not save link spacing.');
+    }
   }
 
   function toggleSession(sessionId: string) {
@@ -486,60 +495,116 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
   return (
     <>
       <OperationFeedback {...(!(removeCandidate) ? feedback : {})} />
-      <div className={`projects-toolbar z-20 mb-4 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur ${isConfirmingRestoreProject || isRenaming || isConfirmingDelete ? '' : 'projects-toolbar-sticky'}`}>
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-semibold" htmlFor="project-selector">Project</label>
-          <select ref={projectSelector} disabled={managingProject || restoring || isCreating || isLoading} id="project-selector" className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold" value={selectedId} onChange={(event) => void selectProject(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
-          <button type="button" className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold" onClick={() => {
-            const next = density === 'comfortable' ? 'compact' : 'comfortable';
-            setDensity(next);
-            void getSettings().then(async (response) => {
-              if (response.success) await updateSettings({ ...response.settings, displayDensity: next });
-            });
-          }}>{density === 'compact' ? 'Compact view' : 'Comfortable view'}</button>
+      <h2 ref={sectionHeading} tabIndex={-1} className="mb-2 text-lg font-bold">Saved</h2>
+      <div className={`projects-toolbar relative z-20 mb-3 grid grid-cols-1 gap-2 ${isAddingProject || isConfirmingRestoreProject || isRenaming || isConfirmingDelete ? '' : 'projects-toolbar-sticky'}`}>
+        <div className="relative flex items-center gap-2">
+          <label className="sr-only" htmlFor="project-selector">Project</label>
+          <Select ref={projectSelector} id="project-selector" className="w-0 flex-1"
+            title={selectedProject?.name} disabled={managingProject || restoring || isCreating || isLoading}
+            value={selectedId} onChange={(event) => void selectProject(event.target.value)}>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </Select>
+          <button ref={createTrigger} type="button" aria-label="New project" title="New project"
+            aria-expanded={isAddingProject} aria-controls={isAddingProject ? 'create-project' : undefined}
+            disabled={managingProject || restoring || isCreating || isLoading}
+            className={`${toolbarButton} w-10 shrink-0 border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100`}
+            onClick={() => {
+              setIsAddingProject(!isAddingProject);
+              setIsRenaming(false);
+              setIsConfirmingDelete(false);
+              setIsConfirmingRestoreProject(false);
+            }}>
+            <span aria-hidden="true" className="text-xl leading-none">+</span>
+          </button>
+          <Disclosure label="Project actions" triggerContent={<Icon name="more" />} triggerRef={projectActionsTrigger}
+            disabled={!selectedProject || selectedProject.isInbox || managingProject || restoring || isCreating || isLoading}>
+            {close => <>
+              <button type="button" className="dropdown-action"
+                onClick={() => {
+                  close();
+                  setRenameName(selectedProject?.name ?? '');
+                  setIsRenaming(true);
+                  setIsAddingProject(false);
+                  setIsConfirmingDelete(false);
+                  setIsConfirmingRestoreProject(false);
+                }}>Rename</button>
+              <button type="button" className="dropdown-action text-red-700 hover:bg-red-50"
+                onClick={() => {
+                  close();
+                  setIsConfirmingDelete(true);
+                  setIsAddingProject(false);
+                  setIsRenaming(false);
+                  setIsConfirmingRestoreProject(false);
+                }}>Delete</button>
+            </>}
+          </Disclosure>
         </div>
-        <label className="sr-only" htmlFor="project-filter">Filter this project</label>
-        <input id="project-filter" type="search" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="Filter title, URL, domain, or note..." value={filter} onChange={(event) => setFilter(event.target.value)} />
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-          <span>{visibleLinkCount} visible of {parkedLinkCount} tab{parkedLinkCount === 1 ? '' : 's'}</span>
-          <select aria-label="Session order" className="rounded-lg border border-slate-300 px-2 py-2 text-xs font-semibold" value={sessionOrder} onChange={(event) => setOrder(event.target.value as SessionOrder)}><option value="newest">Newest sessions</option><option value="oldest">Oldest sessions</option></select>
-          <span className="flex flex-wrap gap-1"><button type="button" className="rounded-md px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50" onClick={() => setAllSessions(true)}>Expand all</button><button type="button" className="rounded-md px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50" onClick={() => setAllSessions(false)}>Collapse all</button></span>
-        </div>
-      </div>
 
-      <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1"><h2 ref={sectionHeading} tabIndex={-1} className="break-words text-lg font-bold">{selectedProject?.name ?? 'Inbox'}</h2></div>
-        <div className="flex flex-wrap justify-end gap-2">
-          {parkedLinkCount > 0 && (
-            <button ref={restoreTrigger} type="button" aria-describedby="project-restore-scope" disabled={managingProject || restoring || isLoading} className="rounded-lg bg-blue-700 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50" onClick={() => { setIsConfirmingRestoreProject(true); setIsConfirmingDelete(false); setIsRenaming(false); }}>
-              Restore all
-            </button>
-          )}
-        </div>
-      </div>
-
-      {parkedLinkCount > 0 && <p id="project-restore-scope" className="mb-3 text-xs text-slate-600">Restore all opens all {parkedLinkCount} parked links in this project, including links hidden by the filter. {parkedCopyPreference}</p>}
-        <details ref={management} className="mb-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
-          <summary ref={managementTrigger} className="cursor-pointer text-sm font-semibold text-slate-700">Manage projects</summary>
-          <form className="mt-2 flex flex-wrap gap-2" onSubmit={addProject}>
+        {isAddingProject && <InlineConfirmation titleId="create-project-title" title="New project"
+          className="rounded-lg border border-slate-200 bg-white p-2.5" initialFocus={() => createInput.current}
+          returnFocus={() => createTrigger.current}>
+          <form id="create-project" className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2" onSubmit={addProject}
+            onKeyDown={event => {
+              if (event.key === 'Escape' && !isCreating) {
+                event.preventDefault();
+                setIsAddingProject(false);
+              }
+            }}>
             <label className="sr-only" htmlFor="new-project">New project name</label>
-            <input id="new-project" className="min-w-0 flex-1 basis-28 rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="New project name" value={newName} onChange={(event) => setNewName(event.target.value)} />
-            <button className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!newName.trim() || isCreating || restoring || managingProject}>{isCreating ? 'Creating…' : 'Create project'}</button>
+            <input ref={createInput} id="new-project" className="min-w-0 rounded-lg border border-slate-300 px-2.5 text-sm"
+              placeholder="Project name" value={newName} onChange={(event) => setNewName(event.target.value)} />
+            <button className={`${toolbarButton} bg-blue-700 text-white hover:bg-blue-800`}
+              disabled={!newName.trim() || isCreating || restoring || managingProject}>{isCreating ? 'Creating…' : 'Create project'}</button>
+            <button type="button" className={`${toolbarButton} col-span-2 justify-self-end text-slate-700 hover:bg-slate-100`}
+              disabled={isCreating} onClick={() => setIsAddingProject(false)}>Cancel</button>
           </form>
-          {selectedProject && !selectedProject.isInbox && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button ref={renameTrigger} type="button" disabled={managingProject || restoring} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold disabled:opacity-50" onClick={() => { setRenameName(selectedProject.name); setIsRenaming(true); setIsConfirmingDelete(false); setIsConfirmingRestoreProject(false); }}>Rename</button>
-              <button ref={deleteTrigger} type="button" disabled={managingProject || restoring} className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700 disabled:opacity-50" onClick={() => { setIsConfirmingDelete(true); setIsRenaming(false); setIsConfirmingRestoreProject(false); }}>Delete</button>
-            </div>
-          )}
-        </details>
+        </InlineConfirmation>}
+
+        <div className="relative flex items-center gap-2">
+          <label className="sr-only" htmlFor="project-filter">Filter this project</label>
+          <input id="project-filter" type="search"
+            className="min-h-10 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
+            placeholder="Filter this project" value={filter} onChange={(event) => setFilter(event.target.value)} />
+          <Disclosure label="View options" triggerContent={<>View <span aria-hidden="true">▾</span></>}>
+            {() => <>
+              <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
+                Session order
+                <Select value={sessionOrder} onChange={(event) => setOrder(event.target.value as SessionOrder)}>
+                  <option value="newest">Newest first</option><option value="oldest">Oldest first</option>
+                </Select>
+              </label>
+              <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
+                Density
+                <Select value={density} onChange={(event) => void changeDensity(event.target.value as DisplayDensity)}>
+                  <option value="comfortable">Comfortable</option><option value="compact">Compact</option>
+                </Select>
+              </label>
+            </>}
+          </Disclosure>
+        </div>
+        {parkedLinkCount > 0 && <div className="flex min-h-10 items-center justify-between gap-2">
+          <p className="text-sm text-slate-600">
+            {visibleLinkCount !== parkedLinkCount && `${visibleLinkCount} of `}{parkedLinkCount} parked link{parkedLinkCount === 1 ? '' : 's'}
+          </p>
+          <button ref={restoreTrigger} type="button" aria-describedby="project-restore-scope"
+            disabled={managingProject || restoring || isLoading || isCreating}
+            className={`${toolbarButton} bg-blue-700 text-white hover:bg-blue-800`}
+            onClick={() => {
+              setIsConfirmingRestoreProject(true);
+              setIsAddingProject(false);
+              setIsConfirmingDelete(false);
+              setIsRenaming(false);
+            }}>Restore all</button>
+          <p id="project-restore-scope" className="sr-only">Opens all {parkedLinkCount} parked links in this project, including links hidden by the filter. {parkedCopyPreference}</p>
+        </div>}
+      </div>
 
       {isConfirmingRestoreProject && selectedProject && (
         <InlineConfirmation titleId="restore-project-title" title={<>Restore all {parkedLinkCount} links from {selectedProject.name}?</>}
-          className="mb-3 rounded-xl border border-blue-200 bg-blue-50 p-3.5" titleClassName="font-semibold text-blue-950"
+          className="mb-3 rounded-xl border border-blue-200 bg-blue-50 p-3.5 wrap-anywhere" titleClassName="font-semibold text-blue-950"
           returnFocus={() => restoreTrigger.current ?? sectionHeading.current}>
           <p className="mt-1 text-sm text-blue-900">
-            {parkedCopyPreference} Unloaded tabs load when activated.
+            This includes parked links hidden by the filter. {parkedCopyPreference}
           </p>
           {parkedLinkCount > 20 && (
             <p className="mt-2 rounded-lg bg-amber-100 p-2 text-sm font-semibold text-amber-900">
@@ -548,10 +613,10 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
           )}
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" className={`rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${defaultRestoreMode === 'normal' ? 'bg-blue-700' : 'bg-slate-700'}`} disabled={isRestoringProject} onClick={() => void handleRestoreProject('normal')}>
-              {isRestoringProject ? 'Restoring...' : `Restore normally${defaultRestoreMode === 'normal' ? ' · Default' : ''}`}
+              {isRestoringProject ? 'Restoring…' : `Load tabs immediately${defaultRestoreMode === 'normal' ? ' · Default' : ''}`}
             </button>
             <button type="button" className={`rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${defaultRestoreMode === 'unloaded' ? 'bg-blue-700' : 'bg-slate-700'}`} disabled={isRestoringProject} onClick={() => void handleRestoreProject('unloaded')}>
-              {isRestoringProject ? 'Restoring...' : `Restore unloaded${defaultRestoreMode === 'unloaded' ? ' · Default' : ''}`}
+              {isRestoringProject ? 'Restoring…' : `Load tabs when selected${defaultRestoreMode === 'unloaded' ? ' · Default' : ''}`}
             </button>
           </div>
           <div className="mt-2 flex justify-end">
@@ -562,7 +627,7 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
 
       {isRenaming && (
         <InlineConfirmation titleId="rename-project-title" title="Rename project" className="mb-3 rounded-xl border border-slate-200 bg-white p-3.5"
-          returnFocus={() => (management.current?.open ? renameTrigger.current : managementTrigger.current) ?? projectSelector.current}>
+          returnFocus={() => projectActionsTrigger.current?.disabled ? sectionHeading.current : projectActionsTrigger.current}>
           <form onSubmit={saveRename}>
           <label className="sr-only" htmlFor="rename-project">Project name</label>
           <input id="rename-project" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={renameName} onChange={(event) => setRenameName(event.target.value)} />
@@ -573,8 +638,8 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
 
       {isConfirmingDelete && selectedProject && (
         <InlineConfirmation titleId="delete-project-title" title={<>Delete “{selectedProject.name}”?</>}
-          className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3.5" titleClassName="font-semibold text-red-900"
-          returnFocus={() => (management.current?.open ? deleteTrigger.current : managementTrigger.current) ?? sectionHeading.current}>
+          className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3.5 wrap-anywhere" titleClassName="font-semibold text-red-900"
+          returnFocus={() => projectActionsTrigger.current?.disabled ? sectionHeading.current : projectActionsTrigger.current}>
           <p className="mt-1 text-sm text-red-800">Its links and sessions will move to Inbox. Nothing is permanently deleted.</p>
           <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-lg border bg-white px-3 py-2 text-sm" disabled={isDeleting} onClick={() => setIsConfirmingDelete(false)}>Cancel</button><button type="button" className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white" disabled={isDeleting} onClick={() => void removeProject()}>{isDeleting ? 'Moving...' : 'Move to Inbox and delete'}</button></div>
         </InlineConfirmation>
@@ -592,37 +657,49 @@ export function ProjectsSection({ savedSession }: { savedSession?: SavedSessionT
       )}
 
       {isLoading && <SkeletonCards count={2} />}
-      {!isLoading && !error && groups.length === 0 && <EmptyState title="This project is empty">Park tabs into {selectedProject?.name ?? 'this project'} to start a focused workspace.</EmptyState>}
+      {!isLoading && !error && groups.length === 0 && <EmptyState title="This project is empty">Park tabs into this project to save them here.</EmptyState>}
       {!isLoading && !error && groups.length > 0 && visibleGroups.length === 0 && <EmptyState title="No matching tabs">Clear the project filter or try a different title, URL, domain, or note.</EmptyState>}
-      {visibleGroups.length > 0 && <p id="session-restore-scope" className="mb-2 text-xs text-slate-600">Restore link opens one tab. Restore session opens all parked links in that session. Both load tabs normally. {parkedCopyPreference}</p>}
-      <div className="space-y-4">
+      {visibleGroups.length > 0 && <>
+        <div className="flex flex-wrap items-center justify-between gap-x-2 border-b border-slate-200 pb-1">
+          <h3 className="text-sm font-semibold text-slate-800">Sessions</h3>
+          <div className="flex flex-wrap gap-1">
+            <button type="button" className={`${toolbarButton} text-blue-700 hover:bg-blue-50`} onClick={() => setAllSessions(true)}>Expand all</button>
+            <button type="button" className={`${toolbarButton} text-blue-700 hover:bg-blue-50`} onClick={() => setAllSessions(false)}>Collapse all</button>
+          </div>
+        </div>
+        <p id="session-restore-scope" className="sr-only">Opens all parked links in this session and loads them normally. {parkedCopyPreference}</p>
+      </>}
+      <div className="divide-y divide-slate-200">
         {visibleGroups.map((group) => {
           const isExpanded = expandedSessionIds.has(group.session.id);
           const limit = sessionLimits[group.session.id] ?? PROJECT_LINK_BATCH_SIZE;
           const shownLinks = visibleProjectLinks(group, limit);
           const sessionCount = sessionCounts.get(group.session.id) ?? group.links.length;
           return (
-          <section key={group.session.id} className={`rounded-2xl border border-slate-300 bg-slate-100 ${density === 'compact' ? 'p-2' : 'p-3'}`}>
-            <div className={`${isExpanded ? 'mb-3' : ''} rounded-xl bg-white p-3`}>
-              <div className="flex items-start justify-between gap-3">
-                <button ref={group.session.id === target?.sessionId ? targetButton : undefined} type="button" className="min-w-0 flex-1 text-left" aria-expanded={isExpanded} onClick={() => toggleSession(group.session.id)}>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Parking session</p>
-                  <h3 className="mt-1 font-semibold"><span aria-hidden="true">{isExpanded ? '▾' : '▸'} </span>{formatLinkDate(group.session.createdAt)}</h3>
-                  <p className="mt-1 text-sm text-slate-600">{sessionCount !== group.links.length && `${group.links.length} of `}{sessionCount} parked link{sessionCount === 1 ? '' : 's'}</p>
+          <section key={group.session.id} className={density === 'compact' ? 'py-1.5' : 'py-2.5'}>
+            <div className="flex items-start justify-between gap-2">
+                <button ref={group.session.id === target?.sessionId ? targetButton : undefined} type="button"
+                  className="flex min-h-10 min-w-0 flex-1 items-start gap-1.5 rounded text-left"
+                  aria-expanded={isExpanded} onClick={() => toggleSession(group.session.id)}>
+                  <span aria-hidden="true" className="text-slate-600">{isExpanded ? '▾' : '▸'}</span>
+                  <span className="min-w-0">
+                    <span className="sr-only">Parking session </span>
+                    <span className="block text-sm font-semibold">{formatLinkDate(group.session.createdAt)}</span>
+                    <span className="block text-xs text-slate-600">{sessionCount !== group.links.length && `${group.links.length} of `}{sessionCount} parked link{sessionCount === 1 ? '' : 's'}</span>
+                    {group.session.reminderAt && <span className="mt-1 block text-xs font-semibold text-amber-700">Reminder {formatLinkDate(group.session.reminderAt)}</span>}
+                  </span>
                 </button>
                 <button
                   type="button"
-                  className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                  className="min-h-10 shrink-0 whitespace-nowrap rounded-lg border border-blue-200 bg-white px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
                   disabled={restoring || managingProject || isLoading || isCreating}
                   aria-describedby="session-restore-scope"
                   onClick={() => void handleRestoreSession(group.session.id)}
                 >
                   {restoringSessionId === group.session.id ? 'Restoring...' : 'Restore session'}
                 </button>
-              </div>
-              {group.session.reminderAt && <p className="mt-2 text-xs font-semibold text-amber-700">Reminder {formatLinkDate(group.session.reminderAt)}</p>}
             </div>
-            {isExpanded && <div className="space-y-2">
+            {isExpanded && <div className="mt-2 space-y-2">
               {shownLinks.map((link) => (
                 <SavedLinkCard
                   key={link.id}

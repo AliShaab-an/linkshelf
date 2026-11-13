@@ -12,7 +12,7 @@ const progress = {
 describe('restore feedback', () => {
   it('distinguishes confirmed opens, persisted records, and unload outcomes', () => {
     const message = describeCollectionRestore({ ...progress, success: true, projectId: 'project', complete: false });
-    expect(message).toBe('Opened 2 tabs. 2 marked restored in LinkShelf. Chrome could not confirm opening 1 tab. 1 opened unloaded. 1 loaded normally when unloading failed.');
+    expect(message).toBe('Opened 2 of 3 tabs. 2 marked restored in LinkShelf. Chrome could not confirm opening 1 tab. 1 will load when selected. 1 loaded immediately because Chrome could not defer loading.');
   });
 
   it('identifies successful parked copies', () => {
