@@ -1,311 +1,210 @@
-import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
-import { useEffect, useState, type FormEvent } from 'react';
-import {
-  localReminderToUtc,
-  toLocalDateTimeInputValue,
-} from '@/domain/reminders';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { localReminderToUtc, toLocalDateTimeInputValue } from '@/domain/reminders';
 import type { Project } from '@/domain/schemas';
-import {
-  getCurrentWindowTabs,
-  getProjects,
-  parkSelectedTabs,
-  type WindowTabCandidate,
-} from '@/messaging/contracts';
+import { getCurrentWindowTabs, getProjects, parkSelectedTabs, type WindowTabCandidate } from '@/messaging/contracts';
+import { Modal } from './ui/Modal';
+import { OperationWarnings } from './ui/OperationWarnings';
+import { Button } from './ui/Button';
+import { parkingOutcome, type SavedSessionTarget } from '../parking-outcome';
 
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
-}
-
-export function ParkTabsSection() {
-  const [warnings, setWarnings] = useState<string[]>([]);
+export function ParkTabsSection({ onViewSession }: { onViewSession(target: SavedSessionTarget): void }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tabs, setTabs] = useState<WindowTabCandidate[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string>();
+  const [projectError, setProjectError] = useState<string>();
   const [projectId, setProjectId] = useState('');
   const [note, setNote] = useState('');
   const [reminderLocal, setReminderLocal] = useState('');
-  const [formError, setFormError] = useState<string | null>(null);
-  const [reviewReminderAt, setReviewReminderAt] = useState<string>();
-  const [isReviewing, setIsReviewing] = useState(false);
-  const [isParking, setIsParking] = useState(false);
-  const [resultMessage, setResultMessage] = useState<string | null>(null);
+  const [extraDetails, setExtraDetails] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const [error, setError] = useState<string>();
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [result, setResult] = useState<ReturnType<typeof parkingOutcome>>();
+  const inFlight = useRef(false);
+  const refreshButton = useRef<HTMLButtonElement>(null);
+  const resultHeading = useRef<HTMLHeadingElement>(null);
+  const [selectedNotice, setSelectedNotice] = useState('');
+  const selected = new Set(selectedIds);
+  const eligibleTabs = tabs.filter(tab => tab.status === 'eligible');
+  const selectedTabs = eligibleTabs.filter(tab => selected.has(tab.id));
+  const project = projects.find(item => item.id === projectId);
 
-  const eligibleTabs = tabs.filter((tab) => tab.status === 'eligible');
-  const allEligibleSelected =
-    eligibleTabs.length > 0 &&
-    eligibleTabs.every((tab) => selectedIds.includes(tab.id));
-  const selectedProject = projects.find((project) => project.id === projectId);
-  const minimumReminder = toLocalDateTimeInputValue(
-    new Date(Date.now() + 60_000),
-  );
-
-  async function loadTabs() {
-    setIsLoading(true);
-    setLoadError(null);
-
+  async function loadTabs(isCurrent = () => true) {
+    setLoading(true);
+    setLoadError(undefined);
     try {
       const response = await getCurrentWindowTabs();
-
-      if (!response.success) {
-        setLoadError(response.error.message);
-        return;
-      }
-
+      if (!isCurrent()) return;
+      if (!response.success) throw new Error(response.error.message);
+      const eligible = new Set(response.tabs.filter(tab => tab.status === 'eligible').map(tab => tab.id));
       setTabs(response.tabs);
-      setSelectedIds((currentIds) =>
-        currentIds.filter((tabId) =>
-          response.tabs.some(
-            (tab) => tab.id === tabId && tab.status === 'eligible',
-          ),
-        ),
-      );
-      setIsReviewing(false);
-    } catch (error) {
-      setLoadError(
-        error instanceof Error
-          ? error.message
-          : 'LinkShelf could not read this window\'s tabs.',
-      );
+      setSelectedIds(ids => ids.filter(id => eligible.has(id)));
+      setNeedsRefresh(false);
+    } catch (cause) {
+      if (isCurrent()) setLoadError(cause instanceof Error ? cause.message : 'LinkShelf could not read this window’s tabs.');
     } finally {
-      setIsLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadTabs();
-    void getProjects().then((response) => {
-      if (response.success) {
-        setProjects(response.projects);
-        setProjectId(
-          response.projects.find((project) => project.isInbox)?.id ??
-            response.projects[0]?.id ??
-            '',
-        );
-      } else {
-        setFormError(response.error.message);
-      }
+    let current = true;
+    void loadTabs(() => current);
+    void getProjects().then(response => {
+      if (!current) return;
+      if (!response.success) throw new Error(response.error.message);
+      setProjects(response.projects);
+      setProjectId(response.projects.find(item => item.isInbox)?.id ?? response.projects[0]?.id ?? '');
+    }).catch(cause => {
+      if (current) setProjectError(cause instanceof Error ? cause.message : 'LinkShelf could not read projects.');
     });
+    return () => { current = false; };
   }, []);
 
-  function resetReview() {
-    setIsReviewing(false);
-    setFormError(null);
-    setResultMessage(null);
+  useLayoutEffect(() => { if (result) resultHeading.current?.focus(); }, [result]);
+
+  function choose(ids: number[]) {
+    setSelectedIds(ids);
+    setSelectedNotice('');
+    setResult(undefined);
+    setError(undefined);
+    setWarnings([]);
   }
 
-  function toggleTab(tabId: number) {
-    const tab = tabs.find((candidate) => candidate.id === tabId);
-
-    if (!tab || tab.status !== 'eligible') {
-      return;
-    }
-
-    setSelectedIds((currentIds) =>
-      currentIds.includes(tabId)
-        ? currentIds.filter((id) => id !== tabId)
-        : [...currentIds, tabId],
-    );
-    resetReview();
+  function back() {
+    setReviewing(false);
+    if (needsRefresh) setSelectedNotice('Refresh tabs before reviewing the selection again.');
+    setError(undefined);
   }
 
-  function toggleAll() {
-    setSelectedIds(
-      allEligibleSelected ? [] : eligibleTabs.map((tab) => tab.id),
-    );
-    resetReview();
-  }
-
-  function reviewPlan(event: FormEvent<HTMLFormElement>) {
+  async function confirm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFormError(null);
-
-    if (selectedIds.length === 0) {
-      setFormError('Select at least one eligible tab.');
-      return;
-    }
-
-    if (!selectedProject) {
-      setFormError('Select an existing project.');
-      return;
-    }
-
+    if (!project || !selectedIds.length || inFlight.current || needsRefresh) return;
+    let reminderAt: string | undefined;
     try {
-      setReviewReminderAt(localReminderToUtc(reminderLocal));
-      setIsReviewing(true);
-    } catch (error) {
-      setFormError(
-        error instanceof Error
-          ? error.message
-          : 'Choose a valid future reminder.',
-      );
-    }
-  }
-
-  async function confirmParking() {
-    if (!isReviewing || !selectedProject || isParking) {
+      reminderAt = localReminderToUtc(reminderLocal);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Choose a valid future reminder.');
       return;
     }
-
-    setIsParking(true);
-    setFormError(null);
-
+    inFlight.current = true;
+    setPending(true);
+    setError(undefined);
+    setWarnings([]);
     try {
-      const response = await parkSelectedTabs(selectedIds, {
-        projectId: selectedProject.id,
-        note: note.trim() || undefined,
-        reminderAt: reviewReminderAt,
-      });
+      const response = await parkSelectedTabs(selectedIds, { projectId, note: note.trim() || undefined, reminderAt });
       setWarnings(response.warnings ?? []);
-
       if (!response.success) {
-        setFormError(response.error.message);
-        setIsReviewing(false);
+        setError(response.error.message);
+        setNeedsRefresh(['TAB_NOT_FOUND', 'TAB_NOT_ELIGIBLE', 'TABS_MOVED', 'INVALID_SELECTION'].includes(response.error.code));
         return;
       }
-
-      const savedCount = response.linkIds.length;
-      const failedCount = response.failedToCloseTabIds.length;
-      setResultMessage(
-        failedCount === 0
-          ? `Saved and closed ${savedCount} tab${savedCount === 1 ? '' : 's'} in one parking session.`
-          : `Saved all ${savedCount} tabs; ${failedCount} closures were not confirmed. Changed or unreadable tabs were left untouched.`,
-      );
       setSelectedIds([]);
       setNote('');
       setReminderLocal('');
-      setReviewReminderAt(undefined);
-      setIsReviewing(false);
+      setExtraDetails(false);
+      setReviewing(false);
+      setResult(parkingOutcome(response, project.id));
       await loadTabs();
-    } catch (error) {
-      setFormError(
-        error instanceof Error
-          ? error.message
-          : 'LinkShelf could not park the selected tabs.',
-      );
+    } catch {
+      setNeedsRefresh(true);
+      setError('LinkShelf could not confirm the result. Check Saved and your open tabs before trying again.');
     } finally {
-      setIsParking(false);
+      inFlight.current = false;
+      setPending(false);
     }
   }
 
-  return (
-    <>
-      <OperationWarnings warnings={warnings} />
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-            Current window
-          </p>
-          <h2 className="mt-1 text-lg font-bold">Park tabs</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Select eligible tabs, then save them as one parking session.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-100 disabled:opacity-50"
-          disabled={isLoading || isParking}
-          onClick={() => void loadTabs()}
-        >
-          Refresh
-        </button>
+  return <>
+    <div className="mb-4 flex items-start justify-between gap-2">
+      <div>
+        <h2 className="text-lg font-bold">Park tabs</h2>
+        <p className="mt-1 text-sm text-slate-600">Choose tabs in this window to save together.</p>
       </div>
+      <Button ref={refreshButton} type="button" disabled={loading || pending} onClick={() => {
+        setSelectedNotice('');
+        void loadTabs();
+      }}>Refresh</Button>
+    </div>
 
-      {resultMessage && (
-        <p className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-800" role="status">
-          {resultMessage}
-        </p>
-      )}
-      {isLoading && <p className="rounded-xl bg-white p-4 text-sm text-slate-500">Reading tabs...</p>}
-      {!isLoading && loadError && (
-        <p className="rounded-xl bg-red-50 p-4 text-sm text-red-700" role="alert">{loadError}</p>
-      )}
+    {result && <section aria-labelledby="parking-result-title" className={`mb-4 rounded-xl border p-4 ${result.unconfirmed ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
+      <h3 ref={resultHeading} tabIndex={-1} id="parking-result-title" className="font-bold">Parking session saved</h3>
+      <p className="mt-1 break-words text-sm">{project?.name}</p>
+      <dl className="my-3 grid gap-1 text-sm">
+        <div><dt className="inline">Saved tabs </dt><dd className="inline font-semibold">{result.saved}</dd></div>
+        <div><dt className="inline">Confirmed closures </dt><dd className="inline font-semibold">{result.closed}</dd></div>
+        <div><dt className="inline">Closures not confirmed </dt><dd className="inline font-semibold">{result.unconfirmed}</dd></div>
+      </dl>
+      {result.unconfirmed > 0 && <p className="mb-3 text-sm">Check your open tabs before parking them again.</p>}
+      <Button type="button" variant="primary" onClick={() => onViewSession(result.target)}>View saved session</Button>
+    </section>}
+    {!reviewing && <OperationWarnings warnings={warnings} />}
+    {loading && <p role="status" className="mb-3 text-sm text-slate-600">Reading tabs…</p>}
+    {loadError && <p role="alert" className="mb-3 text-sm text-red-700">{loadError}</p>}
+    {projectError && <p role="alert" className="mb-3 text-sm text-red-700">{projectError}</p>}
+    {selectedNotice && <p role="status" className="mb-3 text-sm text-amber-900">{selectedNotice}</p>}
+    {!loading && !loadError && eligibleTabs.length === 0 && <p className="mb-3 text-sm text-slate-600">No eligible tabs in this window.</p>}
+    {eligibleTabs.length > 0 && <Button type="button" className="mb-3" disabled={loading || !!loadError || pending}
+      onClick={() => choose(selectedTabs.length === eligibleTabs.length ? [] : eligibleTabs.map(tab => tab.id))}>
+      {selectedTabs.length === eligibleTabs.length ? 'Clear selection' : 'Select all eligible'}
+    </Button>}
+    <ul aria-label="Tabs in this window" className="space-y-2">
+      {tabs.map(tab => <li key={tab.id}>
+        <label className={`flex min-h-12 items-start gap-3 rounded-xl border p-3 ${selected.has(tab.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+          <input type="checkbox" className="mt-1 size-4 shrink-0 accent-blue-700" aria-label={`Select ${tab.title}`}
+            checked={selected.has(tab.id)} disabled={tab.status !== 'eligible' || loading || !!loadError || pending}
+            onChange={() => choose(selected.has(tab.id) ? selectedIds.filter(id => id !== tab.id) : [...selectedIds, tab.id])} />
+          <span className="min-w-0 flex-1">
+            <span className="block break-words text-sm font-semibold">{tab.title}</span>
+            <span className="block break-all text-xs text-slate-600">{tab.domain}</span>
+            {tab.reason && <span className="mt-1 block text-xs text-slate-600">{tab.reason}</span>}
+          </span>
+          {tab.status !== 'eligible' && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold capitalize">{tab.status}</span>}
+        </label>
+      </li>)}
+    </ul>
+    <div className="parking-actions sticky bottom-0 z-30 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-t-xl border border-slate-200 bg-white p-3 shadow-lg">
+      <span role="status" className="text-sm font-semibold">{selectedTabs.length} selected</span>
+      <Button type="button" variant="primary" disabled={!selectedTabs.length || !project || loading || !!loadError || pending || needsRefresh}
+        onClick={() => { setResult(undefined); setError(undefined); setReviewing(true); }}>Review selection</Button>
+    </div>
 
-      {!isLoading && !loadError && (
-        <>
-          <div className="mb-3 grid grid-cols-3 gap-2 text-center text-xs">
-            {([
-              ['Eligible', eligibleTabs.length, 'bg-emerald-50 text-emerald-800'],
-              ['Pinned', tabs.filter((tab) => tab.status === 'pinned').length, 'bg-amber-50 text-amber-800'],
-              ['Restricted', tabs.filter((tab) => tab.status === 'restricted').length, 'bg-slate-200 text-slate-700'],
-            ] as const).map(([label, count, classes]) => (
-              <div key={label} className={`rounded-lg p-2 ${classes}`}>
-                <strong className="block text-base">{count}</strong>{label}
-              </div>
-            ))}
-          </div>
-
-          {eligibleTabs.length > 0 && (
-            <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3">
-              <p className="text-sm font-semibold text-blue-900">
-                {selectedIds.length} of {eligibleTabs.length} selected
-              </p>
-              <button type="button" className="rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-blue-800" onClick={toggleAll}>
-                {allEligibleSelected ? 'Clear selection' : 'Select all eligible'}
-              </button>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            {tabs.map((tab) => {
-              const selected = selectedIds.includes(tab.id);
-              return (
-                <article key={tab.id} className={selected ? 'rounded-xl border border-blue-400 bg-blue-50/40 p-3.5 ring-1 ring-blue-200' : 'rounded-xl border border-slate-200 bg-white p-3.5'}>
-                  <div className="flex items-start gap-3">
-                    <input type="checkbox" className="mt-1 size-4 accent-blue-700 disabled:opacity-40" aria-label={`Select ${tab.title}`} checked={selected} disabled={tab.status !== 'eligible'} onChange={() => toggleTab(tab.id)} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="truncate font-semibold">{tab.title}</h3>
-                          <p className="mt-1 truncate text-sm text-slate-500">{tab.domain}</p>
-                        </div>
-                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold capitalize text-slate-700">{tab.status}</span>
-                      </div>
-                      {tab.active && <p className="mt-2 text-xs font-semibold text-blue-700">Active tab</p>}
-                      {tab.reason && <p className="mt-2 text-xs text-slate-500">{tab.reason}</p>}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-
-          {selectedIds.length > 0 && (
-            <form className="mt-4 rounded-xl border border-slate-200 bg-white p-4" onSubmit={reviewPlan}>
-              <h3 className="font-semibold">Parking details</h3>
-              <p className="mt-1 text-sm text-slate-500">Shared by all selected tabs.</p>
-              <label className="mt-4 block text-sm font-semibold" htmlFor="bulk-project">Project</label>
-              <select id="bulk-project" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={projectId} onChange={(event) => { setProjectId(event.target.value); resetReview(); }}>
-                {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-              </select>
-              <label className="mt-4 block text-sm font-semibold" htmlFor="bulk-note">Shared note <span className="font-normal text-slate-400">(optional)</span></label>
-              <textarea id="bulk-note" className="mt-2 min-h-20 w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm" value={note} onChange={(event) => { setNote(event.target.value); resetReview(); }} />
-              <label className="mt-4 block text-sm font-semibold" htmlFor="bulk-reminder">Shared reminder <span className="font-normal text-slate-400">(optional)</span></label>
-              <input id="bulk-reminder" type="datetime-local" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" min={minimumReminder} value={reminderLocal} onChange={(event) => { setReminderLocal(event.target.value); resetReview(); }} />
-              <p className="mt-1 text-xs text-slate-500">Entered locally and stored as UTC.</p>
-              {formError && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700" role="alert">{formError}</p>}
-              <button type="submit" className="mt-4 w-full rounded-lg bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white">Review {selectedIds.length} selected tab{selectedIds.length === 1 ? '' : 's'}</button>
-            </form>
-          )}
-
-          {isReviewing && selectedProject && (
-            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
-              <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Confirmation</p>
-              <h3 className="mt-1 font-semibold">Park {selectedIds.length} tabs in {selectedProject.name}?</h3>
-              <p className="mt-2 text-sm text-blue-950">Note: {note.trim() || 'None'}<br />Reminder: {reviewReminderAt ? formatDate(reviewReminderAt) : 'None'}</p>
-              <p className="mt-3 border-t border-blue-200 pt-3 text-sm text-blue-950">LinkShelf saves everything first, then closes the tabs. Unsaved webpage form data cannot be restored.</p>
-              <div className="mt-3 flex gap-2">
-                <button type="button" className="flex-1 rounded-lg border border-blue-300 bg-white px-3 py-2.5 text-sm font-semibold" disabled={isParking} onClick={() => setIsReviewing(false)}>Go back</button>
-                <button type="button" className="flex-[2] rounded-lg bg-blue-700 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={isParking} onClick={() => void confirmParking()}>{isParking ? 'Saving before closing...' : `Confirm and park ${selectedIds.length}`}</button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </>
-  );
+    {reviewing && <Modal titleId="parking-review-title" pending={pending} onClose={back}
+      returnFocus={invoker => needsRefresh ? refreshButton.current : invoker}>
+      <h3 id="parking-review-title" tabIndex={-1} className="text-lg font-bold">Review {selectedTabs.length} selected {selectedTabs.length === 1 ? 'tab' : 'tabs'}</h3>
+      <form onSubmit={event => void confirm(event)} className="mt-3">
+        <fieldset disabled={pending} className="min-w-0 space-y-3">
+          <label className="block text-sm font-semibold" htmlFor="bulk-project">Save to project</label>
+          <select id="bulk-project" className="w-full rounded-lg border border-slate-300 p-2 text-sm" value={projectId} onChange={event => setProjectId(event.target.value)}>
+            {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+          <details open={extraDetails} onToggle={event => setExtraDetails(event.currentTarget.open)}>
+            <summary className="cursor-pointer rounded py-2 text-sm font-semibold text-blue-800">Add note or reminder</summary>
+            <label className="mt-2 block text-sm font-semibold" htmlFor="bulk-note">Shared note (optional)</label>
+            <textarea id="bulk-note" rows={2} className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm" value={note} onChange={event => setNote(event.target.value)} />
+            <label className="mt-2 block text-sm font-semibold" htmlFor="bulk-reminder">Shared reminder (optional)</label>
+            <input id="bulk-reminder" type="datetime-local" className="mt-1 w-full min-w-0 rounded-lg border border-slate-300 p-2 text-sm"
+              min={toLocalDateTimeInputValue(new Date(Date.now() + 60_000))} value={reminderLocal} onChange={event => setReminderLocal(event.target.value)} />
+            <p className="mt-1 text-xs text-slate-600">Uses your local time.</p>
+          </details>
+          <details>
+            <summary className="cursor-pointer rounded py-2 text-sm font-semibold text-blue-800">Selected tabs</summary>
+            <ul className="list-disc space-y-1 pl-5 text-sm">{selectedTabs.map(tab => <li key={tab.id}>{tab.title}</li>)}</ul>
+          </details>
+          <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-950">LinkShelf saves these tabs before attempting to close them. Unsaved changes on webpages cannot be restored.</p>
+        </fieldset>
+        <div role="status" aria-atomic="true">{pending && <p className="mt-2 text-sm">Saving before closing…</p>}</div>
+        <div role="alert">{error && <p className="mt-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}</div>
+        <OperationWarnings warnings={warnings} />
+        <div className="sticky bottom-0 mt-3 flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-white py-2">
+          <Button type="button" disabled={pending} onClick={back}>Back</Button>
+          <Button type="submit" variant="primary" disabled={pending || needsRefresh || !project}>Save &amp; close {selectedTabs.length}</Button>
+        </div>
+      </form>
+    </Modal>}
+  </>;
 }
