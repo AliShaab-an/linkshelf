@@ -269,9 +269,9 @@ try {
   results.ui.push({ longContent: true, ...await h.page.evaluate(() => ({ viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth })) });
   await h.page.screenshot({ path: path.join(h.output, 'long-content-320.png'), fullPage: true });
   await navigateSidebar(h.page, 'Settings');
-  await h.page.getByRole('button', { name: 'Save settings', exact: true }).waitFor();
+  await h.page.getByRole('switch', { name: 'Desktop reminders', exact: true }).waitFor();
   const exportDownload = h.page.waitForEvent('download');
-  await h.page.getByRole('button', { name: 'Export LinkShelf data', exact: true }).click();
+  await h.page.getByRole('button', { name: 'Download backup', exact: true }).click();
   const exportPath = path.join(h.output, 'synthetic-standard-backup.json');
   await (await exportDownload).saveAs(exportPath);
   assert.deepEqual(JSON.parse(await fs.readFile(exportPath, 'utf8')).database, await h.database());

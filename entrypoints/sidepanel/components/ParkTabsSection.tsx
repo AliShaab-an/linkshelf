@@ -5,6 +5,7 @@ import { getCurrentWindowTabs, getProjects, parkSelectedTabs, type WindowTabCand
 import { Modal } from './ui/Modal';
 import { OperationWarnings } from './ui/OperationWarnings';
 import { Button } from './ui/Button';
+import { Select } from './ui/Select';
 import { parkingOutcome, type SavedSessionTarget } from '../parking-outcome';
 
 export function ParkTabsSection({ onViewSession }: { onViewSession(target: SavedSessionTarget): void }) {
@@ -133,14 +134,9 @@ export function ParkTabsSection({ onViewSession }: { onViewSession(target: Saved
 
     {result && <section aria-labelledby="parking-result-title" className={`mb-4 rounded-xl border p-4 ${result.unconfirmed ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
       <h3 ref={resultHeading} tabIndex={-1} id="parking-result-title" className="font-bold">Parking session saved</h3>
-      <p className="mt-1 break-words text-sm">{project?.name}</p>
-      <dl className="my-3 grid gap-1 text-sm">
-        <div><dt className="inline">Saved tabs </dt><dd className="inline font-semibold">{result.saved}</dd></div>
-        <div><dt className="inline">Confirmed closures </dt><dd className="inline font-semibold">{result.closed}</dd></div>
-        <div><dt className="inline">Closures not confirmed </dt><dd className="inline font-semibold">{result.unconfirmed}</dd></div>
-      </dl>
-      {result.unconfirmed > 0 && <p className="mb-3 text-sm">Check your open tabs before parking them again.</p>}
-      <Button type="button" variant="primary" onClick={() => onViewSession(result.target)}>View saved session</Button>
+      <p className="mt-1 wrap-anywhere text-sm">Saved {result.saved} {result.saved === 1 ? 'tab' : 'tabs'}{project ? ` to ${project.name}` : ''}. {result.unconfirmed ? `Closed ${result.closed} of ${result.saved}.` : 'All saved tabs closed.'}</p>
+      {result.unconfirmed > 0 && <p className="mt-2 text-sm">Chrome could not confirm closing {result.unconfirmed} {result.unconfirmed === 1 ? 'tab' : 'tabs'}. Check your open tabs before parking again.</p>}
+      <Button type="button" variant="primary" className="mt-3" onClick={() => onViewSession(result.target)}>View saved session</Button>
     </section>}
     {!reviewing && <OperationWarnings warnings={warnings} />}
     {loading && <p role="status" className="mb-3 text-sm text-slate-600">Reading tabs…</p>}
@@ -179,9 +175,9 @@ export function ParkTabsSection({ onViewSession }: { onViewSession(target: Saved
       <form onSubmit={event => void confirm(event)} className="mt-3">
         <fieldset disabled={pending} className="min-w-0 space-y-3">
           <label className="block text-sm font-semibold" htmlFor="bulk-project">Save to project</label>
-          <select id="bulk-project" className="w-full rounded-lg border border-slate-300 p-2 text-sm" value={projectId} onChange={event => setProjectId(event.target.value)}>
+          <Select id="bulk-project" className="w-full" value={projectId} onChange={event => setProjectId(event.target.value)}>
             {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
+          </Select>
           <details open={extraDetails} onToggle={event => setExtraDetails(event.currentTarget.open)}>
             <summary className="cursor-pointer rounded py-2 text-sm font-semibold text-blue-800">Add note or reminder</summary>
             <label className="mt-2 block text-sm font-semibold" htmlFor="bulk-note">Shared note (optional)</label>

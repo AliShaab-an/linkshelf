@@ -75,7 +75,7 @@ export function TodaySection() {
       </div>
       {isLoading && <SkeletonCards count={2} />}
       {!isLoading && !error && links.length === 0 && (
-        <EmptyState title="Nothing due">Links appear here when their reminder time arrives. Enjoy the clear runway.</EmptyState>
+        <EmptyState title="Nothing due">Set a reminder when parking tabs to see them here when they’re due.</EmptyState>
       )}
       <div className="space-y-3">
         {links.map((link) => (

@@ -106,6 +106,21 @@ describe('LinkShelfRepository', () => {
     expect(backup.database.projects[0].isInbox).toBe(true);
   });
 
+  it('combines concurrent preference changes and rejects a missing project without changing other preferences', async () => {
+    const repository = createRepository(new MemoryStorageAdapter());
+    const original = await repository.getSettings();
+    await Promise.all([
+      repository.updateSettings({ notificationsEnabled: !original.notificationsEnabled }),
+      repository.updateSettings({ displayDensity: 'compact', defaultRestoreMode: 'unloaded' }),
+    ]);
+    const updated = await repository.getSettings();
+    expect(updated).toEqual({
+      ...original, notificationsEnabled: !original.notificationsEnabled, displayDensity: 'compact', defaultRestoreMode: 'unloaded',
+    });
+    await expect(repository.updateSettings({ defaultProjectId: 'missing-project', displayDensity: 'comfortable' })).rejects.toThrow('no longer exists');
+    expect(await repository.getSettings()).toEqual(updated);
+  });
+
   it('migrates and persists an existing version 1 database during initialization', async () => {
     const storage = new MemoryStorageAdapter();
     const database = createEmptyDatabase(now);
