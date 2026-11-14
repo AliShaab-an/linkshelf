@@ -108,6 +108,54 @@ try {
   const first = card(longTitle);
   const firstMore = more(first);
 
+  await scenario('Sidebar dropdowns share styling and fit at 320 CSS pixels', async () => {
+    await page.setViewportSize({ width: 320, height: 760 });
+    const style = (control, properties) => control.evaluate((element, properties) => {
+      const computed = getComputedStyle(element);
+      return properties.map(property => computed.getPropertyValue(property));
+    }, properties);
+    const panelProperties = ['background-color', 'border-radius', 'border-top-color', 'box-shadow', 'padding-top'];
+    const selectProperties = ['appearance', 'background-color', 'border-radius', 'border-top-color',
+      'font-size', 'font-weight', 'min-height', 'padding-inline-start'];
+    const projectSelect = page.getByRole('combobox', { name: 'Project', exact: true });
+    const selectStyle = await style(projectSelect, selectProperties);
+    const fits = element => element.evaluate(el => {
+      const { left, right } = el.getBoundingClientRect();
+      return left >= 0 && right <= innerWidth;
+    });
+    const viewOptions = page.getByRole('group', { name: 'View options', exact: true });
+    await button('View options').click();
+    const panelStyle = await style(viewOptions, panelProperties);
+    for (const select of await viewOptions.getByRole('combobox').all()) {
+      assert.deepEqual(await style(select, selectProperties), selectStyle);
+      assert.ok(await fits(select));
+    }
+    await page.screenshot({ path: path.join(h.output, 'view-options-320.png') });
+    await page.keyboard.press('Escape');
+
+    for (const [trigger, panel] of [
+      [button('Project actions'), page.getByRole('group', { name: 'Project actions', exact: true })],
+      [firstMore, actions],
+      [button('More'), page.getByRole('group', { name: 'More sections', exact: true })],
+      [button('Quick settings'), page.getByRole('group', { name: 'Quick settings', exact: true })],
+    ]) {
+      await trigger.click();
+      assert.deepEqual(await style(panel, panelProperties), panelStyle);
+      assert.ok(await fits(panel));
+      if (await trigger.getAttribute('aria-label') === 'Quick settings') {
+        await panel.getByLabel('Saved link spacing').waitFor();
+        for (const select of await panel.getByRole('combobox').all()) {
+          assert.deepEqual(await style(select, selectProperties), selectStyle);
+          assert.ok(await fits(select));
+        }
+        await page.screenshot({ path: path.join(h.output, 'quick-settings-320.png') });
+      }
+      await page.keyboard.press('Escape');
+      await active(trigger);
+    }
+    await page.setViewportSize({ width: 400, height: 760 });
+  });
+
   await scenario('Disclosure pointer and keyboard interaction, ordinary Tab order, outside and Escape dismissal', async () => {
     await firstMore.click();
     await actions.waitFor();
@@ -123,13 +171,13 @@ try {
     await active(firstMore);
     await page.keyboard.press('Space');
     await actions.waitFor();
-    await heading('Synthetic restoration probe').focus();
+    await heading('Saved').focus();
     await actions.waitFor({ state: 'hidden' });
     await firstMore.click();
     await more(card(fixture.links[1].title)).click();
     assert.equal(await actions.count(), 1);
     assert.equal(await firstMore.getAttribute('aria-expanded'), 'false');
-    await heading('Synthetic restoration probe').click();
+    await heading('Saved').click();
     await actions.waitFor({ state: 'hidden' });
     await firstMore.focus();
     await page.keyboard.press('Enter');
@@ -172,7 +220,7 @@ try {
     const search = await button('Search').boundingBox();
     await page.mouse.click(search.x + 3, search.y + 3);
     await waitClosed();
-    await heading('Synthetic restoration probe').waitFor();
+    await heading('Saved').waitFor();
     await active(firstMore);
     await openAction(first, 'Remove');
     await page.keyboard.press('Escape');
@@ -216,7 +264,7 @@ try {
     assert.equal(await dialog.getByText('Synthetic operation failure.').count(), 0);
     await finish('warning');
     await waitClosed();
-    await active(heading('Synthetic restoration probe'));
+    await active(heading('Saved'));
     // A concurrent session-map writer may still hold a copy of the consumed request.
     await page.evaluate(async () => {
       const { linkshelfSidePanelIntents } = await chrome.storage.session.get('linkshelfSidePanelIntents');
@@ -250,15 +298,15 @@ try {
     assert.equal((await h.database()).links.find(link => link.id === 'link-1').projectId, 'inbox');
 
     const converted = card(fixture.links[2].title);
-    await converted.getByRole('button', { name: 'Create Chrome bookmark', exact: true }).click();
+    await converted.getByRole('button', { name: 'Bookmark in Chrome', exact: true }).click();
     await active(dialog.getByRole('heading'));
     await dialog.getByRole('button', { name: 'Create bookmark' }).click();
     await waitClosed();
-    await active(heading('Review parked links'));
+    await active(heading('Review'));
     assert.equal((await h.database()).links.find(link => link.id === 'link-2').status, 'removed');
     const duplicate = fixture.links[3];
     await page.evaluate(link => chrome.bookmarks.create({ title: 'Synthetic duplicate', url: link.url }), duplicate);
-    await card(duplicate.title).getByRole('button', { name: 'Create Chrome bookmark', exact: true }).click();
+    await card(duplicate.title).getByRole('button', { name: 'Bookmark in Chrome', exact: true }).click();
     await dialog.getByRole('button', { name: 'Create bookmark' }).click();
     await dialog.getByText(/already has this URL/).waitFor();
     await dialog.getByRole('button', { name: 'Open existing' }).click();
@@ -279,22 +327,24 @@ try {
     await active(restore.getByRole('heading'));
     await restore.getByRole('button', { name: 'Cancel' }).click();
     await active(button('Restore all'));
-    await page.getByText('Manage projects', { exact: true }).click();
+    const projectActions = button('Project actions');
+    await projectActions.click();
     await button('Delete').click();
     const deletion = page.getByRole('region', { name: /^Delete/ });
     await active(deletion.getByRole('heading'));
     await deletion.getByRole('button', { name: 'Cancel' }).click();
-    await active(button('Delete'));
+    await active(projectActions);
+    await projectActions.click();
     await button('Delete').click();
     await hold('DELETE_PROJECT');
     await deletion.getByRole('button', { name: 'Move to Inbox and delete' }).click();
     await page.getByRole('status').getByText('Moving links to Inbox…').waitFor();
     assert.equal(await button('Restore all').isDisabled(), true);
-    assert.equal(await button('Rename').isDisabled(), true);
+    assert.equal(await projectActions.isDisabled(), true);
     assert.equal(await deletion.getByRole('button', { name: 'Cancel' }).isDisabled(), true);
     await finish('success');
     await deletion.waitFor({ state: 'hidden' });
-    await active(heading('Inbox'));
+    await active(heading('Saved'));
     assert.equal((await h.database()).projects.some(project => project.id === 'restore-probe'), false);
   });
 
@@ -323,6 +373,57 @@ try {
     await preview.waitFor({ state: 'hidden' });
     await active(chooser);
     await page.getByRole('status').getByText(/Backup merged/).waitFor();
+  });
+
+  await scenario('Settings and Quick Settings save the same preferences and report write failures', async () => {
+    await page.setViewportSize({ width: 320, height: 760 });
+    await h.ok({ type: 'PATCH_SETTINGS', payload: { notificationsEnabled: false, displayDensity: 'compact' } });
+    const desktop = page.getByRole('switch', { name: 'Desktop reminders', exact: true });
+    const project = page.getByRole('combobox', { name: 'Save new parked tabs to', exact: true });
+    const spacing = page.getByRole('radio', { name: 'Comfortable', exact: true });
+    await desktop.waitFor();
+    await poll(() => desktop.isChecked(), checked => !checked, 'notifications initially off');
+    assert.equal(await button('Download backup').evaluate(el => getComputedStyle(el).cursor), 'pointer');
+    assert.equal(await project.evaluate(el => getComputedStyle(el).cursor), 'pointer');
+    assert.equal(await desktop.evaluate(el => getComputedStyle(el).cursor), 'pointer');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    for (const [width, zoom, label] of [[320, 1, '320'], [400, 1, '400'], [640, 2, '200-percent']]) {
+      await page.setViewportSize({ width, height: 760 * zoom });
+      await page.evaluate(async zoom => chrome.tabs.setZoom((await chrome.tabs.getCurrent()).id, zoom), zoom);
+      await poll(() => page.evaluate(() => innerWidth), value => value === width / zoom, 'Settings CSS width');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await page.evaluate(() => scrollTo(0, 0));
+      await page.screenshot({ path: path.join(h.output, `settings-${label}.png`) });
+    }
+    await page.evaluate(async () => chrome.tabs.setZoom((await chrome.tabs.getCurrent()).id, 1));
+    await page.setViewportSize({ width: 320, height: 760 });
+    await hold('PATCH_SETTINGS');
+    await desktop.focus();
+    await page.keyboard.press('Space');
+    await page.getByRole('status').getByText('Saving preference…').waitFor();
+    assert.equal(await desktop.evaluate(el => getComputedStyle(el).cursor), 'not-allowed');
+    await finish('error');
+    await page.getByRole('alert').getByText('Synthetic operation failure.').waitFor();
+    assert.equal(await desktop.isChecked(), false);
+    await active(desktop);
+    await page.keyboard.press('Space');
+    await poll(h.raw, value => value.settings.notificationsEnabled, 'notifications saved immediately');
+    await page.getByRole('status').getByText('Preference saved.').waitFor();
+    await spacing.focus();
+    await page.keyboard.press('Space');
+    await poll(h.raw, value => value.settings.displayDensity === 'comfortable', 'comfortable spacing saved');
+    const quick = button('Quick settings');
+    await quick.click();
+    const panel = page.getByRole('group', { name: 'Quick settings', exact: true });
+    const quickSwitch = panel.getByRole('switch', { name: 'Desktop reminders' });
+    await quickSwitch.waitFor();
+    assert.equal(await quickSwitch.isChecked(), true);
+    assert.equal(await panel.getByRole('combobox', { name: 'Saved link spacing' }).inputValue(), 'comfortable');
+    await quickSwitch.click();
+    await poll(h.raw, value => !value.settings.notificationsEnabled, 'quick settings persisted');
+    await page.keyboard.press('Escape');
+    await active(quick);
+    await poll(() => desktop.isChecked(), checked => !checked, 'full Settings reflects Quick Settings change');
   });
 
   await scenario('200% Chrome zoom, disappearing Search result, and section navigation after dismissal', async () => {

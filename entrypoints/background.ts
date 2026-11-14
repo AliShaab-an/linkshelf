@@ -30,6 +30,7 @@ import {
   isSearchLinksMessage,
   isUnarchiveLinkMessage,
   isUpdateSettingsMessage,
+  isPatchSettingsMessage,
   isStorageRecoveryMessage,
   type ParkCurrentTabMessage,
   type ParkSelectedTabsMessage,
@@ -376,7 +377,7 @@ export default defineBackground(() => {
         return true;
       }
 
-      if (isUpdateSettingsMessage(message)) {
+      if (isUpdateSettingsMessage(message) || isPatchSettingsMessage(message)) {
         void repository
           .updateSettings(message.payload)
           .then(async (settings) => sendResponse(await withSecondaryWarning({ success: true as const, settings, warnings: [] as string[] }, synchronizeReminderAlarms, 'Settings were saved, but reminders could not be updated. Due reminders remain in Today.')))

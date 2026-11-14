@@ -106,6 +106,18 @@ export const SettingsSchema = z.strictObject({
 
 export type Settings = z.infer<typeof SettingsSchema>;
 
+export const SettingsPatchSchema = SettingsSchema.pick({
+  defaultProjectId: true,
+  notificationsEnabled: true,
+  defaultRestoreBehavior: true,
+  displayDensity: true,
+  defaultRestoreMode: true,
+}).partial().refine((patch) => {
+  const values = Object.values(patch);
+  return values.length > 0 && values.every(value => value !== undefined);
+});
+export type SettingsPatch = z.infer<typeof SettingsPatchSchema>;
+
 export const LinkShelfDatabaseStructureSchema = z.strictObject({
   projects: z.array(ProjectSchema),
   sessions: z.array(ParkingSessionSchema),

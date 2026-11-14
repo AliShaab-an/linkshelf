@@ -20,11 +20,13 @@ export function describeCollectionRestore(response: RestoreProjectResponse | Res
   const unloaded = progress.discardedLinkIds.length;
   const fallback = progress.fallbackLinkIds.length;
   return [
-    `Opened ${opened} ${opened === 1 ? 'tab' : 'tabs'}.`,
+    response.success && failed
+      ? `Opened ${opened} of ${opened + failed} tabs.`
+      : `Opened ${opened} ${opened === 1 ? 'tab' : 'tabs'}.`,
     `${restored} marked restored in LinkShelf.`,
     response.success && opened > 0 && restored === 0 ? `${opened} kept as parked copies.` : '',
     failed ? `Chrome could not confirm opening ${failed} ${failed === 1 ? 'tab' : 'tabs'}.` : '',
-    unloaded ? `${unloaded} opened unloaded.` : '',
-    fallback ? `${fallback} loaded normally when unloading failed.` : '',
+    unloaded ? `${unloaded} will load when selected.` : '',
+    fallback ? `${fallback} loaded immediately because Chrome could not defer loading.` : '',
   ].filter(Boolean).join(' ');
 }

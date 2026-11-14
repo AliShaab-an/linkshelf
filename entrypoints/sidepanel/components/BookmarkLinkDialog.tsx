@@ -3,6 +3,7 @@ import type { BookmarkFolderOption, NativeBookmarkResult } from '@/messaging/con
 import { Button } from './ui/Button';
 import type { ReactNode } from 'react';
 import { Modal, type ReturnFocus } from './ui/Modal';
+import { Select } from './ui/Select';
 
 interface BookmarkLinkDialogProps {
   link: SavedLink; folders: BookmarkFolderOption[]; selectedFolderId: string;
@@ -20,13 +21,13 @@ export function BookmarkLinkDialog({ link, folders, selectedFolderId, duplicate,
     {duplicate ? <>
       <div className="mt-5 flex gap-2"><Button variant="primary" className="flex-1" disabled={isSaving} onClick={onOpenDuplicate}>Open existing</Button><Button disabled={isSaving} onClick={onCancel}>Close</Button></div>
     </> : <>
-      <p className="mt-2 text-sm leading-6 text-slate-600">This creates a native Chrome bookmark. LinkShelf keeps its history, but removes the link from your parked list.</p>
+      <p className="mt-2 text-sm leading-6 text-slate-600">This saves the link in your Chrome bookmarks. LinkShelf keeps its history and removes it from your parked list.</p>
       <label className="mt-4 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="bookmark-folder">Destination folder</label>
-      <select id="bookmark-folder" className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm disabled:opacity-50" disabled={isLoadingFolders || isSaving || folders.length === 0} value={selectedFolderId} onChange={(event) => onSelectFolder(event.target.value)}>
+      <Select id="bookmark-folder" className="mt-1.5 w-full" disabled={isLoadingFolders || isSaving || folders.length === 0} value={selectedFolderId} onChange={(event) => onSelectFolder(event.target.value)}>
         {isLoadingFolders && <option value="">Loading folders...</option>}
         {!isLoadingFolders && folders.length === 0 && <option value="">No bookmark folders found</option>}
         {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.path}</option>)}
-      </select>
+      </Select>
       <div className="mt-5 flex gap-2"><Button variant="primary" className="flex-1" disabled={!selectedFolderId || isLoadingFolders || isSaving} onClick={onConfirm}>{isSaving ? 'Saving...' : 'Create bookmark'}</Button><Button disabled={isSaving} onClick={onCancel}>Cancel</Button></div>
     </>}
   </Modal>;

@@ -219,16 +219,14 @@ export function ReviewSection() {
   return (
     <>
       <OperationFeedback {...(!(removeCandidate || moveCandidate || bookmarkCandidate) ? feedback : {})} />
-      <div className="mb-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Decision queue</p>
-        <h2 ref={sectionHeading} tabIndex={-1} className="mt-1 text-lg font-bold">Review parked links</h2>
-        <p className="mt-1 text-sm text-slate-500">Oldest links appear first. Restore a tab, create a Chrome bookmark, archive the link, or remove it.</p>
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h2 ref={sectionHeading} tabIndex={-1} className="text-lg font-bold">Review</h2>
+        {!isLoading && <p className="text-sm text-slate-600">{links.length} {links.length === 1 ? 'link' : 'links'} to review</p>}
       </div>
-      {!isLoading && links.length > 0 && <p className="mb-3 rounded-xl bg-violet-50 p-3 text-sm text-violet-800"><strong>{links.length}</strong> parked link{links.length === 1 ? '' : 's'} waiting for a decision.</p>}
       {bookmarkCandidate ? <div className="mb-4"><BookmarkLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={bookmarkCandidate} folders={folders} selectedFolderId={selectedFolderId} duplicate={duplicate} isLoadingFolders={isLoadingFolders} isSaving={dialogPending} onSelectFolder={setSelectedFolderId} onCancel={closeBookmark} onConfirm={() => void confirmBookmark()} onOpenDuplicate={() => void openDuplicate()} /></div> : moveCandidate ? <div className="mb-4"><MoveLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={moveCandidate} projects={projects.filter((project) => project.id !== moveCandidate.projectId)} selectedProjectId={moveProjectId} isMoving={dialogPending} onSelect={setMoveProjectId} onCancel={() => setMoveCandidate(null)} onConfirm={() => void confirmMove()} /></div> : removeCandidate ? <div className="mb-4"><RemoveLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={removeCandidate} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} /></div> : null}
       {isLoading && <SkeletonCards />}
       {!isLoading && !error && links.length === 0 && <EmptyState title="Review queue is clear">Parked links will appear here when they need a decision.</EmptyState>}
-      <div className="space-y-3">
+      <div className="space-y-2">
         {links.map((link) => <SavedLinkCard key={link.id} link={link} projectName={projects.find((project) => project.id === link.projectId)?.name} isRestoring={workingId === link.id} onRestore={() => void restoreReviewLink(link)} onBookmark={() => void startBookmarking(link)} onMove={() => startMoving(link)} onArchive={() => void runLinkAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`)} onRemove={() => startRemoving(link)} />)}
       </div>
     </>

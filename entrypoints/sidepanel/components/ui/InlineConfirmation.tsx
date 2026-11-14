@@ -5,20 +5,22 @@ interface InlineConfirmationProps {
   titleId: string;
   className?: string;
   titleClassName?: string;
+  initialFocus?(): HTMLElement | null;
   returnFocus(): HTMLElement | null;
   children: ReactNode;
 }
 
 export function InlineConfirmation({
-  title, titleId, className, titleClassName = 'font-semibold', returnFocus, children,
+  title, titleId, className, titleClassName = 'font-semibold', initialFocus, returnFocus, children,
 }: InlineConfirmationProps) {
   const region = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const initialTarget = useRef(initialFocus);
   const target = useRef(returnFocus);
   useLayoutEffect(() => { target.current = returnFocus; }, [returnFocus]);
   useLayoutEffect(() => {
     const section = region.current;
-    heading.current?.focus();
+    (initialTarget.current?.() ?? heading.current)?.focus();
     return () => {
       if (!section?.contains(document.activeElement) && document.activeElement !== document.body) return;
       queueMicrotask(() => {

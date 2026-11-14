@@ -141,9 +141,8 @@ try {
     await h.worker().evaluate(() => globalThis.finishParkingClose());
     const result = page.getByRole('region', { name: 'Parking session saved' });
     await result.waitFor();
-    assert.match(await result.innerText(), /Saved tabs 3/);
-    assert.match(await result.innerText(), /Confirmed closures 2/);
-    assert.match(await result.innerText(), /Closures not confirmed 1/);
+    assert.match(await result.innerText(), /Saved 3 tabs .*Closed 2 of 3/);
+    assert.match(await result.innerText(), /Chrome could not confirm closing 1 tab/);
     await page.screenshot({ path: path.join(h.output, 'parking-partial-320.png') });
     await button('View saved session').click();
     await page.getByRole('heading', { name: 'Synthetic /parking-6', exact: true }).waitFor();

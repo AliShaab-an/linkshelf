@@ -1,0 +1,10 @@
+@layer base {
+  button, select, input[type="button"], input[type="submit"], input[role="switch"], summary {
+    cursor: pointer;
+  }
+
+  button:disabled, select:disabled, input:disabled:is([type="button"], [type="submit"], [role="switch"]),
+  :is(button, select, input[role="switch"])[aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}

@@ -48,9 +48,9 @@ export function SidePanelNavigation({ activeSection, onChange }: {
         More
       </button>
       {more.open && <div id={more.id} role="group" aria-label="More sections"
-        className="sidebar-disclosure grid gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+        className="sidebar-disclosure dropdown-panel grid gap-1">
         {secondary.map(item => <button key={item.id} type="button"
-          className={`flex min-h-10 items-center gap-2 rounded-lg px-3 text-left text-sm ${activeSection === item.id ? 'bg-blue-50 font-bold text-blue-800' : 'text-slate-700 hover:bg-slate-100'}`}
+          className={`dropdown-action ${activeSection === item.id ? 'bg-blue-50 font-bold text-blue-800 hover:bg-blue-50' : ''}`}
           aria-current={activeSection === item.id ? 'page' : undefined}
           onClick={() => { more.closeAndFocus(); onChange(item.id); }}>
           <Icon name={item.icon} />{item.label}
