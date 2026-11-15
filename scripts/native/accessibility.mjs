@@ -104,6 +104,7 @@ try {
   await page.setViewportSize({ width: 400, height: 760 });
   await navigateSidebar(page, 'Projects');
   await page.getByLabel('Project', { exact: true }).selectOption('restore-probe');
+  await button('View options').click();
   await button('Expand all').click();
   const first = card(longTitle);
   const firstMore = more(first);
@@ -163,7 +164,10 @@ try {
     assert.equal(await actions.getAttribute('id'), id);
     assert.equal(await firstMore.getAttribute('aria-expanded'), 'true');
     await page.keyboard.press('Tab');
+    await active(actions.getByRole('button', { name: 'Move to project', exact: true }));
+    await page.keyboard.press('Tab');
     await active(actions.getByRole('button', { name: 'Archive', exact: true }));
+    await page.keyboard.press('Shift+Tab');
     await page.keyboard.press('Shift+Tab');
     await active(firstMore);
     await page.keyboard.press('Escape');

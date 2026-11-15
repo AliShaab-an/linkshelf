@@ -11,10 +11,12 @@ export function formatLinkDate(value: string): string {
 interface SavedLinkCardProps {
   cardId?: string;
   link: SavedLink;
-  note?: string;
+  note?: string | null;
   projectName?: string;
   isDue?: boolean;
   density?: DisplayDensity;
+  inSession?: boolean;
+  showParkedDate?: boolean;
   isRestoring: boolean;
   onRestore?: () => void;
   onArchive?: () => void;
@@ -24,7 +26,7 @@ interface SavedLinkCardProps {
   onRemove?: () => void;
 }
 
-export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
+export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', inSession = false, showParkedDate = true, isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsButton = useRef<HTMLButtonElement>(null);
   const actionsPanel = useRef<HTMLDivElement>(null);
@@ -54,9 +56,10 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
   }
 
   const compact = density === 'compact';
-  const primaryAction = 'inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-sm font-semibold disabled:opacity-45';
+  const row = inSession && compact;
+  const primaryAction = 'inline-flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-sm font-semibold disabled:opacity-45';
 
-  return <article id={cardId} className={`relative rounded-xl border bg-white ${compact ? 'p-2.5' : 'p-3'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}
+  return <article id={cardId} className={`relative bg-white ${row ? 'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 px-2 py-1.5' : `rounded-xl border ${compact ? 'p-2.5' : 'p-3'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}`}
     onKeyDown={(event) => {
       if (event.key !== 'Escape' || !actionsOpen) return;
       event.preventDefault();
@@ -64,23 +67,24 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
       actionsButton.current?.focus();
       setActionsOpen(false);
     }}>
-    <div className="flex items-start gap-2.5">
-      <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-sm font-extrabold text-slate-600 ${compact ? 'size-7' : 'size-9'}`}>
+    <div className={`flex min-w-0 items-start ${row ? 'gap-2 pt-1' : 'gap-2.5'}`}>
+      <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-sm font-extrabold text-slate-600 ${row ? 'size-6' : compact ? 'size-7' : 'size-9'}`}>
         {favicon ? <img src={favicon} alt="" className="size-5"/> : link.domain.charAt(0).toUpperCase()}
       </div>
       <div className="min-w-0 flex-1">
         <h3 className="line-clamp-2 wrap-anywhere text-sm font-semibold leading-snug text-slate-900" dir="auto" title={link.title}>{link.title}</h3>
         <p className="mt-0.5 truncate text-xs text-slate-600" title={projectName ? `${link.domain} · ${projectName}` : link.domain}>{link.domain}{projectName ? ` · ${projectName}` : ''}</p>
-        <p className={`mt-0.5 text-xs ${isDue ? 'font-semibold text-amber-700' : 'text-slate-600'}`}>{isDue && link.reminderAt ? `Parked · Due ${formatLinkDate(link.reminderAt)}` : link.status === 'archived' ? `Archived ${formatLinkDate(link.archivedAt ?? link.updatedAt)}` : `Parked ${formatLinkDate(link.createdAt)}`}</p>
+        {(showParkedDate || isDue || link.status === 'archived') && <p className={`mt-0.5 text-xs ${isDue ? 'font-semibold text-amber-700' : 'text-slate-600'}`}>{isDue && link.reminderAt ? `Parked · Due ${formatLinkDate(link.reminderAt)}` : link.status === 'archived' ? `Archived ${formatLinkDate(link.archivedAt ?? link.updatedAt)}` : `Parked ${formatLinkDate(link.createdAt)}`}</p>}
       </div>
     </div>
-    {note && <NotePreview note={note} />}
+    {!row && note && <NotePreview note={note} />}
 
-    <div className={`${compact ? 'mt-1.5' : 'mt-2.5'} flex items-center gap-1.5`}>
-      {onRestore && <button type="button" aria-label={isRestoring ? undefined : 'Restore link'} className={`${primaryAction} bg-blue-700 text-white hover:bg-blue-800`} disabled={isRestoring} onClick={onRestore}><Icon name="undo" className="size-4 shrink-0"/>{isRestoring ? 'Working…' : 'Restore'}</button>}
-      {onBookmark && <button type="button" aria-label="Bookmark in Chrome" className={`${primaryAction} border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100`} disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark" className="size-4 shrink-0"/>Bookmark</button>}
+    <div className={`flex items-center gap-1.5 ${row ? '' : compact ? 'mt-1.5' : 'mt-2.5'}`}>
+      {onRestore && <button type="button" aria-label={isRestoring ? undefined : 'Restore link'} className={`${primaryAction} ${inSession ? 'text-blue-700 hover:bg-blue-50' : 'flex-1 bg-blue-700 text-white hover:bg-blue-800'}`} disabled={isRestoring} onClick={onRestore}>{!row && <Icon name="undo" className="size-4 shrink-0"/>}{isRestoring ? 'Working…' : 'Restore'}</button>}
+      {onBookmark && <button type="button" aria-label="Bookmark in Chrome" className={`${primaryAction} flex-1 border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100`} disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark" className="size-4 shrink-0"/>Bookmark</button>}
       {secondaryActions && <button ref={actionsButton} type="button" className="dropdown-trigger shrink-0" aria-label="More link actions" aria-expanded={actionsOpen && !isRestoring} aria-controls={actionsId} disabled={isRestoring} onClick={() => setActionsOpen((open) => !open)}><Icon name="more"/></button>}
     </div>
+    {row && note && <div className="col-span-2"><NotePreview note={note} /></div>}
 
     {secondaryActions && <div id={actionsId} ref={actionsPanel} hidden={!actionsOpen || isRestoring}
       className="dropdown-panel absolute right-4 bottom-14 z-20 min-w-40 space-y-1" role="group" aria-label="Link actions">
@@ -94,7 +98,7 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
   </article>;
 }
 
-function NotePreview({ note }: { note: string }) {
+export function NotePreview({ note }: { note: string }) {
   const [expanded, setExpanded] = useState(false);
   const [canExpand, setCanExpand] = useState(false);
   const noteRef = useRef<HTMLParagraphElement>(null);

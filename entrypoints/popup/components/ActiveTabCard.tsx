@@ -10,14 +10,14 @@ export function ActiveTabCard({
   isEligible,
 }: ActiveTabCardProps) {
   return (
-    <section className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="break-words font-semibold leading-snug" dir="auto">{title}</p>
-      <p className="mt-1 truncate text-sm text-slate-500">{domain}</p>
+    <div className="mb-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+      <p className="line-clamp-2 wrap-anywhere text-sm font-semibold leading-snug" dir="auto" title={title}>{title}</p>
+      {isEligible && <p className="mt-0.5 truncate text-xs text-slate-600" title={domain}>{domain}</p>}
       {!isEligible && (
-        <p className="mt-2.5 text-sm text-red-700">
-          This type of Chrome page cannot be parked.
+        <p className="mt-1 text-sm text-slate-600">
+          Chrome doesn’t allow LinkShelf to park this page.
         </p>
       )}
-    </section>
+    </div>
   );
 }

@@ -22,13 +22,15 @@ function App() {
   const [searchFocusRequestId, setSearchFocusRequestId] = useState<string>();
   const [searchQuery, setSearchQuery] = useState('');
   const [savedSession, setSavedSession] = useState<SavedSessionTarget>();
+  const [parkProjectId, setParkProjectId] = useState<string>();
   const intents = useRef<ReturnType<typeof createNavigationIntents>>(null);
 
   useLayoutEffect(() => { window.scrollTo(0, 0); }, [activeSection]);
 
-  const navigate = useCallback((section: SidePanelSection, focusRequestId?: string, session?: SavedSessionTarget) => {
+  const navigate = useCallback((section: SidePanelSection, focusRequestId?: string, session?: SavedSessionTarget, projectId?: string) => {
     setActiveSection(section);
     setSavedSession(session);
+    setParkProjectId(projectId);
     setSearchFocusRequestId(focusRequestId);
     void updateUiState({ lastSection: section }).catch(reportNavigationError);
   }, []);
@@ -118,12 +120,15 @@ function App() {
             <SidePanelNavigation activeSection={activeSection} onChange={changeSection} />
           </div>
           <section className="mx-auto max-w-2xl p-4 pb-10">
-            {activeSection === 'park' && <ParkTabsSection onViewSession={target => {
+            {activeSection === 'park' && <ParkTabsSection initialProjectId={parkProjectId} onViewSession={target => {
               intents.current?.supersede();
               navigate('projects', undefined, target);
             }} />}
             {activeSection === 'today' && <TodaySection />}
-            {activeSection === 'projects' && <ProjectsSection savedSession={savedSession} />}
+            {activeSection === 'projects' && <ProjectsSection savedSession={savedSession} onPark={projectId => {
+              intents.current?.supersede();
+              navigate('park', undefined, undefined, projectId);
+            }} />}
             {activeSection === 'archive' && <ArchiveSection />}
             {activeSection === 'search' && <SearchSection query={searchQuery} onQueryChange={setSearchQuery} focusRequestId={searchFocusRequestId} />}
             {activeSection === 'review' && <ReviewSection />}

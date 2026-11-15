@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { navigateSidebar, createHarness } from './harness.mjs';
+import { navigateSidebar, createHarness, poll } from './harness.mjs';
 import { dataset } from '../performance/fixtures.mjs';
 
 const h = await createHarness();
@@ -139,15 +139,19 @@ try {
 
   await navigateSidebar(page, 'Projects');
   await page.getByLabel('Project', { exact: true }).selectOption('project-0');
+  const view = page.getByRole('button', { name: 'View options', exact: true });
+  await view.click();
   await page.getByRole('button', { name: 'Expand all', exact: true }).click();
   const more = page.getByRole('button', { name: /^Show \d+ more$/ }).first();
   await more.click();
   await page.getByRole('button', { name: 'Show all', exact: true }).first().click();
-  await page.getByRole('button', { name: 'View options', exact: true }).click();
-  await page.getByLabel('Density').selectOption('comfortable');
-  await page.getByLabel('Density').selectOption('compact');
+  await view.click();
+  await page.getByLabel('Saved link spacing').selectOption('comfortable');
+  await poll(h.raw, value => value.settings.displayDensity === 'comfortable', 'comfortable spacing persisted');
+  await page.getByLabel('Saved link spacing').selectOption('compact');
   await page.getByLabel('Session order').selectOption('oldest');
   await page.getByLabel('Filter this project').fill('item 100');
+  await view.click();
   await page.getByRole('button', { name: 'Collapse all', exact: true }).click();
   checks.push('Projects expansion, Show More, Show All, filtering and sorting remain available');
   const file = path.join(h.output, 'rendering-results.json');
