@@ -82,6 +82,8 @@ try {
     await h.seed(dataset(10000, distribution, h.base));
     await open();
     await navigateSidebar(page, 'Projects');
+    const view = page.getByRole('button', { name: 'View options', exact: true });
+    if (await view.count() && !(await page.getByRole('button', { name: 'Expand all', exact: true }).isVisible())) await view.click();
     await page.getByRole('button', { name: 'Expand all', exact: true }).waitFor();
     await start();
     await page.getByRole('button', { name: 'Expand all', exact: true }).click();

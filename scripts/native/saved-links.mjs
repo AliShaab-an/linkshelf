@@ -30,6 +30,11 @@ try {
   await selector.selectOption('restore-probe');
   await button('Restore link').first().waitFor();
   assert.equal(await checkWidth(), true);
+  await page.screenshot({ path: path.join(h.output, 'saved-compact-320.png') });
+  await page.setViewportSize({ width: 400, height: 760 });
+  assert.equal(await checkWidth(), true);
+  await page.screenshot({ path: path.join(h.output, 'saved-compact-400.png') });
+  await page.setViewportSize({ width: 320, height: 760 });
   await page.locator('article').filter({ hasText: 'A long synthetic title' }).getByRole('button', { name: 'Show more', exact: true }).click();
   await button('Show less').waitFor();
   await page.screenshot({ path: path.join(h.output, 'saved-links-320.png') });
@@ -38,6 +43,8 @@ try {
   await page.evaluate(async () => chrome.tabs.setZoom((await chrome.tabs.getCurrent()).id, 2));
   await poll(() => page.evaluate(() => innerWidth), width => width === 320, '200% zoom applied');
   assert.equal(await checkWidth(), true);
+  await page.evaluate(() => scrollTo(0, 0));
+  await page.screenshot({ path: path.join(h.output, 'saved-compact-200-percent.png') });
   const other = await h.surface();
   await h.ok({ type: 'UPDATE_SETTINGS', payload: {
     ...fixture.settings, defaultRestoreBehavior: 'open-copy', defaultRestoreMode: 'unloaded',
@@ -47,11 +54,13 @@ try {
   await page.bringToFront();
 
   await page.getByLabel('Filter this project').fill(probe[2].title);
-  await page.locator('.projects-toolbar').getByText('1 of 3 parked links', { exact: true }).waitFor();
-  await button('Restore all').click();
+  await page.locator('.projects-toolbar').getByText('1 link shown · 1 session', { exact: true }).waitFor();
+  await button('Restore all 3').click();
   const confirm = page.getByRole('region', { name: /^Restore all 3 links/ });
-  await confirm.getByText(/includes parked links hidden by the filter/).waitFor();
-  const unloaded = confirm.getByRole('button', { name: 'Load tabs when selected · Default' });
+  await confirm.getByText(/includes 2 links hidden by the filter/).waitFor();
+  const mode = confirm.getByRole('combobox', { name: 'When to load tabs' });
+  assert.equal(await mode.inputValue(), 'unloaded');
+  const unloaded = confirm.getByRole('button', { name: 'Restore 3 tabs' });
   await unloaded.focus();
   await poll(() => unloaded.evaluate(element => {
     const rect = element.getBoundingClientRect();
@@ -80,8 +89,9 @@ try {
     };
     globalThis.undoSavedProbe = () => { chrome.tabs.create = original; };
   });
-  await button('Restore all').click();
-  await button('Load tabs immediately · Default').click();
+  await button('Restore all 3').click();
+  assert.equal(await mode.inputValue(), 'normal');
+  await button('Restore 3 tabs').click();
   await status(/Opened 2 of 3 tabs.*2 marked restored.*could not confirm opening 1 tab/).waitFor();
   await page.getByText(/Some browser opens were not confirmed/).waitFor();
   await h.worker().evaluate(() => globalThis.undoSavedProbe());
@@ -110,6 +120,18 @@ try {
   await page.getByLabel('Project name', { exact: true }).fill('Synthetic renamed project');
   await button('Save name').click();
   await poll(() => selector.locator('option:checked').textContent(), value => value === 'Synthetic renamed project', 'renamed project selected');
+  const destinationId = await selector.inputValue();
+  await h.tab('saved-empty-shortcut');
+  await page.bringToFront();
+  await button('Park tabs').click();
+  assert.equal(await heading('Park tabs').evaluate(el => document.activeElement === el), true);
+  await page.getByRole('checkbox', { name: 'Select Synthetic /saved-empty-shortcut' }).check();
+  await button('Review selection').click();
+  const parkReview = page.getByRole('dialog');
+  assert.equal(await parkReview.getByLabel('Save to project').inputValue(), destinationId);
+  await parkReview.getByRole('button', { name: 'Back' }).click();
+  await navigateSidebar(page, 'Saved');
+  await selector.waitFor();
   await selector.selectOption('restore-probe');
   await actions.click();
   await button('Delete').click();
@@ -132,9 +154,9 @@ try {
   assert.equal(await page.getByLabel('Session order').evaluate(el => document.activeElement === el), true);
   await page.getByLabel('Session order').selectOption('oldest');
   assert.notEqual(await sessions.first().textContent(), newestSession);
-  await page.getByLabel('Density').selectOption('comfortable');
+  await page.getByLabel('Saved link spacing').selectOption('comfortable');
   await poll(h.raw, value => value.settings.displayDensity === 'comfortable', 'comfortable density persisted');
-  await page.getByLabel('Density').selectOption('compact');
+  await page.getByLabel('Saved link spacing').selectOption('compact');
   await poll(h.raw, value => value.settings.displayDensity === 'compact', 'compact density persisted');
   await page.keyboard.press('Escape');
   assert.equal(await view.evaluate(el => document.activeElement === el), true);
@@ -144,10 +166,40 @@ try {
   assert.equal(await view.getAttribute('aria-expanded'), 'false');
   await button(/^Show \d+ more$/).first().click();
   assert.equal(await page.locator('article').count(), 50);
+  await view.click();
   await button('Collapse all').click();
   assert.equal(await page.locator('article').count(), 0);
+  const filter = page.getByRole('searchbox', { name: 'Filter this project' });
+  const matching = fixture.links.find(link => link.projectId === 'project-0' && link.status === 'parked');
+  await filter.fill(matching.title);
+  const matchingCard = page.locator('article').filter({ has: heading(matching.title) });
+  await matchingCard.waitFor();
+  const restoreRow = await matchingCard.getByRole('button', { name: 'Restore link' }).boundingBox();
+  assert.ok(restoreRow.height >= 40);
+  await filter.fill('synthetic no-match e221');
+  await heading('No matching tabs').waitFor();
+  await button('Clear filter').click();
+  assert.equal(await filter.inputValue(), '');
+  assert.equal(await filter.evaluate(el => el === document.activeElement), true);
+  assert.equal(await page.locator('article').count(), 0);
+  await filter.fill(matching.title);
+  const moreActions = matchingCard.getByRole('button', { name: 'More link actions' });
+  await moreActions.click();
+  await button('Move to project').click();
+  const move = page.getByRole('dialog');
+  await move.getByRole('button', { name: 'Cancel' }).click();
+  assert.equal(await moreActions.evaluate(el => el === document.activeElement), true);
+  await moreActions.click();
+  await button('Move to project').click();
+  await move.getByLabel('Destination project').selectOption(destinationId);
+  await move.getByRole('button', { name: 'Move link' }).click();
+  await status(/Moved .* to Synthetic renamed project/).waitFor();
+  await matchingCard.waitFor({ state: 'hidden' });
+  await selector.selectOption(destinationId);
+  await matchingCard.waitFor();
+  await matchingCard.getByText(/^Parked /).waitFor();
   assert.equal(await checkWidth(), true);
-  checks.push('Large project at 320 CSS pixels and 200% zoom retains the initial 25-card batch, Show More, and Collapse all');
+  checks.push('Compact rows, 25-card batches, Clear filter restores expansion, Move dialog and destination reconciliation, and the empty project preselects its Park destination');
 
   await navigateSidebar(page, 'Review');
   await heading('Review').waitFor();

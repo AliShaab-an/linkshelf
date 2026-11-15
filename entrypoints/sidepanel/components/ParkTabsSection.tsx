@@ -1,14 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { localReminderToUtc, toLocalDateTimeInputValue } from '@/domain/reminders';
 import type { Project } from '@/domain/schemas';
-import { getCurrentWindowTabs, getProjects, parkSelectedTabs, type WindowTabCandidate } from '@/messaging/contracts';
+import { getCurrentWindowTabs, getSettings, parkSelectedTabs, type WindowTabCandidate } from '@/messaging/contracts';
 import { Modal } from './ui/Modal';
 import { OperationWarnings } from './ui/OperationWarnings';
 import { Button } from './ui/Button';
 import { Select } from './ui/Select';
 import { parkingOutcome, type SavedSessionTarget } from '../parking-outcome';
 
-export function ParkTabsSection({ onViewSession }: { onViewSession(target: SavedSessionTarget): void }) {
+export function ParkTabsSection({ initialProjectId, onViewSession }: { initialProjectId?: string; onViewSession(target: SavedSessionTarget): void }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tabs, setTabs] = useState<WindowTabCandidate[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -26,6 +26,7 @@ export function ParkTabsSection({ onViewSession }: { onViewSession(target: Saved
   const [warnings, setWarnings] = useState<string[]>([]);
   const [result, setResult] = useState<ReturnType<typeof parkingOutcome>>();
   const inFlight = useRef(false);
+  const sectionHeading = useRef<HTMLHeadingElement>(null);
   const refreshButton = useRef<HTMLButtonElement>(null);
   const resultHeading = useRef<HTMLHeadingElement>(null);
   const [selectedNotice, setSelectedNotice] = useState('');
@@ -55,17 +56,20 @@ export function ParkTabsSection({ onViewSession }: { onViewSession(target: Saved
   useEffect(() => {
     let current = true;
     void loadTabs(() => current);
-    void getProjects().then(response => {
+    void getSettings().then(response => {
       if (!current) return;
       if (!response.success) throw new Error(response.error.message);
       setProjects(response.projects);
-      setProjectId(response.projects.find(item => item.isInbox)?.id ?? response.projects[0]?.id ?? '');
+      const preferred = [initialProjectId, response.settings.defaultProjectId]
+        .find(id => response.projects.some(item => item.id === id));
+      setProjectId(preferred ?? response.projects.find(item => item.isInbox)?.id ?? response.projects[0]?.id ?? '');
     }).catch(cause => {
       if (current) setProjectError(cause instanceof Error ? cause.message : 'LinkShelf could not read projects.');
     });
     return () => { current = false; };
-  }, []);
+  }, [initialProjectId]);
 
+  useLayoutEffect(() => { if (initialProjectId) sectionHeading.current?.focus(); }, [initialProjectId]);
   useLayoutEffect(() => { if (result) resultHeading.current?.focus(); }, [result]);
 
   function choose(ids: number[]) {
@@ -123,7 +127,7 @@ export function ParkTabsSection({ onViewSession }: { onViewSession(target: Saved
   return <>
     <div className="mb-4 flex items-start justify-between gap-2">
       <div>
-        <h2 className="text-lg font-bold">Park tabs</h2>
+        <h2 ref={sectionHeading} tabIndex={-1} className="text-lg font-bold">Park tabs</h2>
         <p className="mt-1 text-sm text-slate-600">Choose tabs in this window to save together.</p>
       </div>
       <Button ref={refreshButton} type="button" disabled={loading || pending} onClick={() => {

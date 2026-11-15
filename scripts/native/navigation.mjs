@@ -238,7 +238,9 @@ try {
       window.close = () => undefined;
     });
     await popup.goto(`chrome-extension://${h.id}/popup.html`);
-    const launch = popup.getByRole('button', { name: /Open full LinkShelf/ });
+    const launch = popup.getByRole('button', { name: 'Open sidebar', exact: true });
+    await popup.getByText(/Chrome doesn’t allow LinkShelf to park this page/).waitFor();
+    assert.equal(await popup.getByRole('combobox', { name: 'Save to' }).count(), 0);
     await launch.click();
     await popup.getByText('Synthetic popup open failure.', { exact: true }).waitFor();
     assert.equal(await popup.evaluate(() => globalThis.popupProbe.windowId), await windowId(popup));
