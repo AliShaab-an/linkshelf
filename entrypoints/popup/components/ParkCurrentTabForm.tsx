@@ -1,41 +1,40 @@
-import { useEffect, useState } from 'react';
-import { INBOX_PROJECT_ID } from '@/domain/constants';
+import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { Select } from '@/entrypoints/sidepanel/components/ui/Select';
 import {
   localReminderToUtc,
   toLocalDateTimeInputValue,
 } from '@/domain/reminders';
 import type { Project } from '@/domain/schemas';
-import { getProjects, parkCurrentTab } from '@/messaging/contracts';
+import { getSettings, parkCurrentTab } from '@/messaging/contracts';
 
-type ParkStatus = 'idle' | 'parking' | 'success' | 'error';
+type ParkStatus = 'idle' | 'parking' | 'success' | 'partial' | 'error';
 
-interface ParkCurrentTabFormProps {
-  tabId: number;
-  isEligible: boolean;
-}
-
-export function ParkCurrentTabForm({
-  tabId,
-  isEligible,
-}: ParkCurrentTabFormProps) {
+export function ParkCurrentTabForm({ tabId }: { tabId: number }) {
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [projectId, setProjectId] = useState(INBOX_PROJECT_ID);
+  const [projectId, setProjectId] = useState('');
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [reminderLocal, setReminderLocal] = useState('');
   const [status, setStatus] = useState<ParkStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
-  const [showDetails, setShowDetails] = useState(false);
+  const pending = useRef(false);
+  const outcome = useRef<HTMLParagraphElement>(null);
+  const project = projects.find(item => item.id === projectId);
+  const saved = status === 'success' || status === 'partial';
+
+  useLayoutEffect(() => { if (saved) outcome.current?.focus(); }, [saved]);
 
   useEffect(() => {
-    void getProjects()
+    let current = true;
+    void getSettings()
       .then((response) => {
-        if (!response.success) {
-          setProjectError(response.error.message);
-          return;
-        }
+        if (!current) return;
+        if (!response.success) throw new Error(response.error.message);
         const defaultProject =
+          response.projects.find((project) => project.id === response.settings.defaultProjectId) ??
           response.projects.find((project) => project.isInbox) ??
           response.projects[0];
         if (!defaultProject) {
@@ -45,19 +44,18 @@ export function ParkCurrentTabForm({
         setProjects(response.projects);
         setProjectId(defaultProject.id);
       })
-      .catch((error) =>
-        setProjectError(
-          error instanceof Error
-            ? error.message
-            : 'LinkShelf could not load projects.',
-        ),
-      )
-      .finally(() => setIsLoadingProjects(false));
+      .catch((error) => {
+        if (current) setProjectError(error instanceof Error ? error.message : 'LinkShelf could not load projects.');
+      })
+      .finally(() => { if (current) setIsLoadingProjects(false); });
+    return () => { current = false; };
   }, []);
 
-  async function handlePark() {
-    if (!isEligible || !projectId || status === 'parking') return;
+  async function handlePark(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!project || pending.current || saved) return;
 
+    setWarnings([]);
     let reminderAt: string | undefined;
     try {
       reminderAt = localReminderToUtc(reminderLocal);
@@ -67,6 +65,7 @@ export function ParkCurrentTabForm({
       return;
     }
 
+    pending.current = true;
     setStatus('parking');
     setMessage(null);
     try {
@@ -75,13 +74,20 @@ export function ParkCurrentTabForm({
         note: note.trim() || undefined,
         reminderAt,
       });
+      setWarnings(response.warnings ?? []);
       if (!response.success) {
-        setStatus('error');
-        setMessage(response.error.message);
+        setStatus(response.saved ? 'partial' : 'error');
+        if (!response.saved) setMessage(response.error.message);
+        else {
+          const closure = response.error.code === 'TAB_CHANGED'
+            ? 'The tab changed and LinkShelf left it open.'
+            : 'Chrome couldn’t confirm the tab closed. Check your open tabs.';
+          setMessage(`Saved to ${project.name}. ${closure}`);
+        }
         return;
       }
       setStatus('success');
-      setMessage('The tab was parked and closed.');
+      setMessage(`Saved to ${project.name} and closed the tab.`);
     } catch (error) {
       setStatus('error');
       setMessage(
@@ -89,41 +95,43 @@ export function ParkCurrentTabForm({
           ? error.message
           : 'LinkShelf could not reach its background worker.',
       );
-    }
+    } finally { pending.current = false; }
   }
 
-  const disabled =
-    !isEligible ||
-    projects.length === 0 ||
-    isLoadingProjects ||
-    Boolean(projectError) ||
-    status === 'parking';
   const minimumReminder = toLocalDateTimeInputValue(
     new Date(Date.now() + 60_000),
   );
 
   return (
-    <>
-      <label className="text-sm font-semibold text-slate-700" htmlFor="project">Project</label>
-      <select id="project" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm disabled:bg-slate-100" value={projectId} disabled={isLoadingProjects || status === 'parking'} onChange={(event) => setProjectId(event.target.value)}>
-        {isLoadingProjects && <option value={INBOX_PROJECT_ID}>Loading projects...</option>}
-        {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-      </select>
-      {projectError && <p className="mt-1.5 text-sm text-red-700" role="alert">{projectError}</p>}
+    <form onSubmit={handlePark}>
+      {!saved && <fieldset className="min-w-0" disabled={status === 'parking'}>
+        <label className="text-sm font-semibold text-slate-700" htmlFor="project">Save to</label>
+        <Select id="project" className="mt-1 w-full" title={project?.name} value={projectId} disabled={isLoadingProjects || !project} onChange={(event) => setProjectId(event.target.value)}>
+          {!project && <option value="">{isLoadingProjects ? 'Loading projects…' : 'No project available'}</option>}
+          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+        </Select>
+        {projectError && <p className="mt-1.5 text-sm text-red-700" role="alert">{projectError}</p>}
 
-      <button type="button" className="mt-3 inline-flex min-h-9 items-center text-sm font-semibold text-blue-700 hover:text-blue-900" aria-expanded={showDetails} onClick={() => setShowDetails((shown) => !shown)}>{showDetails ? '− Hide details' : '+ Add note or reminder'}</button>
-      {showDetails && <div className="rounded-xl bg-slate-50 p-3">
-        <label className="block text-sm font-semibold text-slate-700" htmlFor="note">Note <span className="font-normal text-slate-400">(optional)</span></label>
-        <textarea id="note" rows={2} className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" value={note} disabled={status === 'parking'} onChange={(event) => setNote(event.target.value)} />
-        <label className="mt-3 block text-sm font-semibold text-slate-700" htmlFor="reminder">Reminder <span className="font-normal text-slate-400">(optional)</span></label>
-        <input id="reminder" type="datetime-local" className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" min={minimumReminder} value={reminderLocal} disabled={status === 'parking'} onChange={(event) => setReminderLocal(event.target.value)} />
-        <p className="mt-1 text-xs text-slate-400">Uses your local timezone.</p>
-      </div>}
+        <details className="mt-1">
+          <summary className="min-h-10 content-center rounded text-sm font-medium text-blue-700">
+            Add note or reminder
+            {note.trim() || reminderLocal ? <span className="ms-1 text-xs text-slate-600">· {note.trim() && reminderLocal ? 'Both added' : note.trim() ? 'Note added' : 'Reminder set'}</span> : null}
+          </summary>
+          <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+            <label className="block text-sm font-medium" htmlFor="note">Note</label>
+            <textarea id="note" rows={2} className="mt-1 w-full resize-y rounded-lg border border-slate-300 px-2.5 py-2 text-sm" value={note} onChange={(event) => setNote(event.target.value)} />
+            <label className="mt-2 block text-sm font-medium" htmlFor="reminder">Reminder</label>
+            <input id="reminder" type="datetime-local" className="mt-1 min-w-0 w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm" min={minimumReminder} value={reminderLocal} onChange={(event) => setReminderLocal(event.target.value)} />
+            <p className="mt-1 text-xs text-slate-600">Uses your local time.</p>
+          </div>
+        </details>
 
-      <button type="button" className="mt-4 w-full rounded-xl bg-blue-700 px-3.5 py-3 font-bold text-white shadow-sm shadow-blue-900/10 hover:bg-blue-800 disabled:opacity-50" disabled={disabled} onClick={() => void handlePark()}>
-        {status === 'parking' ? 'Parking tab...' : 'Park and close'}
-      </button>
-      {message && <p className={`mt-2 text-sm ${status === 'error' ? 'text-red-700' : 'text-emerald-700'}`} role={status === 'error' ? 'alert' : 'status'}>{message}</p>}
-    </>
+        <button type="submit" className="mt-2 min-h-11 w-full rounded-lg bg-blue-700 px-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50" disabled={!project || isLoadingProjects || Boolean(projectError) || status === 'parking'}>
+          {status === 'parking' ? 'Parking tab…' : 'Park and close'}
+        </button>
+      </fieldset>}
+      {message && <p ref={outcome} tabIndex={saved ? -1 : undefined} className={`mt-2 rounded-lg p-2.5 text-sm wrap-anywhere ${status === 'error' ? 'bg-red-50 text-red-800' : status === 'partial' ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800'}`} role={status === 'error' ? 'alert' : 'status'}>{message}</p>}
+      <OperationWarnings warnings={warnings} />
+    </form>
   );
 }

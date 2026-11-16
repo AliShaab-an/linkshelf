@@ -2,19 +2,24 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { DisplayDensity, SavedLink } from '@/domain/schemas';
 import { Icon } from './ui/Icon';
 
+const linkDateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
 export function formatLinkDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+  return linkDateFormatter.format(new Date(value));
 }
 
 interface SavedLinkCardProps {
+  cardId?: string;
   link: SavedLink;
-  note?: string;
+  note?: string | null;
   projectName?: string;
   isDue?: boolean;
-  showStatus?: boolean;
   density?: DisplayDensity;
+  inSession?: boolean;
+  showParkedDate?: boolean;
   isRestoring: boolean;
   onRestore?: () => void;
+  onRestoreAndRemove?: () => void;
   onArchive?: () => void;
   onUnarchive?: () => void;
   onBookmark?: () => void;
@@ -22,53 +27,96 @@ interface SavedLinkCardProps {
   onRemove?: () => void;
 }
 
-export function SavedLinkCard({ link, note = link.note, projectName, isDue = false, showStatus = false, density = 'comfortable', isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const secondaryActions = Boolean(onMove || onArchive || onUnarchive || onRemove);
-  const favicon = link.faviconUrl;
+export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', inSession = false, showParkedDate = true, isRestoring, onRestore, onRestoreAndRemove, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsButton = useRef<HTMLButtonElement>(null);
+  const actionsPanel = useRef<HTMLDivElement>(null);
+  const actionsId = useId();
+  const secondaryActions = Boolean(onMove || onArchive || onUnarchive || onRemove || onRestoreAndRemove);
+
+  useEffect(() => {
+    if (!actionsOpen) return;
+    function closeOutside(event: Event) {
+      if (!(event.target instanceof Node) || actionsButton.current?.contains(event.target) ||
+          actionsPanel.current?.contains(event.target)) return;
+      setActionsOpen(false);
+    }
+    document.addEventListener('pointerdown', closeOutside, true);
+    document.addEventListener('focusin', closeOutside);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside, true);
+      document.removeEventListener('focusin', closeOutside);
+    };
+  }, [actionsOpen]);
 
   function action(callback?: () => void) {
-    setIsMenuOpen(false);
+    actionsButton.current?.focus({ preventScroll: true });
+    setActionsOpen(false);
     callback?.();
   }
 
   const compact = density === 'compact';
+  const row = inSession && compact;
+  const primaryAction = 'inline-flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-sm font-semibold disabled:opacity-45';
 
-  return <article className={`relative border bg-white shadow-sm shadow-slate-200/60 transition hover:-translate-y-px hover:shadow-md ${compact ? 'rounded-xl p-3' : 'rounded-2xl p-4'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}>
-    <div className="flex items-start gap-3">
-      <div className={`flex shrink-0 items-center justify-center overflow-hidden bg-slate-100 text-sm font-extrabold text-slate-500 ${compact ? 'size-8 rounded-lg' : 'size-10 rounded-xl'}`}>
-        {favicon ? <img src={favicon} alt="" className="size-5"/> : link.domain.charAt(0).toUpperCase()}
-      </div>
+  return <article id={cardId} data-saved-row={inSession || undefined} tabIndex={inSession ? 0 : undefined}
+    aria-label={inSession ? link.title : undefined}
+    aria-keyshortcuts={inSession ? 'ArrowUp ArrowDown Enter Delete' : undefined}
+    className={`relative bg-white ${row ? 'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 px-2 py-1.5' : `rounded-xl border ${compact ? 'p-2.5' : 'p-3'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}`}
+    onKeyDown={(event) => {
+      if (inSession && !isRestoring && event.target === event.currentTarget) {
+        const shortcut = event.key === 'Enter' ? onRestore : event.key === 'Delete' ? onRemove : undefined;
+        if (shortcut) {
+          event.preventDefault();
+          shortcut();
+          return;
+        }
+      }
+      if (event.key !== 'Escape' || !actionsOpen) return;
+      event.preventDefault();
+      event.stopPropagation();
+      actionsButton.current?.focus();
+      setActionsOpen(false);
+    }}>
+    <div className={`flex min-w-0 items-start ${row ? 'gap-2 pt-1' : 'gap-2.5'}`}>
+      <LinkFavicon link={link} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="line-clamp-2 break-words font-bold leading-snug text-slate-900" dir="auto">{link.title}</h3>
-          <div className="flex shrink-0 items-center gap-1">
-            {isDue && <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-amber-800">Due</span>}
-            {showStatus && !isDue && <span className={`rounded-full px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide ${link.status === 'archived' ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700'}`}>{link.status}</span>}
-          </div>
-        </div>
-        <p className="mt-1 truncate text-sm text-slate-500">{link.domain}{projectName ? ` · ${projectName}` : ''}</p>
-        <p className={`mt-1.5 text-xs ${isDue ? 'font-semibold text-amber-700' : 'text-slate-400'}`}>{isDue && link.reminderAt ? `Reminder ${formatLinkDate(link.reminderAt)}` : link.status === 'archived' ? `Archived ${formatLinkDate(link.archivedAt ?? link.updatedAt)}` : `Parked ${formatLinkDate(link.createdAt)}`}</p>
+        <h3 className="line-clamp-2 wrap-anywhere text-sm font-semibold leading-snug text-slate-900" dir="auto" title={link.title}>{link.title}</h3>
+        <p className="mt-0.5 truncate text-xs text-slate-600" title={projectName ? `${link.domain} · ${projectName}` : link.domain}>{link.domain}{projectName ? ` · ${projectName}` : ''}</p>
+        {(showParkedDate || isDue || link.status === 'archived') && <p className={`mt-0.5 text-xs ${isDue ? 'font-semibold text-amber-700' : 'text-slate-600'}`}>{isDue && link.reminderAt ? `Parked · Due ${formatLinkDate(link.reminderAt)}` : link.status === 'archived' ? `Archived ${formatLinkDate(link.archivedAt ?? link.updatedAt)}` : `Parked ${formatLinkDate(link.createdAt)}`}</p>}
       </div>
     </div>
-    {note && <NotePreview note={note} />}
+    {!row && note && <NotePreview note={note} />}
 
-    <div className={`${compact ? 'mt-2' : 'mt-3'} flex items-center gap-2`}>
-      {onRestore && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-45" disabled={isRestoring} onClick={onRestore}><Icon name="undo"/>{isRestoring ? 'Working...' : 'Restore'}</button>}
-      {onBookmark && <button type="button" className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-45" disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark"/>Keep</button>}
-      {secondaryActions && <button type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" aria-label="More link actions" aria-expanded={isMenuOpen} disabled={isRestoring} onClick={() => setIsMenuOpen((open) => !open)}><Icon name="more"/></button>}
+    <div className={`flex items-center gap-1.5 ${row ? '' : compact ? 'mt-1.5' : 'mt-2.5'}`}>
+      {onRestore && <button type="button" aria-label={isRestoring ? undefined : 'Restore link'} className={`${primaryAction} ${inSession ? 'text-blue-700 hover:bg-blue-50' : 'flex-1 bg-blue-700 text-white hover:bg-blue-800'}`} disabled={isRestoring} onClick={onRestore}>{!row && <Icon name="undo" className="size-4 shrink-0"/>}{isRestoring ? 'Working…' : 'Restore'}</button>}
+      {onBookmark && <button type="button" aria-label="Bookmark in Chrome" className={`${primaryAction} flex-1 border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100`} disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark" className="size-4 shrink-0"/>Bookmark</button>}
+      {secondaryActions && <button ref={actionsButton} type="button" className="dropdown-trigger shrink-0" aria-label="More link actions" aria-expanded={actionsOpen && !isRestoring} aria-controls={actionsId} disabled={isRestoring} onClick={() => setActionsOpen((open) => !open)}><Icon name="more"/></button>}
     </div>
+    {row && note && <div className="col-span-2"><NotePreview note={note} /></div>}
 
-    {isMenuOpen && <div className="absolute bottom-14 right-4 z-20 min-w-40 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl" role="menu">
-      {onMove && <MenuButton onClick={() => action(onMove)}>Move to project</MenuButton>}
-      {onArchive && <MenuButton onClick={() => action(onArchive)}>Archive</MenuButton>}
-      {onUnarchive && <MenuButton onClick={() => action(onUnarchive)}>Return to project</MenuButton>}
-      {onRemove && <MenuButton danger onClick={() => action(onRemove)}>Remove</MenuButton>}
+    {secondaryActions && <div id={actionsId} ref={actionsPanel} hidden={!actionsOpen || isRestoring}
+      className="dropdown-panel absolute right-4 bottom-14 z-20 min-w-40 space-y-1" role="group" aria-label="Link actions">
+      {actionsOpen && !isRestoring && <>
+        {onMove && <ActionButton onClick={() => action(onMove)}>Move to project</ActionButton>}
+        {onArchive && <ActionButton onClick={() => action(onArchive)}>Archive</ActionButton>}
+        {onRestoreAndRemove && <ActionButton onClick={() => action(onRestoreAndRemove)}>Restore and remove from list</ActionButton>}
+        {onUnarchive && <ActionButton onClick={() => action(onUnarchive)}>Return to project</ActionButton>}
+        {onRemove && <ActionButton danger onClick={() => action(onRemove)}>Remove</ActionButton>}
+      </>}
     </div>}
   </article>;
 }
 
-function NotePreview({ note }: { note: string }) {
+export function LinkFavicon({ link }: { link: Pick<SavedLink, 'domain' | 'faviconUrl'> }) {
+  return <span className="relative grid size-6 shrink-0 place-items-center overflow-hidden rounded border border-slate-300 bg-white text-xs font-bold text-slate-700" aria-hidden="true">
+    {link.domain.charAt(0).toUpperCase()}
+    {link.faviconUrl && <img key={link.faviconUrl} src={link.faviconUrl} alt="" className="absolute inset-0 size-full object-contain" style={{ backgroundColor: '#fff' }}
+      onError={event => { event.currentTarget.hidden = true; }} />}
+  </span>;
+}
+
+export function NotePreview({ note }: { note: string }) {
   const [expanded, setExpanded] = useState(false);
   const [canExpand, setCanExpand] = useState(false);
   const noteRef = useRef<HTMLParagraphElement>(null);
@@ -80,12 +128,12 @@ function NotePreview({ note }: { note: string }) {
     setCanExpand(noteRef.current.scrollHeight > noteRef.current.clientHeight + 1);
   }, [expanded, note]);
 
-  return <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5">
-    <p ref={noteRef} id={noteId} className={`${expanded ? '' : 'line-clamp-2'} whitespace-pre-wrap break-words text-sm leading-5 text-slate-600`} dir="auto">{note}</p>
-    {canExpand && <button type="button" className="mt-1 text-xs font-semibold text-blue-700 hover:text-blue-800" aria-controls={noteId} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show more'}</button>}
+  return <div className="mt-2 border-s-2 border-slate-200 ps-2">
+    <p ref={noteRef} id={noteId} className={`${expanded ? '' : 'line-clamp-2'} whitespace-pre-wrap wrap-anywhere text-sm leading-5 text-slate-600`} dir="auto">{note}</p>
+    {canExpand && <button type="button" className="min-h-8 rounded text-xs font-semibold text-blue-700 hover:text-blue-800" aria-controls={noteId} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? 'Show less' : 'Show more'}</button>}
   </div>;
 }
 
-function MenuButton({ children, danger = false, onClick }: { children: string; danger?: boolean; onClick(): void }) {
-  return <button type="button" role="menuitem" className={`block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold hover:bg-slate-50 ${danger ? 'text-red-700' : 'text-slate-700'}`} onClick={onClick}>{children}</button>;
+function ActionButton({ children, danger = false, onClick }: { children: string; danger?: boolean; onClick(): void }) {
+  return <button type="button" className={`dropdown-action ${danger ? 'text-red-700 hover:bg-red-50' : ''}`} onClick={onClick}>{children}</button>;
 }

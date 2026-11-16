@@ -57,5 +57,6 @@ export async function executeRestoreProject(
     discardedLinkIds: result.discardedLinkIds,
     fallbackLinkIds: result.fallbackLinkIds,
     complete: result.complete,
+    ...(result.warnings ? { warnings: result.warnings } : {}),
   };
 }

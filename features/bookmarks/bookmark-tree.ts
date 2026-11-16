@@ -74,10 +74,26 @@ export function searchBookmarkTree(
   const tokens = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return [];
 
-  return flattenBookmarks(tree).filter((bookmark) => {
-    const searchableText = `${bookmark.title}\n${bookmark.url}`.toLocaleLowerCase();
-    return tokens.every((token) => searchableText.includes(token));
-  });
+  const results: BookmarkRecord[] = [];
+  // A stack of iterators preserves preorder without recursion or copying siblings.
+  const stack = [tree.values()];
+  while (stack.length) {
+    const next = stack[stack.length - 1].next();
+    if (next.done) {
+      stack.pop();
+      continue;
+    }
+    const { id, parentId, title, url, children } = next.value;
+    if (url && isEligibleUrl(url)) {
+      const label = title || url;
+      const text = `${label}\n${url}`.toLocaleLowerCase();
+      if (tokens.every((token) => text.includes(token))) {
+        results.push({ id, parentId, title: label, url });
+      }
+    }
+    if (children?.length) stack.push(children.values());
+  }
+  return results;
 }
 
 export function findBookmarkDuplicates(

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ParkedSessionGroup } from '@/messaging/contracts';
 import {
   filterAndSortProjectGroups,
+  groupSessionsByDay,
   PROJECT_LINK_BATCH_SIZE,
   visibleProjectLinks,
 } from './project-view';
@@ -52,6 +53,21 @@ describe('project view helpers', () => {
     expect(visibleProjectLinks(older)).toHaveLength(PROJECT_LINK_BATCH_SIZE);
     expect(visibleProjectLinks(older, 50)).toHaveLength(50);
     expect(visibleProjectLinks(older, older.links.length).map((link) => link.id)).toEqual(older.links.map((link) => link.id));
+  });
+
+  it('separates equal timestamps and groups by local calendar day with titles sorted within days', () => {
+    const today = new Date(2026, 8, 26, 10);
+    const yesterday = new Date(2026, 8, 25, 23);
+    const a = group('a', today.toISOString(), 1);
+    const b = group('b', today.toISOString(), 1);
+    const c = group('c', yesterday.toISOString(), 1);
+    a.links[0].title = 'Zebra';
+    b.links[0].title = 'apricot';
+    c.links[0].title = 'Apple';
+    const sorted = filterAndSortProjectGroups([a, b, c], '', 'title');
+    expect(sorted.map(item => item.session.id)).toEqual(['c', 'b', 'a']);
+    expect(groupSessionsByDay(sorted, 'title', today).map(day => [day.label, day.sessions.map(item => item.session.id)]))
+      .toEqual([['Today', ['b', 'a']], ['Yesterday', ['c']]]);
   });
 });
 

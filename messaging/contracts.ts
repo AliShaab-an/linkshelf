@@ -1,3 +1,7 @@
+import type { OperationWarnings } from '@/features/operations/secondary-result';
+import type { RawRecoveryExport, StorageStatus } from '@/domain/recovery';
+import type { RecoveryBackupPreview } from '@/storage/repository';
+import { SettingsPatchSchema, type SettingsPatch } from '@/domain/schemas';
 import type {
   LinkShelfBackup,
   ParkingSession,
@@ -12,6 +16,35 @@ import type {
 } from '@/storage/repository';
 
 export interface GetSettingsMessage { type: 'GET_SETTINGS' }
+
+export type StorageRecoveryMessage =
+  | { type: 'GET_STORAGE_STATUS' | 'RECHECK_STORAGE' | 'EXPORT_RECOVERY_DATA' }
+  | { type: 'PREVIEW_RECOVERY_BACKUP'; payload: { backup: unknown; rawRevisionToken: string } }
+  | { type: 'RESTORE_RECOVERY_BACKUP'; payload: { backup: unknown; rawRevisionToken: string; revisionToken: string; confirmed: boolean } };
+type RecoveryFailure = { success: false; error: { message: string } };
+export type StorageStatusResponse = { success: true; status: StorageStatus } | RecoveryFailure;
+export type ExportRecoveryResponse = { success: true; recovery: RawRecoveryExport } | RecoveryFailure;
+export type PreviewRecoveryResponse = { success: true; preview: RecoveryBackupPreview } | RecoveryFailure;
+export type RestoreRecoveryResponse = OperationWarnings & ({ success: true; result: ImportBackupResult } | RecoveryFailure);
+
+export function isStorageRecoveryMessage(value: unknown): value is StorageRecoveryMessage {
+  if (!value || typeof value !== 'object' || !('type' in value)) return false;
+  if (value.type === 'GET_STORAGE_STATUS' || value.type === 'RECHECK_STORAGE' || value.type === 'EXPORT_RECOVERY_DATA') return true;
+  if (value.type !== 'PREVIEW_RECOVERY_BACKUP' && value.type !== 'RESTORE_RECOVERY_BACKUP') return false;
+  const payload = (value as { payload?: Record<string, unknown> }).payload;
+  if (!payload || typeof payload !== 'object' || !('backup' in payload) || typeof payload.rawRevisionToken !== 'string') return false;
+  return value.type === 'PREVIEW_RECOVERY_BACKUP' || (typeof payload.revisionToken === 'string' && typeof payload.confirmed === 'boolean');
+}
+
+async function sendRecoveryRequest<T>(message: StorageRecoveryMessage): Promise<T> {
+  const response: unknown = await browser.runtime.sendMessage(message);
+  assertResponse(response);
+  return response as T;
+}
+export const getStorageStatus = (recheck = false) => sendRecoveryRequest<StorageStatusResponse>({ type: recheck ? 'RECHECK_STORAGE' : 'GET_STORAGE_STATUS' });
+export const exportRecoveryData = () => sendRecoveryRequest<ExportRecoveryResponse>({ type: 'EXPORT_RECOVERY_DATA' });
+export const previewRecoveryBackup = (backup: unknown, rawRevisionToken: string) => sendRecoveryRequest<PreviewRecoveryResponse>({ type: 'PREVIEW_RECOVERY_BACKUP', payload: { backup, rawRevisionToken } });
+export const restoreRecoveryBackup = (backup: unknown, rawRevisionToken: string, revisionToken: string, confirmed: boolean) => sendRecoveryRequest<RestoreRecoveryResponse>({ type: 'RESTORE_RECOVERY_BACKUP', payload: { backup, rawRevisionToken, revisionToken, confirmed } });
 export type GetSettingsResponse =
   | { success: true; settings: Settings; projects: Project[] }
   | { success: false; error: { message: string } };
@@ -20,9 +53,14 @@ export interface UpdateSettingsMessage {
   type: 'UPDATE_SETTINGS';
   payload: Pick<Settings, 'defaultProjectId' | 'includePinnedTabsByDefault' | 'confirmBeforeBulkClose' | 'notificationsEnabled' | 'defaultRestoreBehavior' | 'displayDensity' | 'defaultRestoreMode'>;
 }
-export type UpdateSettingsResponse =
+export interface PatchSettingsMessage {
+  type: 'PATCH_SETTINGS';
+  payload: SettingsPatch;
+}
+export type UpdateSettingsResponse = OperationWarnings & (
   | { success: true; settings: Settings }
-  | { success: false; error: { message: string } };
+  | { success: false; error: { message: string } }
+);
 
 export interface ExportDataMessage { type: 'EXPORT_DATA' }
 export type ExportDataResponse =
@@ -41,9 +79,10 @@ export interface ImportDataMessage {
   type: 'IMPORT_DATA';
   payload: { backup: unknown; mode: ImportMode; revisionToken: string };
 }
-export type ImportDataResponse =
+export type ImportDataResponse = OperationWarnings & (
   | { success: true; result: ImportBackupResult }
-  | { success: false; error: { message: string } };
+  | { success: false; error: { message: string } }
+);
 
 export interface ParkedSessionGroup {
   session: ParkingSession;
@@ -70,7 +109,21 @@ export interface BookmarkFolderOption {
 
 export interface SearchLinksMessage {
   type: 'SEARCH_LINKS';
-  payload: { query: string };
+  payload: { query: string; page?: SearchPageRequest };
+}
+
+export type SearchPageRequest = Record<string, never> | {
+  cursor: string;
+  category: 'results' | 'bookmarks';
+  offset: number;
+};
+
+export interface SearchPage {
+  cursor: string;
+  totalResults: number;
+  totalBookmarks: number;
+  nextResults?: number;
+  nextBookmarks?: number;
 }
 
 export type SearchLinksResponse =
@@ -78,8 +131,9 @@ export type SearchLinksResponse =
       success: true;
       results: LinkSearchResult[];
       bookmarks: NativeBookmarkResult[];
+      page?: SearchPage;
     }
-  | { success: false; error: { message: string } };
+  | { success: false; error: { message: string; code?: 'SEARCH_EXPIRED' | 'INVALID_SEARCH_PAGE' } };
 
 export interface GetBookmarkFoldersMessage {
   type: 'GET_BOOKMARK_FOLDERS';
@@ -94,7 +148,7 @@ export interface BookmarkLinkMessage {
   payload: { linkId: string; parentId: string };
 }
 
-export type BookmarkLinkResponse =
+export type BookmarkLinkResponse = OperationWarnings & (
   | {
       success: true;
       linkId: string;
@@ -110,12 +164,15 @@ export type BookmarkLinkResponse =
           | 'LINK_NOT_FOUND'
           | 'LINK_NOT_PARKED'
           | 'DUPLICATE_BOOKMARK'
+          | 'BOOKMARK_RECOVERY_REQUIRED'
           | 'BOOKMARK_CREATE_FAILED'
           | 'STORAGE_FAILED'
+          | 'OPERATION_IN_PROGRESS'
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
 export interface OpenBookmarkMessage {
   type: 'OPEN_BOOKMARK';
@@ -174,7 +231,7 @@ export interface ParkSelectedTabsMessage {
   };
 }
 
-export type ParkSelectedTabsResponse =
+export type ParkSelectedTabsResponse = OperationWarnings & (
   | {
       success: true;
       saved: true;
@@ -190,6 +247,7 @@ export type ParkSelectedTabsResponse =
       error: {
         code:
           | 'INVALID_SELECTION'
+          | 'OPERATION_IN_PROGRESS'
           | 'TAB_NOT_FOUND'
           | 'TAB_NOT_ELIGIBLE'
           | 'TABS_MOVED'
@@ -197,7 +255,8 @@ export type ParkSelectedTabsResponse =
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
 export interface GetParkedLinksMessage {
   type: 'GET_PARKED_LINKS';
@@ -228,7 +287,7 @@ export interface GetDueReminderLinksMessage {
   type: 'GET_DUE_REMINDER_LINKS';
 }
 
-export type GetDueReminderLinksResponse =
+export type GetDueReminderLinksResponse = OperationWarnings & (
   | {
       success: true;
       links: SavedLink[];
@@ -238,7 +297,8 @@ export type GetDueReminderLinksResponse =
       error: {
         message: string;
       };
-    };
+    }
+);
 
 export type GetParkedLinksResponse =
   | {
@@ -344,6 +404,8 @@ export interface RestoreLinkMessage {
   type: 'RESTORE_LINK';
   payload: {
     linkId: string;
+    behavior?: 'restore-and-remove';
+    undoable?: true;
   };
 }
 
@@ -362,20 +424,26 @@ export interface RemoveLinkMessage {
   payload: { linkId: string };
 }
 
+export interface UndoParkedLinkMessage {
+  type: 'UNDO_PARKED_LINK';
+  payload: { linkId: string; projectId: string; sessionId: string; updatedAt: string; status: 'restored' | 'removed' };
+}
+
 export interface MoveLinkMessage {
   type: 'MOVE_LINK';
   payload: { linkId: string; projectId: string };
 }
 
-export type LinkLifecycleResponse =
+export type LinkLifecycleResponse = OperationWarnings & (
   | { success: true; link: SavedLink }
   | {
       success: false;
       error: {
-        code: 'LINK_NOT_FOUND' | 'PROJECT_NOT_FOUND' | 'INVALID_STATE' | 'UNEXPECTED_ERROR';
+        code: 'LINK_NOT_FOUND' | 'PROJECT_NOT_FOUND' | 'INVALID_STATE' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
 export interface RestoreSessionMessage {
   type: 'RESTORE_SESSION';
@@ -384,12 +452,20 @@ export interface RestoreSessionMessage {
 
 export type RestoreMode = 'normal' | 'unloaded';
 
+export interface RestoreProgress {
+  openedLinkIds: string[];
+  restoredLinkIds: string[];
+  failedLinkIds: string[];
+  discardedLinkIds: string[];
+  fallbackLinkIds: string[];
+}
+
 export interface RestoreProjectMessage {
   type: 'RESTORE_PROJECT';
   payload: { projectId: string; mode: RestoreMode };
 }
 
-export type RestoreProjectResponse =
+export type RestoreProjectResponse = OperationWarnings & (
   | {
       success: true;
       projectId: string;
@@ -403,17 +479,20 @@ export type RestoreProjectResponse =
   | {
       success: false;
       opened: boolean;
+      progress?: RestoreProgress;
       error: {
         code:
           | 'PROJECT_EMPTY'
           | 'TAB_OPEN_FAILED'
           | 'STORAGE_FAILED'
+          | 'OPERATION_IN_PROGRESS'
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
-export type RestoreSessionResponse =
+export type RestoreSessionResponse = OperationWarnings & (
   | {
       success: true;
       sessionId: string;
@@ -427,22 +506,26 @@ export type RestoreSessionResponse =
   | {
       success: false;
       opened: boolean;
+      progress?: RestoreProgress;
       error: {
         code:
           | 'SESSION_EMPTY'
           | 'TAB_OPEN_FAILED'
           | 'STORAGE_FAILED'
+          | 'OPERATION_IN_PROGRESS'
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
-export type RestoreLinkResponse =
+export type RestoreLinkResponse = OperationWarnings & (
   | {
       success: true;
       linkId: string;
       opened: true;
       restored: boolean;
+      restoredAt?: string;
     }
   | {
       success: false;
@@ -453,12 +536,14 @@ export type RestoreLinkResponse =
           | 'LINK_NOT_PARKED'
           | 'TAB_OPEN_FAILED'
           | 'STORAGE_FAILED'
+          | 'OPERATION_IN_PROGRESS'
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
-export type ParkCurrentTabResponse =
+export type ParkCurrentTabResponse = OperationWarnings & (
   | {
       success: true;
       saved: true;
@@ -478,10 +563,13 @@ export type ParkCurrentTabResponse =
           | 'TAB_NOT_ELIGIBLE'
           | 'STORAGE_FAILED'
           | 'TAB_CLOSE_FAILED'
+          | 'TAB_CHANGED'
+          | 'OPERATION_IN_PROGRESS'
           | 'UNEXPECTED_ERROR';
         message: string;
       };
-    };
+    }
+);
 
 export function isParkCurrentTabMessage(
   message: unknown,
@@ -532,6 +620,12 @@ export function isUpdateSettingsMessage(message: unknown): message is UpdateSett
     (payload.defaultRestoreBehavior === 'restore-and-remove' || payload.defaultRestoreBehavior === 'open-copy') &&
     (payload.displayDensity === 'comfortable' || payload.displayDensity === 'compact') &&
     (payload.defaultRestoreMode === 'normal' || payload.defaultRestoreMode === 'unloaded');
+}
+
+export function isPatchSettingsMessage(message: unknown): message is PatchSettingsMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<PatchSettingsMessage>;
+  return candidate.type === 'PATCH_SETTINGS' && SettingsPatchSchema.safeParse(candidate.payload).success;
 }
 
 export function isExportDataMessage(message: unknown): message is ExportDataMessage {
@@ -742,7 +836,9 @@ export function isRestoreLinkMessage(
   return (
     candidate.type === 'RESTORE_LINK' &&
     typeof candidate.payload?.linkId === 'string' &&
-    candidate.payload.linkId.length > 0
+    candidate.payload.linkId.length > 0 &&
+    (candidate.payload.behavior === undefined || candidate.payload.behavior === 'restore-and-remove') &&
+    (candidate.payload.undoable === undefined || candidate.payload.undoable === true)
   );
 }
 
@@ -769,6 +865,15 @@ export function isUnarchiveLinkMessage(message: unknown): message is UnarchiveLi
 
 export function isRemoveLinkMessage(message: unknown): message is RemoveLinkMessage {
   return isLinkLifecycleMessage(message, 'REMOVE_LINK');
+}
+
+export function isUndoParkedLinkMessage(message: unknown): message is UndoParkedLinkMessage {
+  if (!isLinkLifecycleMessage(message, 'UNDO_PARKED_LINK')) return false;
+  const { payload } = message as UndoParkedLinkMessage;
+  return typeof payload.projectId === 'string' && payload.projectId.length > 0 &&
+    typeof payload.sessionId === 'string' && payload.sessionId.length > 0 &&
+    typeof payload.updatedAt === 'string' &&
+    (payload.status === 'restored' || payload.status === 'removed');
 }
 
 export function isMoveLinkMessage(message: unknown): message is MoveLinkMessage {
@@ -831,6 +936,12 @@ export async function updateSettings(
   return response as UpdateSettingsResponse;
 }
 
+export async function patchSettings(patch: SettingsPatch): Promise<UpdateSettingsResponse> {
+  const response = await browser.runtime.sendMessage({ type: 'PATCH_SETTINGS', payload: patch } satisfies PatchSettingsMessage);
+  assertResponse(response);
+  return response as UpdateSettingsResponse;
+}
+
 export async function exportData(): Promise<ExportDataResponse> {
   const response = (await browser.runtime.sendMessage({
     type: 'EXPORT_DATA',
@@ -884,10 +995,10 @@ export async function parkCurrentTab(
   return response as ParkCurrentTabResponse;
 }
 
-export async function searchLinks(query: string): Promise<SearchLinksResponse> {
+export async function searchLinks(query: string, page?: SearchPageRequest): Promise<SearchLinksResponse> {
   const message: SearchLinksMessage = {
     type: 'SEARCH_LINKS',
-    payload: { query },
+    payload: { query, ...(page && { page }) },
   };
   const response = (await browser.runtime.sendMessage(message)) as unknown;
   assertResponse(response);
@@ -1058,10 +1169,11 @@ export async function deleteProject(
 
 export async function restoreLink(
   linkId: string,
+  options: Omit<RestoreLinkMessage['payload'], 'linkId'> = {},
 ): Promise<RestoreLinkResponse> {
   const message: RestoreLinkMessage = {
     type: 'RESTORE_LINK',
-    payload: { linkId },
+    payload: { linkId, ...options },
   };
   const response = (await browser.runtime.sendMessage(message)) as unknown;
 
@@ -1071,7 +1183,7 @@ export async function restoreLink(
 }
 
 async function sendLifecycleMessage(
-  message: ArchiveLinkMessage | UnarchiveLinkMessage | RemoveLinkMessage,
+  message: ArchiveLinkMessage | UnarchiveLinkMessage | RemoveLinkMessage | UndoParkedLinkMessage,
 ): Promise<LinkLifecycleResponse> {
   const response = (await browser.runtime.sendMessage(message)) as unknown;
   assertResponse(response);
@@ -1088,6 +1200,10 @@ export function unarchiveLink(linkId: string): Promise<LinkLifecycleResponse> {
 
 export function removeLink(linkId: string): Promise<LinkLifecycleResponse> {
   return sendLifecycleMessage({ type: 'REMOVE_LINK', payload: { linkId } });
+}
+
+export function undoParkedLink(payload: UndoParkedLinkMessage['payload']): Promise<LinkLifecycleResponse> {
+  return sendLifecycleMessage({ type: 'UNDO_PARKED_LINK', payload });
 }
 
 export async function moveLink(linkId: string, projectId: string): Promise<LinkLifecycleResponse> {

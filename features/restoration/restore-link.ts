@@ -64,14 +64,16 @@ export async function executeRestoreLink(
       opened: false,
       error: {
         code: 'TAB_OPEN_FAILED',
-        message: 'The link stayed parked because Chrome could not open it.',
+        message: 'Chrome did not confirm opening this link. Its saved record stayed parked. Check open tabs before retrying.',
       },
     };
   }
 
+  let restoredAt: string | undefined;
   if (dependencies.markAsRestored) {
     try {
-      await dependencies.markLinkRestored(link.id);
+      const restored = await dependencies.markLinkRestored(link.id);
+      restoredAt = restored.updatedAt;
     } catch (error) {
       console.error('The tab opened but its saved state could not be updated:', error);
 
@@ -80,7 +82,7 @@ export async function executeRestoreLink(
         opened: true,
         error: {
           code: 'STORAGE_FAILED',
-          message: 'The tab opened, but the link is still parked because storage failed.',
+          message: 'The tab opened, but its saved state could not be confirmed. Check your open tabs and saved list before retrying.',
         },
       };
     }
@@ -91,5 +93,6 @@ export async function executeRestoreLink(
     linkId: link.id,
     opened: true,
     restored: dependencies.markAsRestored,
+    ...(message.payload.undoable && restoredAt ? { restoredAt } : {}),
   };
 }

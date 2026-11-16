@@ -1,0 +1,62 @@
+:root[data-color-scheme="dark"] {
+  color-scheme: dark;
+  --color-slate-50: #101827;
+  --color-slate-100: #202e43;
+  --color-slate-200: #3b4b61;
+  --color-slate-300: #73859e;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #aebed3;
+  --color-slate-600: #bccbde;
+  --color-slate-700: #cfdaea;
+  --color-slate-800: #e2eaf5;
+  --color-slate-900: #f2f6fc;
+  --color-blue-50: #172d50;
+  --color-blue-100: #233f67;
+  --color-blue-200: #567fae;
+  --color-blue-300: #739ed0;
+  --color-amber-50: #312719;
+  --color-amber-100: #47331b;
+  --color-amber-300: #a17f40;
+  --color-amber-700: #f2c36d;
+  --color-amber-800: #f8d185;
+  --color-amber-900: #ffe1a6;
+  --color-red-50: #401d26;
+  --color-red-100: #58252e;
+  --color-red-200: #a85d6d;
+  --color-red-300: #b36b7d;
+  --color-emerald-50: #163429;
+  --color-emerald-200: #50937a;
+  --color-emerald-800: #a3e4c6;
+  --color-violet-100: #352952;
+  background: var(--color-slate-50);
+  color: var(--color-slate-900);
+}
+
+:root[data-color-scheme="dark"] :is(.bg-white, [class~="bg-white/70"], .dropdown-panel, .dropdown-trigger) {
+  background-color: #182438;
+}
+
+:root[data-color-scheme="dark"] .bg-slate-900 { background-color: #344966; }
+:root[data-color-scheme="dark"] .bg-slate-500 { background-color: #516481; }
+:root[data-color-scheme="dark"] .dropdown-trigger:enabled:hover { background-color: #22334c; }
+:root[data-color-scheme="dark"] :is(.text-blue-700, .text-blue-800, .text-blue-900, .text-blue-950) { color: #a8cbff; }
+:root[data-color-scheme="dark"] :is(.text-red-700, .text-red-800, .text-red-900) { color: #ffb4c2; }
+:root[data-color-scheme="dark"] .sidebar-workspace { background: var(--color-slate-50); }
+:root[data-color-scheme="dark"] :focus-visible { outline-color: #93c5fd; }
+
+:is(.linkshelf-select, .dropdown-trigger, .saved-project-filter):not(:disabled, [aria-disabled="true"]) {
+  border-color: #64748b;
+}
+
+:root[data-color-scheme="dark"] :is(.linkshelf-select, .dropdown-trigger, .saved-project-filter):not(:disabled, [aria-disabled="true"]) {
+  border-color: #8395ae;
+}
+
+:is(.linkshelf-select, .saved-project-filter):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+:root[data-color-scheme="dark"] :is(.linkshelf-select, .saved-project-filter):focus-visible {
+  outline-color: #93c5fd;
+}

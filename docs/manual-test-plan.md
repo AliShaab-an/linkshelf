@@ -43,7 +43,7 @@ Record Chrome version, operating system, build version, date, tester, and pass/f
 ## Backup and recovery
 
 - Export and inspect readable JSON; confirm Chrome's complete bookmark tree is absent.
-- Reject malformed JSON, wrong schema version, missing references, and a file above 5 MB without changing data.
+- Reject malformed JSON, unsupported schema versions, missing references, and a file above 32 MiB without changing data. Files below this safety bound must still fit Chrome's available storage quota.
 - Reject duplicate IDs and inconsistent link/session project relationships without changing data.
 - Preview Merge and verify the exact add/skip counts before confirmation; current settings must remain unchanged.
 - Preview Replace and verify the dialog shows the exact current project, session, and link counts being replaced.

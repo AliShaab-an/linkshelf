@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   findBookmarkDuplicates,
+  flattenBookmarks,
   flattenBookmarkFolders,
   searchBookmarkTree,
   type BookmarkTreeNodeLike,
@@ -60,5 +61,24 @@ describe('bookmark tree utilities', () => {
         ['utm_source'],
       ).map((item) => item.id),
     ).toEqual(['100']);
+  });
+
+  it('matches the old flatten-and-filter order with duplicates, fallback titles, and ineligible URLs', () => {
+    const url = 'https://example.test/%C3%A9?x=1';
+    let nested: BookmarkTreeNodeLike = { id: 'second', parentId: 'deep-0', title: '', url };
+    for (let i = 0; i < 100; i++) nested = { id: `deep-${i}`, title: '', children: [nested] };
+    const sample = [
+      { id: 'first', parentId: 'folder', title: 'Éxample', url },
+      { id: 'ignored', title: 'Éxample', url: 'chrome://settings' },
+      nested,
+    ];
+    for (const query of ['example.test', 'ÉXAMPLE ?x=1', '%c3%a9', '  ', 'absent']) {
+      const tokens = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+      const expected = tokens.length ? flattenBookmarks(sample).filter(bookmark =>
+        tokens.every(token => `${bookmark.title}\n${bookmark.url}`.toLocaleLowerCase().includes(token))) : [];
+      expect(searchBookmarkTree(sample, query)).toEqual(expected);
+    }
+    expect(searchBookmarkTree(sample, 'example.test').map(item => item.id)).toEqual(['first', 'second']);
+    expect(searchBookmarkTree([], 'example')).toEqual([]);
   });
 });

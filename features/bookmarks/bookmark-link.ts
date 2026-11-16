@@ -76,7 +76,7 @@ export async function executeBookmarkLink(
     console.error('Failed to create a Chrome bookmark:', error);
     return failure(
       'BOOKMARK_CREATE_FAILED',
-      'Chrome could not create the bookmark. The link stayed parked.',
+      'Chrome did not confirm creating the bookmark. The saved link stayed parked. Check Chrome bookmarks before retrying.',
     );
   }
 
@@ -90,7 +90,7 @@ export async function executeBookmarkLink(
       bookmark,
       error: {
         code: 'STORAGE_FAILED',
-        message: 'The Chrome bookmark was created, but the link is still parked because storage failed.',
+        message: 'The Chrome bookmark was created, but its LinkShelf state could not be confirmed. Check the existing bookmark before retrying.',
       },
     };
   }
