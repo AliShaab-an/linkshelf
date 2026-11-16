@@ -48,13 +48,14 @@ export function createRestoreCoordinator(repository: LinkShelfRepository, operat
       return operations.reserve(linkKeys([message.payload.linkId]), async () => {
         const [windowId, settings] = await Promise.all([selectTarget(), repository.getSettings()]);
         return operations.enqueue(`window:${windowId}`, async () => {
+          const markAsRestored = (message.payload.behavior ?? settings.defaultRestoreBehavior) === 'restore-and-remove';
           let captured: SavedLink;
           const result = await executeRestoreLink(message, {
             getLink: async (id) => { const link = await repository.getLink(id); if (link) captured = link; return link; },
-            openTab: () => open(captured, settings.defaultRestoreBehavior === 'restore-and-remove',
+            openTab: () => open(captured, markAsRestored,
               () => tabs.create({ url: captured.url, active: true, windowId })).then(() => undefined),
             markLinkRestored: markRestored,
-            markAsRestored: settings.defaultRestoreBehavior === 'restore-and-remove',
+            markAsRestored,
           });
           return result;
         });

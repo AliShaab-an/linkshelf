@@ -60,7 +60,7 @@ try {
   const popup = await h.surface('popup');
   await popup.getByRole('heading', { name: 'Park this tab', exact: true }).waitFor();
   await popup.close();
-  await h.page.getByText('This project is empty', { exact: true }).waitFor();
+  await h.page.getByRole('heading', { name: 'Nothing saved yet', exact: true }).waitFor();
   await update({ notificationsEnabled: false });
   check('Fresh install opens onboarding; popup and side-panel documents render');
 
@@ -225,12 +225,8 @@ try {
     for (const name of ['Projects', 'Today', 'Review', 'Search', 'Archive', 'Settings']) {
       await navigateSidebar(h.page, name);
       const navigation = h.page.getByRole('navigation', { name: 'LinkShelf sections' });
-      if (['Review', 'Archive', 'Settings'].includes(name)) {
-        await navigation.getByRole('button', { name: 'More, current section ' + name }).waitFor();
-      } else {
-        const label = name === 'Projects' ? 'Saved' : name;
-        assert.equal(await navigation.getByRole('button', { name: label, exact: true }).getAttribute('aria-current'), 'page');
-      }
+      const label = name === 'Projects' ? 'Saved' : name;
+      assert.equal(await navigation.getByRole('button', { name: label, exact: true }).getAttribute('aria-current'), 'page');
       results.ui.push({ width, section: name, ...await h.page.evaluate(() => ({ viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, headings: [...document.querySelectorAll('h1,h2')].map(el => el.textContent) })) });
     }
     await h.page.screenshot({ path: path.join(h.output, `settings-${width}.png`), fullPage: true });

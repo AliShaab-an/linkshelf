@@ -107,7 +107,7 @@ describe('sidebar preference storage', () => {
       updateUiState({ selectedProjectId: 'example', sessionOrder: 'oldest', expandedSessionIds: ['session'] }),
     ]);
     expect(await loadUiState()).toEqual({
-      lastSection: 'search', selectedProjectId: 'example', sessionOrder: 'oldest', expandedSessionIds: ['session'],
+      lastSection: 'search', selectedProjectId: 'example', sessionOrder: 'oldest', groupSessionsByDay: true, expandedSessionIds: ['session'],
     });
     await updateUiState({ lastSection: 'search' });
     expect(set).toHaveBeenCalledTimes(2);

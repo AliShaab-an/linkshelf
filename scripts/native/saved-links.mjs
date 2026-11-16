@@ -55,7 +55,7 @@ try {
 
   await page.getByLabel('Filter this project').fill(probe[2].title);
   await page.locator('.projects-toolbar').getByText('1 link shown · 1 session', { exact: true }).waitFor();
-  await button('Restore all 3').click();
+  await button('Restore all (3)').click();
   const confirm = page.getByRole('region', { name: /^Restore all 3 links/ });
   await confirm.getByText(/includes 2 links hidden by the filter/).waitFor();
   const mode = confirm.getByRole('combobox', { name: 'When to load tabs' });
@@ -89,7 +89,7 @@ try {
     };
     globalThis.undoSavedProbe = () => { chrome.tabs.create = original; };
   });
-  await button('Restore all 3').click();
+  await button('Restore all (3)').click();
   assert.equal(await mode.inputValue(), 'normal');
   await button('Restore 3 tabs').click();
   await status(/Opened 2 of 3 tabs.*2 marked restored.*could not confirm opening 1 tab/).waitFor();
@@ -107,7 +107,7 @@ try {
   await page.keyboard.press('Space');
   await page.getByLabel('New project name').fill('Synthetic new project');
   await button('Create project').click();
-  await heading('This project is empty').waitFor();
+  await heading('Nothing saved yet').waitFor();
   assert.equal(await selector.locator('option:checked').textContent(), 'Synthetic new project');
   await actions.focus();
   await page.keyboard.press('Enter');

@@ -926,6 +926,18 @@ export class LinkShelfRepository {
     );
   }
 
+  async undoParkedLink(receipt: { linkId: string; projectId: string; sessionId: string; updatedAt: string; status: 'restored' | 'removed' }): Promise<SavedLink> {
+    const stale = 'This link changed after the action. Reload Saved before trying again.';
+    return this.updateLinkState(receipt.linkId, [receipt.status], (link, timestamp) => {
+      if (link.updatedAt !== receipt.updatedAt || link.projectId !== receipt.projectId ||
+          link.sessionId !== receipt.sessionId || link.bookmarkId !== undefined || link.archivedAt !== undefined) {
+        throw new InvalidLinkStateError(stale);
+      }
+      const { restoredAt: _restoredAt, removedAt: _removedAt, archivedAt: _archivedAt, ...parked } = link;
+      return { ...parked, status: 'parked', updatedAt: timestamp };
+    }, stale);
+  }
+
   async markLinkBookmarked(
     linkId: string,
     bookmarkId: string,

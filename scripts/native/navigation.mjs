@@ -9,8 +9,7 @@ const h = await createHarness();
 const page = h.page;
 const nav = surface => surface.getByRole('navigation', { name: 'LinkShelf sections' });
 const destination = (surface, name) => nav(surface).getByRole('button', { name, exact: true });
-const more = surface => nav(surface).getByRole('button', { name: /^More(?:, current section .+)?$/ });
-const moreSections = surface => surface.getByRole('group', { name: 'More sections' });
+const sections = ['Park', 'Saved', 'Search', 'Today', 'Review', 'Archive', 'Settings'];
 const active = target => poll(() => target.evaluate(el => document.activeElement === el), Boolean, 'expected focus');
 const state = () => page.evaluate(async () => (await chrome.storage.local.get('linkshelfUiState')).linkshelfUiState);
 const windowId = surface => surface.evaluate(async () => (await chrome.windows.getCurrent()).id);
@@ -31,22 +30,23 @@ async function layout(label) {
     viewport: innerWidth,
     documentWidth: document.documentElement.scrollWidth,
     controls: [...el.querySelectorAll('button')].map(button => {
-      const { left, right, top, height } = button.getBoundingClientRect();
-      return { label: button.getAttribute('aria-label') ?? button.textContent.trim(), left, right, top, height,
-        fits: button.scrollWidth <= button.clientWidth + 1 };
+      const { left, right, top, width, height } = button.getBoundingClientRect();
+      const label = button.querySelector('span').getBoundingClientRect();
+      return { label: button.textContent.trim(), left, right, top, width, height,
+        fits: label.left >= left && label.right <= right };
     }),
   }));
-  assert.equal(metrics.controls.length, 5);
+  assert.deepEqual(metrics.controls.map(control => control.label), sections);
   assert.ok(metrics.documentWidth <= metrics.viewport + 1);
   assert.ok(metrics.controls.every(control => control.left >= 0 && control.right <= metrics.viewport &&
-    control.fits && control.height >= 44));
+    control.fits && control.width >= 40 && control.height >= 44));
   assert.equal(new Set(metrics.controls.map(control => control.top)).size, 1);
   layouts.push({ label, ...metrics });
   await page.screenshot({ path: path.join(h.output, `navigation-${label}.png`) });
 }
 
 try {
-  await check('Fresh Saved view, five visible controls, and responsive 200% Chrome zoom', async () => {
+  await check('Seven labeled destinations fit one row through 200% Chrome zoom', async () => {
     await destination(page, 'Saved').waitFor();
     assert.equal(await destination(page, 'Saved').getAttribute('aria-current'), 'page');
     for (const width of [320, 400, 600, 800]) {
@@ -63,40 +63,23 @@ try {
   });
 
   await page.setViewportSize({ width: 320, height: 760 });
-  await check('Primary and secondary navigation, keyboard order, Escape, outside interaction and selected secondary label', async () => {
+  await check('All destinations support direct navigation, keyboard order, and a single current page', async () => {
     await destination(page, 'Park').focus();
-    for (const label of ['Saved', 'Search', 'Today']) {
+    for (const label of sections.slice(1)) {
       await page.keyboard.press('Tab');
       await active(destination(page, label));
     }
-    await page.keyboard.press('Tab');
-    await active(more(page));
-    assert.notEqual(await more(page).evaluate(el => getComputedStyle(el).outlineStyle), 'none');
+    const settings = destination(page, 'Settings');
+    assert.notEqual(await settings.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
     await page.keyboard.press('Space');
-    await moreSections(page).waitFor();
-    await page.screenshot({ path: path.join(h.output, 'navigation-more-320.png') });
-    await page.keyboard.press('Tab');
-    await active(moreSections(page).getByRole('button', { name: 'Review' }));
+    assert.equal(await settings.getAttribute('aria-current'), 'page');
+    await active(settings);
     await page.keyboard.press('Shift+Tab');
-    await active(more(page));
-    await page.keyboard.press('Escape');
-    await moreSections(page).waitFor({ state: 'hidden' });
-    await active(more(page));
-    await more(page).click();
-    await page.getByRole('heading', { name: 'LinkShelf', exact: true }).click();
-    await moreSections(page).waitFor({ state: 'hidden' });
-    await navigateSidebar(page, 'Park');
-    await page.getByRole('heading', { name: 'Park tabs', exact: true }).waitFor();
-    await navigateSidebar(page, 'Today');
-    await page.getByRole('heading', { name: 'Today', exact: true }).waitFor();
-    for (const name of ['Review', 'Archive', 'Settings']) {
+    await active(destination(page, 'Archive'));
+    for (const name of sections) {
       await navigateSidebar(page, name);
-      await nav(page).getByRole('button', { name: 'More, current section ' + name }).waitFor();
-      assert.equal(await destination(page, 'Saved').getAttribute('aria-current'), null);
-      await moreSections(page).waitFor({ state: 'hidden' });
-      await more(page).click();
-      assert.equal(await moreSections(page).getByRole('button', { name }).getAttribute('aria-current'), 'page');
-      await page.keyboard.press('Escape');
+      assert.equal(await destination(page, name).getAttribute('aria-current'), 'page');
+      assert.equal(await nav(page).locator('[aria-current="page"]').count(), 1);
     }
     await navigateSidebar(page, 'Projects');
     await poll(state, value => value?.lastSection === 'projects', 'persisted Saved ID');
@@ -124,10 +107,8 @@ try {
     await panel.waitFor({ state: 'hidden' });
     await quick.click();
     await panel.waitFor();
-    await more(page).click();
+    await destination(page, 'Today').click();
     await panel.waitFor({ state: 'hidden' });
-    await moreSections(page).waitFor();
-    await page.keyboard.press('Escape');
   });
 
   await check('Search keeps query only in the open sidebar and refreshes records on return', async () => {
