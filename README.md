@@ -14,19 +14,12 @@ Load `.output/chrome-mv3` as an unpacked extension from `chrome://extensions`.
 ## Verification and release
 
 ```bash
-npm run compile
-npm test
-npm run build
+npm run verify
+npm run test:integration
 npm run zip
+npm run check:package
 ```
 
-LinkShelf uses Manifest V3, React, TypeScript, Tailwind CSS, Zod, Vitest, and WXT. It has no backend, analytics, or content script. Saved-link favicons can load from their original image hosts; see the privacy policy.
+Run `npm run test:native` after building to test Chrome behavior with disposable profiles. Packaging creates a local ZIP in `.output/`.
 
-Use `npm run verify` for compilation, automated tests, and the production build. See [testing documentation](docs/testing.md) for integration tests, disposable-profile Chrome tests, performance measurements, and package inspection. Packaging is local and does not publish a release.
-
-Release materials are in [`docs/`](docs/):
-
-- `privacy-policy.md`
-- `chrome-web-store-listing.md`
-- `manual-test-plan.md`
-- `release-checklist.md`
+LinkShelf uses Manifest V3, React, TypeScript, Tailwind CSS, Zod, Vitest, and WXT. It has no backend, analytics, or content script. Saved-link favicons can load from their original image hosts. [Privacy policy](docs/privacy-policy.html) · [Support](docs/support.html)
