@@ -1,10 +1,11 @@
 import type { ReactNode, Ref } from 'react';
 import { useDisclosure } from '../useDisclosure';
 
-export function Disclosure({ label, triggerContent, disabled, triggerRef, children }: {
+export function Disclosure({ label, triggerContent, disabled, unavailable, triggerRef, children }: {
   label: string;
   triggerContent: ReactNode;
   disabled?: boolean;
+  unavailable?: { reason: string; descriptionId: string };
   triggerRef?: Ref<HTMLButtonElement>;
   children(close: () => void): ReactNode;
 }) {
@@ -19,10 +20,11 @@ export function Disclosure({ label, triggerContent, disabled, triggerRef, childr
       disclosure.trigger.current = element;
       if (typeof triggerRef === 'function') triggerRef(element);
       else if (triggerRef) triggerRef.current = element;
-    }} type="button" aria-label={label} title={label} aria-expanded={disclosure.open}
+    }} type="button" aria-label={label} title={unavailable?.reason ?? label} aria-expanded={disclosure.open}
+      aria-disabled={unavailable ? true : undefined} aria-describedby={unavailable?.descriptionId}
       aria-controls={disclosure.open ? disclosure.id : undefined} disabled={disabled}
-      className="dropdown-trigger"
-      onClick={disclosure.toggle}>
+      className="dropdown-trigger aria-disabled:opacity-65"
+      onClick={() => { if (!unavailable) disclosure.toggle(); }}>
       {triggerContent}
     </button>
     {disclosure.open && <div id={disclosure.id} role="group" aria-label={label}

@@ -1,7 +1,7 @@
 import { InlineConfirmation } from './ui/InlineConfirmation';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { INBOX_PROJECT_ID } from '@/domain/constants';
 import { SettingsSchema, type DisplayDensity, type Project, type RestoreMode, type SavedLink, type Settings } from '@/domain/schemas';
 import { browser } from 'wxt/browser';
@@ -20,10 +20,13 @@ import {
   restoreProject,
   restoreSession,
   patchSettings,
+  undoParkedLink,
   type ParkedSessionGroup,
+  type UndoParkedLinkMessage,
 } from '@/messaging/contracts';
-import { formatLinkDate, NotePreview, SavedLinkCard } from './SavedLinkCard';
+import { formatLinkDate, LinkFavicon, NotePreview, SavedLinkCard } from './SavedLinkCard';
 import { MoveLinkDialog } from './MoveLinkDialog';
+import { hasActiveModal } from './ui/Modal';
 import { RemoveLinkDialog } from './RemoveLinkDialog';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 import { Disclosure } from './ui/Disclosure';
@@ -31,6 +34,7 @@ import { Icon } from './ui/Icon';
 import { Select } from './ui/Select';
 import {
   filterAndSortProjectGroups,
+  groupSessionsByDay,
   PROJECT_LINK_BATCH_SIZE,
   visibleProjectLinks,
   type SessionOrder,
@@ -46,6 +50,7 @@ function sortProjects(projects: Project[]): Project[] {
 }
 
 const toolbarButton = 'inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-lg px-2.5 text-sm font-semibold disabled:opacity-50';
+const inboxActions = { reason: 'Inbox can’t be renamed or deleted.', descriptionId: 'inbox-project-actions-help' };
 
 export function ProjectsSection({ savedSession, onPark }: {
   savedSession?: SavedSessionTarget;
@@ -56,6 +61,9 @@ export function ProjectsSection({ savedSession, onPark }: {
   const sectionHeading = useRef<HTMLHeadingElement>(null);
   const projectSelector = useRef<HTMLSelectElement>(null);
   const projectFilter = useRef<HTMLInputElement>(null);
+  const toolbar = useRef<HTMLDivElement>(null);
+  const sessions = useRef<HTMLDivElement>(null);
+  const restoreRowFocus = useRef<number | null>(null);
   const restoreTrigger = useRef<HTMLButtonElement>(null);
   const createTrigger = useRef<HTMLButtonElement>(null);
   const createInput = useRef<HTMLInputElement>(null);
@@ -67,6 +75,8 @@ export function ProjectsSection({ savedSession, onPark }: {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [undo, setUndo] = useState<UndoParkedLinkMessage['payload']>();
+  const [isUndoing, setIsUndoing] = useState(false);
   const [partialRestore, setPartialRestore] = useState(false);
   const [newName, setNewName] = useState('');
   const [isAddingProject, setIsAddingProject] = useState(false);
@@ -87,6 +97,7 @@ export function ProjectsSection({ savedSession, onPark }: {
   const [moveDestination, setMoveDestination] = useState('');
   const [filter, setFilter] = useState('');
   const [sessionOrder, setSessionOrder] = useState<SessionOrder>('newest');
+  const [groupByDay, setGroupByDay] = useState(true);
   const [density, setDensity] = useState<DisplayDensity>('comfortable');
   const [defaultRestoreMode, setDefaultRestoreMode] = useState<RestoreMode>('normal');
   const [chosenRestoreMode, setChosenRestoreMode] = useState<RestoreMode>();
@@ -111,6 +122,8 @@ export function ProjectsSection({ savedSession, onPark }: {
     () => filterAndSortProjectGroups(groups, filter, sessionOrder),
     [groups, filter, sessionOrder],
   );
+  const visibleDays = useMemo(() => groupByDay ? groupSessionsByDay(visibleGroups, sessionOrder)
+    : [{ key: 'all', label: null, sessions: visibleGroups }], [groupByDay, sessionOrder, visibleGroups]);
   const visibleLinkCount = visibleGroups.reduce(
     (total, group) => total + group.links.length,
     0,
@@ -138,6 +151,7 @@ export function ProjectsSection({ savedSession, onPark }: {
         setSelectedId(selectedProjectId);
         setGroups(groupsResponse.groups);
         setSessionOrder(uiState.sessionOrder);
+        setGroupByDay(uiState.groupSessionsByDay);
         setDensity(settingsResponse.settings.displayDensity);
         setDefaultRestoreMode(settingsResponse.settings.defaultRestoreMode);
         setRestoreBehavior(settingsResponse.settings.defaultRestoreBehavior);
@@ -149,6 +163,53 @@ export function ProjectsSection({ savedSession, onPark }: {
       .finally(() => { if (current) setIsLoading(false); });
     return () => { current = false; };
   }, [target]);
+
+  useLayoutEffect(() => {
+    const element = toolbar.current;
+    if (!element) return;
+    const style = document.documentElement.style;
+    const measure = () => style.setProperty('--saved-toolbar-height', `${element.getBoundingClientRect().height}px`);
+    const observer = new ResizeObserver(measure);
+    measure();
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      style.removeProperty('--saved-toolbar-height');
+    };
+  }, []);
+
+  useEffect(() => {
+    function focusFilter(event: globalThis.KeyboardEvent) {
+      if (event.key !== '/' || event.altKey || event.ctrlKey || event.metaKey || event.defaultPrevented || hasActiveModal()) return;
+      if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select, [role="textbox"]'))) return;
+      event.preventDefault();
+      projectFilter.current?.focus();
+    }
+    document.addEventListener('keydown', focusFilter);
+    return () => document.removeEventListener('keydown', focusFilter);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (restoreRowFocus.current === null) return;
+    const index = restoreRowFocus.current;
+    restoreRowFocus.current = null;
+    if (document.activeElement !== document.body) return;
+    const rows = sessions.current?.querySelectorAll<HTMLElement>('[data-saved-row]');
+    (rows?.[Math.min(index, rows.length - 1)] ?? projectFilter.current)?.focus();
+  }, [groups]);
+
+  function navigateRows(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    if (event.defaultPrevented || !(event.target instanceof HTMLElement) || event.target.closest('[role="group"]')) return;
+    const current = event.target.closest('[data-saved-row]');
+    if (!current) return;
+    const rows = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[data-saved-row]'));
+    const next = rows[rows.indexOf(current as HTMLElement) + (event.key === 'ArrowDown' ? 1 : -1)];
+    if (next) {
+      event.preventDefault();
+      next.focus();
+    }
+  }
 
   useEffect(() => {
     if (!target || isLoading) return;
@@ -190,6 +251,7 @@ export function ProjectsSection({ savedSession, onPark }: {
     setIsLoading(true);
     setError(null);
     setMessage(null);
+    setUndo(undefined);
     setIsAddingProject(false);
     setIsRenaming(false);
     setIsConfirmingDelete(false);
@@ -225,6 +287,7 @@ export function ProjectsSection({ savedSession, onPark }: {
       const response = await createProject(newName);
       if (!response.success) throw new Error(response.error.message);
       setProjects((current) => sortProjects([...current, response.project]));
+      setUndo(undefined);
       setSelectedId(response.project.id);
       setGroups([]);
       setExpandedSessionIds(new Set());
@@ -318,6 +381,7 @@ export function ProjectsSection({ savedSession, onPark }: {
       const response = await deleteProject(selectedProject.id);
       if (!response.success) throw new Error(response.error.message);
       setProjects((current) => current.filter((project) => project.id !== response.deletedProjectId));
+      setUndo(undefined);
       setIsConfirmingDelete(false);
       setSelectedId(response.inboxProjectId);
       setGroups([]);
@@ -338,18 +402,26 @@ export function ProjectsSection({ savedSession, onPark }: {
     }
   }
 
-  async function handleRestore(linkId: string) {
+  async function handleRestore(link: SavedLink, behavior?: 'restore-and-remove') {
+    if (isUndoing || restoring || lifecycleWorkingId) return;
+    const row = document.activeElement?.closest('[data-saved-row]');
+    const rows = Array.from(sessions.current?.querySelectorAll('[data-saved-row]') ?? []);
     setWarnings([]);
     setPartialRestore(false);
     setMessage(null);
-    setRestoringId(linkId);
+    setRestoringId(link.id);
     setError(null);
     try {
-      const response = await restoreLink(linkId);
+      const response = await restoreLink(link.id, { undoable: true, ...(behavior ? { behavior } : {}) });
       setWarnings(response.warnings ?? []);
       if (!response.success) throw new Error(describeLinkRestore(response));
-      if (response.restored) removeLinkFromGroups(linkId);
-      setMessage(describeLinkRestore(response));
+      if (response.restored) {
+        if (row && rows.includes(row)) restoreRowFocus.current = rows.indexOf(row);
+        removeLinkFromGroups(link.id);
+        if (response.restoredAt) {
+          setUndo({ linkId: link.id, projectId: link.projectId, sessionId: link.sessionId, updatedAt: response.restoredAt, status: 'restored' });
+        } else setMessage(describeLinkRestore(response));
+      } else setMessage(describeLinkRestore(response));
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not restore this link.');
     } finally {
@@ -498,7 +570,8 @@ export function ProjectsSection({ savedSession, onPark }: {
       if (!response.success) throw new Error(response.error.message);
       removeLinkFromGroups(link.id);
       setRemoveCandidate(null);
-      setMessage(`Removed “${link.title}” from LinkShelf.`);
+      setUndo({ linkId: link.id, projectId: response.link.projectId, sessionId: response.link.sessionId,
+        updatedAt: response.link.updatedAt, status: 'removed' });
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not remove this link.');
     } finally {
@@ -534,7 +607,32 @@ export function ProjectsSection({ savedSession, onPark }: {
     } finally { setDialogPending(false); }
   }
 
-  const managingProject = isDeleting || isRestoringProject || isSavingRename;
+  async function handleUndo() {
+    if (!undo || isUndoing || restoring || lifecycleWorkingId || dialogPending || isLoading) return;
+    setIsUndoing(true);
+    setMessage(null);
+    setError(null);
+    setWarnings([]);
+    try {
+      const response = await undoParkedLink(undo);
+      setWarnings(response.warnings ?? []);
+      if (!response.success) throw new Error(response.error.message);
+      setUndo(undefined);
+      const refreshed = await withSecondaryWarning(response, async () => {
+        const result = await getParkedSessionGroups(selectedId);
+        if (!result.success) throw new Error(result.error.message);
+        setGroups(result.groups);
+        setExpandedSessionIds(current => new Set([...current, response.link.sessionId]));
+      }, 'The link was returned to Saved. Reopen this project to refresh the list.');
+      setWarnings(refreshed.warnings ?? []);
+      setMessage('Link returned to Saved.');
+      projectFilter.current?.focus();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not undo this action.');
+    } finally { setIsUndoing(false); }
+  }
+
+  const managingProject = isDeleting || isRestoringProject || isSavingRename || isUndoing;
   const restoring = isRestoringProject || restoringSessionId !== null || restoringId !== null;
   const parkedCopyPreference = restoreBehavior === 'open-copy'
     ? 'Opened links stay parked.'
@@ -545,7 +643,7 @@ export function ProjectsSection({ savedSession, onPark }: {
     <>
       <OperationFeedback {...(!(removeCandidate || moveCandidate) ? feedback : {})} />
       <h2 ref={sectionHeading} tabIndex={-1} className="mb-2 text-lg font-bold">Saved</h2>
-      <div className={`projects-toolbar relative z-20 mb-3 grid grid-cols-1 gap-2 ${isAddingProject || isConfirmingRestoreProject || isRenaming || isConfirmingDelete ? '' : 'projects-toolbar-sticky'}`}>
+      <div ref={toolbar} className={`projects-toolbar relative z-20 mb-3 grid grid-cols-1 gap-2 ${isAddingProject || isConfirmingRestoreProject || isRenaming || isConfirmingDelete ? '' : 'projects-toolbar-sticky'}`}>
         <div className="relative flex items-center gap-2">
           <label className="sr-only" htmlFor="project-selector">Project</label>
           <Select ref={projectSelector} id="project-selector" className="w-0 flex-1"
@@ -566,7 +664,8 @@ export function ProjectsSection({ savedSession, onPark }: {
             <span aria-hidden="true" className="text-xl leading-none">+</span>
           </button>
           <Disclosure label="Project actions" triggerContent={<Icon name="more" />} triggerRef={projectActionsTrigger}
-            disabled={!selectedProject || selectedProject.isInbox || managingProject || restoring || isCreating || isLoading}>
+            unavailable={selectedProject?.isInbox ? inboxActions : undefined}
+            disabled={!selectedProject || managingProject || restoring || isCreating || isLoading}>
             {close => <>
               <button type="button" className="dropdown-action"
                 onClick={() => {
@@ -588,6 +687,7 @@ export function ProjectsSection({ savedSession, onPark }: {
             </>}
           </Disclosure>
         </div>
+        {selectedProject?.isInbox && <p id={inboxActions.descriptionId} className="text-xs text-slate-700">{inboxActions.reason}</p>}
 
         {isAddingProject && <InlineConfirmation titleId="create-project-title" title="New project"
           className="rounded-lg border border-slate-200 bg-white p-2.5" initialFocus={() => createInput.current}
@@ -611,15 +711,27 @@ export function ProjectsSection({ savedSession, onPark }: {
 
         <div className="relative flex items-center gap-2">
           <label className="sr-only" htmlFor="project-filter">Filter this project</label>
-          <input ref={projectFilter} id="project-filter" type="search"
-            className="min-h-10 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
+          <input ref={projectFilter} id="project-filter" type="search" aria-keyshortcuts="/" title="Press / to focus the project filter"
+            className="saved-project-filter min-h-10 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
             placeholder="Filter this project" value={filter} onChange={(event) => changeFilter(event.target.value)} />
           <Disclosure label="View options" triggerContent={<>View <span aria-hidden="true">▾</span></>}>
             {close => <>
               <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
                 Session order
                 <Select value={sessionOrder} onChange={(event) => setOrder(event.target.value as SessionOrder)}>
-                  <option value="newest">Newest first</option><option value="oldest">Oldest first</option>
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="title">Link title A–Z{groupByDay ? ' within each day' : ''}</option>
+                </Select>
+              </label>
+              <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
+                Group sessions
+                <Select value={groupByDay ? 'day' : 'none'} onChange={event => {
+                  const byDay = event.target.value === 'day';
+                  setGroupByDay(byDay);
+                  rememberView({ groupSessionsByDay: byDay });
+                }}>
+                  <option value="day">By day</option><option value="none">No grouping</option>
                 </Select>
               </label>
               <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
@@ -638,9 +750,9 @@ export function ProjectsSection({ savedSession, onPark }: {
         {parkedLinkCount > 0 && <div className="flex min-h-10 items-center justify-between gap-2">
           <p className="text-sm text-slate-600">
             {filtering
-              ? `${visibleLinkCount} ${visibleLinkCount === 1 ? 'link' : 'links'} shown`
-              : `${parkedLinkCount} parked ${parkedLinkCount === 1 ? 'link' : 'links'}`}
-            {visibleGroups.length > 0 && ` · ${visibleGroups.length} ${visibleGroups.length === 1 ? 'session' : 'sessions'}`}
+              ? <><strong>{visibleLinkCount}</strong> {visibleLinkCount === 1 ? 'link' : 'links'} shown</>
+              : <><strong>{parkedLinkCount}</strong> parked {parkedLinkCount === 1 ? 'link' : 'links'}</>}
+            {visibleGroups.length > 0 && <> · <strong>{visibleGroups.length}</strong> {visibleGroups.length === 1 ? 'session' : 'sessions'}</>}
           </p>
           <button ref={restoreTrigger} type="button" aria-describedby="project-restore-scope"
             disabled={managingProject || restoring || isLoading || isCreating}
@@ -651,7 +763,7 @@ export function ProjectsSection({ savedSession, onPark }: {
               setIsAddingProject(false);
               setIsConfirmingDelete(false);
               setIsRenaming(false);
-            }}>{hiddenLinkCount > 0 ? `Restore all ${parkedLinkCount}` : 'Restore all'}</button>
+            }}>Restore all ({parkedLinkCount})</button>
           <p id="project-restore-scope" className="sr-only">Opens all {parkedLinkCount} parked links in this project, including links hidden by the filter. {parkedCopyPreference}</p>
         </div>}
       </div>
@@ -686,7 +798,7 @@ export function ProjectsSection({ savedSession, onPark }: {
 
       {isRenaming && (
         <InlineConfirmation titleId="rename-project-title" title="Rename project" className="mb-3 rounded-xl border border-slate-200 bg-white p-3.5"
-          returnFocus={() => projectActionsTrigger.current?.disabled ? sectionHeading.current : projectActionsTrigger.current}>
+          returnFocus={() => projectActionsTrigger.current?.matches(':disabled, [aria-disabled="true"]') ? sectionHeading.current : projectActionsTrigger.current}>
           <form onSubmit={saveRename}>
           <label className="sr-only" htmlFor="rename-project">Project name</label>
           <input id="rename-project" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={renameName} onChange={(event) => setRenameName(event.target.value)} />
@@ -698,7 +810,7 @@ export function ProjectsSection({ savedSession, onPark }: {
       {isConfirmingDelete && selectedProject && (
         <InlineConfirmation titleId="delete-project-title" title={<>Delete “{selectedProject.name}”?</>}
           className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3.5 wrap-anywhere" titleClassName="font-semibold text-red-900"
-          returnFocus={() => projectActionsTrigger.current?.disabled ? sectionHeading.current : projectActionsTrigger.current}>
+          returnFocus={() => projectActionsTrigger.current?.matches(':disabled, [aria-disabled="true"]') ? sectionHeading.current : projectActionsTrigger.current}>
           <p className="mt-1 text-sm text-red-800">Its links and sessions will move to Inbox. Nothing is permanently deleted.</p>
           <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-lg border bg-white px-3 py-2 text-sm" disabled={isDeleting} onClick={() => setIsConfirmingDelete(false)}>Cancel</button><button type="button" className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white" disabled={isDeleting} onClick={() => void removeProject()}>{isDeleting ? 'Moving...' : 'Move to Inbox and delete'}</button></div>
         </InlineConfirmation>
@@ -723,8 +835,8 @@ export function ProjectsSection({ savedSession, onPark }: {
       )}
 
       {isLoading && <SkeletonCards count={2} />}
-      {!isLoading && !error && groups.length === 0 && selectedProject && <EmptyState title="This project is empty">
-        <p>Park tabs in this project to see them here.</p>
+      {!isLoading && !error && groups.length === 0 && selectedProject && <EmptyState title="Nothing saved yet">
+        <p>Park a tab to get started.</p>
         <button type="button" className={`${toolbarButton} mt-2 bg-blue-700 text-white hover:bg-blue-800`} onClick={() => onPark(selectedProject.id)}>Park tabs</button>
       </EmptyState>}
       {!isLoading && !error && groups.length > 0 && visibleGroups.length === 0 && <EmptyState title="No matching tabs">
@@ -734,61 +846,81 @@ export function ProjectsSection({ savedSession, onPark }: {
         <h3 className="sr-only">Sessions</h3>
         <p id="session-restore-scope" className="sr-only">Opens all parked links in this session and loads them immediately. {parkedCopyPreference}</p>
       </>}
-      <div className="divide-y divide-slate-200">
-        {visibleGroups.map((group) => {
-          const isExpanded = activeExpansion?.has(group.session.id) ?? true;
-          const limit = sessionLimits[group.session.id] ?? PROJECT_LINK_BATCH_SIZE;
-          const shownLinks = visibleProjectLinks(group, limit);
-          const sessionCount = sessionCounts.get(group.session.id) ?? group.links.length;
-          return (
-          <section key={group.session.id} className={density === 'compact' ? 'py-1.5' : 'py-2.5'}>
-            <div className="flex items-start justify-between gap-2">
-                <button ref={group.session.id === target?.sessionId ? targetButton : undefined} type="button"
-                  className="flex min-h-10 min-w-0 flex-1 items-start gap-1.5 rounded text-left"
-                  aria-expanded={isExpanded} onClick={() => toggleSession(group.session.id)}>
-                  <span aria-hidden="true" className="text-slate-600">{isExpanded ? '▾' : '▸'}</span>
-                  <span className="min-w-0">
+      <div ref={sessions} onKeyDown={navigateRows}>
+        {visibleDays.map(day => <div key={day.key} className="divide-y divide-slate-200">
+          {day.label && <h3 className="saved-day-heading sticky z-10 rounded-t-md bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700">{day.label}</h3>}
+          {day.sessions.map(group => {
+            const sessionCount = sessionCounts.get(group.session.id) ?? group.links.length;
+            const single = sessionCount === 1;
+            const expanded = activeExpansion?.has(group.session.id) ?? true;
+            const limit = sessionLimits[group.session.id] ?? PROJECT_LINK_BATCH_SIZE;
+            const shownLinks = visibleProjectLinks(group, limit);
+            const first = group.links[0];
+            const previewNote = first.note ?? group.session.note;
+            const isTarget = group.session.id === target?.sessionId;
+            return <section key={group.session.id} className={density === 'compact' ? 'py-1.5' : 'py-2.5'}>
+              {!single && <div className="flex items-start gap-1">
+                <button ref={isTarget ? targetButton : undefined} type="button" data-saved-row
+                  className="flex min-h-11 min-w-0 flex-1 items-start gap-2 rounded-lg p-1.5 text-left hover:bg-slate-100"
+                  aria-expanded={expanded} onClick={() => toggleSession(group.session.id)}>
+                  <LinkFavicon link={first} />
+                  <span className="min-w-0 flex-1">
                     <span className="sr-only">Parking session </span>
-                    <span className="block text-sm font-semibold">{formatLinkDate(group.session.createdAt)}</span>
-                    <span className="block text-xs text-slate-600">{sessionCount !== group.links.length && `${group.links.length} of `}{sessionCount} parked link{sessionCount === 1 ? '' : 's'}</span>
+                    <span className="flex min-w-0 items-baseline gap-1.5">
+                      <span className="truncate text-sm font-semibold" title={first.title} dir="auto">{first.title}</span>
+                      {group.links.length > 1 && <span className="shrink-0 text-xs font-medium text-slate-700">+{group.links.length - 1} more</span>}
+                    </span>
+                    <span className="block text-xs text-slate-700">{formatLinkDate(group.session.createdAt)} · {sessionCount !== group.links.length ? `${group.links.length} of ` : ''}{sessionCount} links</span>
                     {group.session.reminderAt && <span className="mt-1 block text-xs font-semibold text-amber-700">Reminder {formatLinkDate(group.session.reminderAt)}</span>}
+                    {!expanded && previewNote && <span className="block truncate text-xs text-slate-600" title={previewNote}>{previewNote}</span>}
                   </span>
+                  <span aria-hidden="true" className="shrink-0 text-slate-700">{expanded ? '▾' : '▸'}</span>
                 </button>
-                <button
-                  type="button"
-                  className="min-h-10 shrink-0 whitespace-nowrap rounded-lg border border-blue-200 bg-white px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                <button type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-blue-700 hover:bg-blue-50 disabled:opacity-50"
                   disabled={restoring || managingProject || isLoading || isCreating}
-                  aria-describedby="session-restore-scope"
-                  onClick={() => void handleRestoreSession(group.session.id)}
-                >
-                  {restoringSessionId === group.session.id ? 'Restoring...' : 'Restore session'}
+                  aria-label="Restore session" title="Restore session" aria-describedby="session-restore-scope"
+                  onClick={() => void handleRestoreSession(group.session.id)}>
+                  <Icon name={restoringSessionId === group.session.id ? 'clock' : 'undo'} className="size-5" />
                 </button>
-            </div>
-            {isExpanded && group.session.note && <div className="pb-2">
-              <p className="text-xs font-medium text-slate-700">Session note</p>
-              <NotePreview note={group.session.note} />
-            </div>}
-            {isExpanded && <div className={density === 'compact' ? 'mt-1 divide-y divide-slate-200 overflow-visible rounded-lg border border-slate-200' : 'mt-1.5 space-y-2'}>
-              {shownLinks.map((link) => (
-                <SavedLinkCard
+              </div>}
+              {!single && expanded && group.session.note && <div className="px-2 pb-2">
+                <p className="text-xs font-medium text-slate-700">Session note</p>
+                <NotePreview note={group.session.note} />
+              </div>}
+              {(single || expanded) && <div ref={single && isTarget ? element => {
+                targetButton.current = element?.querySelector<HTMLButtonElement>('button[aria-label="Restore link"]') ?? null;
+              } : undefined} className={density === 'compact' ? 'divide-y divide-slate-200 rounded-lg border border-slate-200' : 'space-y-2'}>
+                {shownLinks.map(link => <SavedLinkCard
                   key={link.id}
                   link={link}
-                  note={link.note === group.session.note ? null : link.note}
+                  note={single ? link.note ?? group.session.note : link.note === group.session.note ? null : link.note}
                   density={density}
                   inSession
-                  showParkedDate={link.createdAt !== group.session.createdAt}
-                  isRestoring={restoringId === link.id || restoringSessionId === group.session.id || isRestoringProject || lifecycleWorkingId === link.id}
-                  onRestore={() => void handleRestore(link.id)}
+                  isRestoring={restoringId === link.id || restoringSessionId === group.session.id || isRestoringProject || lifecycleWorkingId === link.id || isUndoing}
+                  onRestore={() => void handleRestore(link)}
+                  onRestoreAndRemove={() => void handleRestore(link, 'restore-and-remove')}
                   onArchive={() => void handleArchive(link)}
                   onMove={projects.length > 1 ? () => startMoving(link) : undefined}
                   onRemove={() => startRemoving(link)}
-                />
-              ))}
-              {shownLinks.length < group.links.length && <div className="flex gap-2 pt-1"><button type="button" className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-blue-700" onClick={() => setSessionLimits((current) => ({ ...current, [group.session.id]: limit + PROJECT_LINK_BATCH_SIZE }))}>Show {Math.min(PROJECT_LINK_BATCH_SIZE, group.links.length - shownLinks.length)} more</button><button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600" onClick={() => setSessionLimits((current) => ({ ...current, [group.session.id]: group.links.length }))}>Show all</button></div>}
-            </div>}
-          </section>
-        );})}
+                />)}
+                {shownLinks.length < group.links.length && <div className="flex gap-2 pt-1">
+                  <button type="button" className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-blue-700"
+                    onClick={() => setSessionLimits(current => ({ ...current, [group.session.id]: limit + PROJECT_LINK_BATCH_SIZE }))}>Show {Math.min(PROJECT_LINK_BATCH_SIZE, group.links.length - shownLinks.length)} more</button>
+                  <button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600"
+                    onClick={() => setSessionLimits(current => ({ ...current, [group.session.id]: group.links.length }))}>Show all</button>
+                </div>}
+              </div>}
+            </section>;
+          })}
+        </div>)}
       </div>
+      {undo && <aside className="sticky bottom-2 z-30 mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-300 bg-white p-2.5 shadow-lg">
+        <p role="status" className="min-w-32 flex-1 text-sm text-slate-800">{undo.status === 'restored' ? 'Tab opened. Undo returns the link to Saved.' : 'Link removed from Saved.'}</p>
+        <button type="button" className={`${toolbarButton} text-blue-700 hover:bg-blue-50`} disabled={isUndoing || restoring || !!lifecycleWorkingId}
+          onClick={() => void handleUndo()}>{isUndoing ? 'Undoing…' : 'Undo'}</button>
+        <button type="button" className={`${toolbarButton} text-slate-700 hover:bg-slate-100`} disabled={isUndoing}
+          onClick={() => { projectFilter.current?.focus(); setUndo(undefined); }}>Dismiss</button>
+      </aside>}
     </>
   );
 }

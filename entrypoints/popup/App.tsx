@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getDomain, isEligibleUrl } from '@/domain/url';
 import { ActiveTabCard } from './components/ActiveTabCard';
 import { ParkCurrentTabForm } from './components/ParkCurrentTabForm';
+import { useInterfaceTheme } from '../sidepanel/use-interface-theme';
 
 interface ActiveTab {
   id: number;
@@ -22,6 +23,7 @@ function getChromeSidePanelApi(): ChromeSidePanelApi | undefined {
 }
 
 function App() {
+  useInterfaceTheme();
   const [activeTab, setActiveTab] = useState<ActiveTab | null>(null);
   const [windowId, setWindowId] = useState<number>();
   const [isLoading, setIsLoading] = useState(true);

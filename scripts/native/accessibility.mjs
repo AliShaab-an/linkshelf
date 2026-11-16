@@ -137,7 +137,6 @@ try {
     for (const [trigger, panel] of [
       [button('Project actions'), page.getByRole('group', { name: 'Project actions', exact: true })],
       [firstMore, actions],
-      [button('More'), page.getByRole('group', { name: 'More sections', exact: true })],
       [button('Quick settings'), page.getByRole('group', { name: 'Quick settings', exact: true })],
     ]) {
       await trigger.click();
@@ -284,7 +283,8 @@ try {
     }), keys => keys.length === 1 && keys[0] === foreignWindow, 'consumed request cannot replay after dismissal');
     assert.equal(await page.getByRole('searchbox', { name: 'Search saved links' }).count(), 0);
     const status = page.getByRole('status').filter({ hasText: 'Synthetic secondary warning.' });
-    await status.getByText(/Removed .* from LinkShelf/).waitFor();
+    await status.getByText('Synthetic secondary warning.').waitFor();
+    await page.getByRole('status').getByText('Link removed from Saved.', { exact: true }).waitFor();
     assert.equal(await status.count(), 1);
     assert.equal((await h.database()).links.find(link => link.id === 'link-0').status, 'removed');
   });
@@ -326,11 +326,12 @@ try {
   await scenario('Inline project confirmations focus their headings and return on cancel and delete', async () => {
     await navigateSidebar(page, 'Projects');
     await page.getByLabel('Project', { exact: true }).selectOption('restore-probe');
-    await button('Restore all').click();
+    const restoreAll = page.getByRole('button', { name: /^Restore all \(\d+\)$/ });
+    await restoreAll.click();
     const restore = page.getByRole('region', { name: /^Restore all/ });
     await active(restore.getByRole('heading'));
     await restore.getByRole('button', { name: 'Cancel' }).click();
-    await active(button('Restore all'));
+    await active(restoreAll);
     const projectActions = button('Project actions');
     await projectActions.click();
     await button('Delete').click();
@@ -343,7 +344,7 @@ try {
     await hold('DELETE_PROJECT');
     await deletion.getByRole('button', { name: 'Move to Inbox and delete' }).click();
     await page.getByRole('status').getByText('Moving links to Inbox…').waitFor();
-    assert.equal(await button('Restore all').isDisabled(), true);
+    assert.equal(await restoreAll.isDisabled(), true);
     assert.equal(await projectActions.isDisabled(), true);
     assert.equal(await deletion.getByRole('button', { name: 'Cancel' }).isDisabled(), true);
     await finish('success');

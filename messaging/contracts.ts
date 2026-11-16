@@ -404,6 +404,8 @@ export interface RestoreLinkMessage {
   type: 'RESTORE_LINK';
   payload: {
     linkId: string;
+    behavior?: 'restore-and-remove';
+    undoable?: true;
   };
 }
 
@@ -420,6 +422,11 @@ export interface UnarchiveLinkMessage {
 export interface RemoveLinkMessage {
   type: 'REMOVE_LINK';
   payload: { linkId: string };
+}
+
+export interface UndoParkedLinkMessage {
+  type: 'UNDO_PARKED_LINK';
+  payload: { linkId: string; projectId: string; sessionId: string; updatedAt: string; status: 'restored' | 'removed' };
 }
 
 export interface MoveLinkMessage {
@@ -518,6 +525,7 @@ export type RestoreLinkResponse = OperationWarnings & (
       linkId: string;
       opened: true;
       restored: boolean;
+      restoredAt?: string;
     }
   | {
       success: false;
@@ -828,7 +836,9 @@ export function isRestoreLinkMessage(
   return (
     candidate.type === 'RESTORE_LINK' &&
     typeof candidate.payload?.linkId === 'string' &&
-    candidate.payload.linkId.length > 0
+    candidate.payload.linkId.length > 0 &&
+    (candidate.payload.behavior === undefined || candidate.payload.behavior === 'restore-and-remove') &&
+    (candidate.payload.undoable === undefined || candidate.payload.undoable === true)
   );
 }
 
@@ -855,6 +865,15 @@ export function isUnarchiveLinkMessage(message: unknown): message is UnarchiveLi
 
 export function isRemoveLinkMessage(message: unknown): message is RemoveLinkMessage {
   return isLinkLifecycleMessage(message, 'REMOVE_LINK');
+}
+
+export function isUndoParkedLinkMessage(message: unknown): message is UndoParkedLinkMessage {
+  if (!isLinkLifecycleMessage(message, 'UNDO_PARKED_LINK')) return false;
+  const { payload } = message as UndoParkedLinkMessage;
+  return typeof payload.projectId === 'string' && payload.projectId.length > 0 &&
+    typeof payload.sessionId === 'string' && payload.sessionId.length > 0 &&
+    typeof payload.updatedAt === 'string' &&
+    (payload.status === 'restored' || payload.status === 'removed');
 }
 
 export function isMoveLinkMessage(message: unknown): message is MoveLinkMessage {
@@ -1150,10 +1169,11 @@ export async function deleteProject(
 
 export async function restoreLink(
   linkId: string,
+  options: Omit<RestoreLinkMessage['payload'], 'linkId'> = {},
 ): Promise<RestoreLinkResponse> {
   const message: RestoreLinkMessage = {
     type: 'RESTORE_LINK',
-    payload: { linkId },
+    payload: { linkId, ...options },
   };
   const response = (await browser.runtime.sendMessage(message)) as unknown;
 
@@ -1163,7 +1183,7 @@ export async function restoreLink(
 }
 
 async function sendLifecycleMessage(
-  message: ArchiveLinkMessage | UnarchiveLinkMessage | RemoveLinkMessage,
+  message: ArchiveLinkMessage | UnarchiveLinkMessage | RemoveLinkMessage | UndoParkedLinkMessage,
 ): Promise<LinkLifecycleResponse> {
   const response = (await browser.runtime.sendMessage(message)) as unknown;
   assertResponse(response);
@@ -1180,6 +1200,10 @@ export function unarchiveLink(linkId: string): Promise<LinkLifecycleResponse> {
 
 export function removeLink(linkId: string): Promise<LinkLifecycleResponse> {
   return sendLifecycleMessage({ type: 'REMOVE_LINK', payload: { linkId } });
+}
+
+export function undoParkedLink(payload: UndoParkedLinkMessage['payload']): Promise<LinkLifecycleResponse> {
+  return sendLifecycleMessage({ type: 'UNDO_PARKED_LINK', payload });
 }
 
 export async function moveLink(linkId: string, projectId: string): Promise<LinkLifecycleResponse> {

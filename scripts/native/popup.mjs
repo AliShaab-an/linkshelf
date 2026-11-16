@@ -107,9 +107,9 @@ try {
   const link = page.locator('article').filter({ hasText: first.title });
   await link.waitFor();
   assert.equal(await page.getByText('Synthetic popup session note', { exact: true }).count(), 1);
-  assert.equal(await link.getByText('Synthetic popup session note', { exact: true }).count(), 0);
+  assert.equal(await link.getByText('Synthetic popup session note', { exact: true }).count(), 1);
   await page.getByRole('searchbox', { name: 'Filter this project' }).fill('popup-default-project');
-  await button(page, 'Restore all').click();
+  await button(page, 'Restore all (1)').click();
   const confirm = page.getByRole('region', { name: /^Restore all 1 link/ });
   await confirm.getByRole('combobox', { name: 'When to load tabs' }).selectOption('unloaded');
   assert.equal((await h.raw()).links.find(link => link.id === parked.id).status, 'parked');

@@ -12,7 +12,8 @@ export const UI_STATE_STORAGE_KEY = 'linkshelfUiState';
 const UiStateSchema = z.strictObject({
   lastSection: SidePanelSectionSchema,
   selectedProjectId: z.string().min(1),
-  sessionOrder: z.enum(['newest', 'oldest']),
+  sessionOrder: z.enum(['newest', 'oldest', 'title']),
+  groupSessionsByDay: z.boolean().default(true),
   expandedSessionIds: z.array(z.string().min(1)),
 });
 
@@ -22,6 +23,7 @@ export const DEFAULT_UI_STATE: UiState = {
   lastSection: 'projects',
   selectedProjectId: 'inbox',
   sessionOrder: 'newest',
+  groupSessionsByDay: true,
   expandedSessionIds: [],
 };
 

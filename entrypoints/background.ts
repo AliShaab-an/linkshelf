@@ -23,6 +23,7 @@ import {
   isOpenBookmarkMessage,
   isRenameProjectMessage,
   isRemoveLinkMessage,
+  isUndoParkedLinkMessage,
   isMoveLinkMessage,
   isRestoreLinkMessage,
   isRestoreProjectMessage,
@@ -814,6 +815,16 @@ export default defineBackground(() => {
     if (isRemoveLinkMessage(message)) {
       handleLifecycleOperation(
         operations.reserve([`link:${message.payload.linkId}`], () => repository.removeLink(message.payload.linkId)),
+        sendResponse,
+        synchronizeReminderAlarms,
+      );
+      return true;
+    }
+
+    if (isUndoParkedLinkMessage(message)) {
+      const receipt = message.payload;
+      handleLifecycleOperation(
+        operations.reserve([`link:${receipt.linkId}`], () => repository.undoParkedLink(receipt)),
         sendResponse,
         synchronizeReminderAlarms,
       );

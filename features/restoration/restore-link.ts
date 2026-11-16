@@ -69,9 +69,11 @@ export async function executeRestoreLink(
     };
   }
 
+  let restoredAt: string | undefined;
   if (dependencies.markAsRestored) {
     try {
-      await dependencies.markLinkRestored(link.id);
+      const restored = await dependencies.markLinkRestored(link.id);
+      restoredAt = restored.updatedAt;
     } catch (error) {
       console.error('The tab opened but its saved state could not be updated:', error);
 
@@ -91,5 +93,6 @@ export async function executeRestoreLink(
     linkId: link.id,
     opened: true,
     restored: dependencies.markAsRestored,
+    ...(message.payload.undoable && restoredAt ? { restoredAt } : {}),
   };
 }

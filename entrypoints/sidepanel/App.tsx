@@ -14,8 +14,10 @@ import { hasActiveModal } from './components/ui/Modal';
 import { consumeWindowIntent, DEFAULT_UI_STATE, loadUiState, readWindowIntent, updateUiState } from './ui-state';
 import { createNavigationIntents } from './navigation-intents';
 import type { SavedSessionTarget } from './parking-outcome';
+import { useInterfaceTheme } from './use-interface-theme';
 
 function App() {
+  const appearance = useInterfaceTheme();
   const [activeSection, setActiveSection] =
     useState<SidePanelSection>(DEFAULT_UI_STATE.lastSection);
   const [ready, setReady] = useState(false);
@@ -106,7 +108,7 @@ function App() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,#eff6ff_0,#f8fafc_240px)] font-sans text-slate-900">
+    <main className="sidebar-workspace min-h-screen bg-[radial-gradient(circle_at_top,#eff6ff_0,#f8fafc_240px)] font-sans text-slate-900">
       <StorageRecoveryGate>
         {ready ? <>
           <div ref={observeShell} className="sidebar-shell sticky top-0 z-40 border-b border-slate-200 bg-white">
@@ -115,7 +117,7 @@ function App() {
                 <img src="/icon/48.png" alt="" className="size-7 rounded-lg" />
                 <h1 className="text-base font-bold tracking-tight">LinkShelf</h1>
               </div>
-              <QuickSettings />
+              <QuickSettings {...appearance} />
             </header>
             <SidePanelNavigation activeSection={activeSection} onChange={changeSection} />
           </div>

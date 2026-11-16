@@ -19,6 +19,7 @@ interface SavedLinkCardProps {
   showParkedDate?: boolean;
   isRestoring: boolean;
   onRestore?: () => void;
+  onRestoreAndRemove?: () => void;
   onArchive?: () => void;
   onUnarchive?: () => void;
   onBookmark?: () => void;
@@ -26,13 +27,12 @@ interface SavedLinkCardProps {
   onRemove?: () => void;
 }
 
-export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', inSession = false, showParkedDate = true, isRestoring, onRestore, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
+export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', inSession = false, showParkedDate = true, isRestoring, onRestore, onRestoreAndRemove, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const actionsButton = useRef<HTMLButtonElement>(null);
   const actionsPanel = useRef<HTMLDivElement>(null);
   const actionsId = useId();
-  const secondaryActions = Boolean(onMove || onArchive || onUnarchive || onRemove);
-  const favicon = link.faviconUrl;
+  const secondaryActions = Boolean(onMove || onArchive || onUnarchive || onRemove || onRestoreAndRemove);
 
   useEffect(() => {
     if (!actionsOpen) return;
@@ -59,8 +59,19 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
   const row = inSession && compact;
   const primaryAction = 'inline-flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-sm font-semibold disabled:opacity-45';
 
-  return <article id={cardId} className={`relative bg-white ${row ? 'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 px-2 py-1.5' : `rounded-xl border ${compact ? 'p-2.5' : 'p-3'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}`}
+  return <article id={cardId} data-saved-row={inSession || undefined} tabIndex={inSession ? 0 : undefined}
+    aria-label={inSession ? link.title : undefined}
+    aria-keyshortcuts={inSession ? 'ArrowUp ArrowDown Enter Delete' : undefined}
+    className={`relative bg-white ${row ? 'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 px-2 py-1.5' : `rounded-xl border ${compact ? 'p-2.5' : 'p-3'} ${isDue ? 'border-amber-300' : 'border-slate-200'}`}`}
     onKeyDown={(event) => {
+      if (inSession && !isRestoring && event.target === event.currentTarget) {
+        const shortcut = event.key === 'Enter' ? onRestore : event.key === 'Delete' ? onRemove : undefined;
+        if (shortcut) {
+          event.preventDefault();
+          shortcut();
+          return;
+        }
+      }
       if (event.key !== 'Escape' || !actionsOpen) return;
       event.preventDefault();
       event.stopPropagation();
@@ -68,9 +79,7 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
       setActionsOpen(false);
     }}>
     <div className={`flex min-w-0 items-start ${row ? 'gap-2 pt-1' : 'gap-2.5'}`}>
-      <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-sm font-extrabold text-slate-600 ${row ? 'size-6' : compact ? 'size-7' : 'size-9'}`}>
-        {favicon ? <img src={favicon} alt="" className="size-5"/> : link.domain.charAt(0).toUpperCase()}
-      </div>
+      <LinkFavicon link={link} />
       <div className="min-w-0 flex-1">
         <h3 className="line-clamp-2 wrap-anywhere text-sm font-semibold leading-snug text-slate-900" dir="auto" title={link.title}>{link.title}</h3>
         <p className="mt-0.5 truncate text-xs text-slate-600" title={projectName ? `${link.domain} · ${projectName}` : link.domain}>{link.domain}{projectName ? ` · ${projectName}` : ''}</p>
@@ -91,11 +100,20 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
       {actionsOpen && !isRestoring && <>
         {onMove && <ActionButton onClick={() => action(onMove)}>Move to project</ActionButton>}
         {onArchive && <ActionButton onClick={() => action(onArchive)}>Archive</ActionButton>}
+        {onRestoreAndRemove && <ActionButton onClick={() => action(onRestoreAndRemove)}>Restore and remove from list</ActionButton>}
         {onUnarchive && <ActionButton onClick={() => action(onUnarchive)}>Return to project</ActionButton>}
         {onRemove && <ActionButton danger onClick={() => action(onRemove)}>Remove</ActionButton>}
       </>}
     </div>}
   </article>;
+}
+
+export function LinkFavicon({ link }: { link: Pick<SavedLink, 'domain' | 'faviconUrl'> }) {
+  return <span className="relative grid size-6 shrink-0 place-items-center overflow-hidden rounded border border-slate-300 bg-white text-xs font-bold text-slate-700" aria-hidden="true">
+    {link.domain.charAt(0).toUpperCase()}
+    {link.faviconUrl && <img key={link.faviconUrl} src={link.faviconUrl} alt="" className="absolute inset-0 size-full object-contain" style={{ backgroundColor: '#fff' }}
+      onError={event => { event.currentTarget.hidden = true; }} />}
+  </span>;
 }
 
 export function NotePreview({ note }: { note: string }) {
