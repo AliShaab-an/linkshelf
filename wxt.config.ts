@@ -8,7 +8,7 @@ export default defineConfig({
   manifest: {
     name: 'LinkShelf',
     description: 'Park tabs, organize useful links, and return to them at the right time.',
-    version: '0.2.0',
+    version: '0.3.0',
     permissions: ['storage', 'alarms', 'notifications', 'tabs', 'bookmarks'],
     commands: {
       'park-current-tab': {
