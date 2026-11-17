@@ -1,12 +1,12 @@
 // Representative historical shapes, generated entirely from synthetic values.
 // These are not exports from a user profile or evidence of a Store upgrade.
 export const timestamp = '2026-11-01T10:00:00.000Z';
-export function library(count = 4, version = 2) {
+export function library(count = 4, version = 3) {
   const settings = {
     schemaVersion: version, defaultProjectId: 'legacy-project', includePinnedTabsByDefault: false,
     confirmBeforeBulkClose: true, notificationsEnabled: false, defaultRestoreBehavior: 'restore-and-remove',
     trackingParamsToRemove: ['utm_source'],
-    ...(version === 2 ? { displayDensity: 'compact', defaultRestoreMode: 'normal' } : {}),
+    ...(version >= 2 ? { displayDensity: 'compact', defaultRestoreMode: 'normal' } : {}),
   };
   return {
     projects: [

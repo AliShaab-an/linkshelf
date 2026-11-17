@@ -333,7 +333,7 @@ describe('reminder reconciliation with persisted schema-2 data', () => {
     const saved = await f.park(FUTURE);
     await f.repository.markReminderNotified(saved.links[0].id);
     const backup = await f.repository.exportBackup();
-    expect(backup.schemaVersion).toBe(2);
+    expect(backup.schemaVersion).toBe(3);
     for (const mode of ['replace', 'merge'] as const) {
       const target = await fixture();
       const preview = await target.repository.previewImportBackup(backup, mode);
@@ -342,6 +342,6 @@ describe('reminder reconciliation with persisted schema-2 data', () => {
       expect(target.stored().links).toEqual(backup.database.links);
       expect([...target.scheduled.keys()]).toEqual([reminderAlarmName(saved.links[1].id)]);
     }
-    expect(createEmptyDatabase(START).settings.schemaVersion).toBe(2);
+    expect(createEmptyDatabase(START).settings.schemaVersion).toBe(3);
   });
 });

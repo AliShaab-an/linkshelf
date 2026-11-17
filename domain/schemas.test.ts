@@ -87,7 +87,7 @@ describe('LinkShelf schemas', () => {
     expect(result.success).toBe(false);
   });
 
-  it('migrates version 1 databases and backups to version 2 defaults', () => {
+  it('migrates version 1 databases and backups to the current version with defaults', () => {
     const versionOneDatabase = {
       ...validDatabase,
       settings: {
@@ -101,7 +101,7 @@ describe('LinkShelf schemas', () => {
       },
     };
     expect(migrateLinkShelfDatabase(versionOneDatabase).settings).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       displayDensity: 'comfortable',
       defaultRestoreMode: 'normal',
     });
@@ -111,9 +111,32 @@ describe('LinkShelf schemas', () => {
       exportedAt: now,
       database: versionOneDatabase,
     })).toMatchObject({
-      schemaVersion: 2,
-      database: { settings: { schemaVersion: 2 } },
+      schemaVersion: 3,
+      database: { settings: { schemaVersion: 3 } },
     });
+  });
+
+  it('migrates version 2 databases and backups to version 3 without changing records', () => {
+    const versionTwo = { ...validDatabase, settings: { ...validDatabase.settings, schemaVersion: 2 } };
+    expect(migrateLinkShelfDatabase(versionTwo)).toEqual(validDatabase);
+    expect(parseSupportedLinkShelfBackup({
+      format: 'linkshelf-backup', schemaVersion: 2, exportedAt: now, database: versionTwo,
+    })).toMatchObject({ schemaVersion: 3, database: { ...validDatabase, settings: { schemaVersion: 3 } } });
+  });
+
+  it('rejects tags inside version 2 data, which predates them', () => {
+    const link = {
+      id: 'link-1', sessionId: 'session-1', projectId: 'inbox-project', title: 'Title', url: 'https://example.com/',
+      normalizedUrl: 'https://example.com/', domain: 'example.com', status: 'parked', pinnedBeforeParking: false,
+      tags: ['work'], createdAt: now, updatedAt: now,
+    };
+    const tagged = {
+      ...validDatabase,
+      sessions: [{ id: 'session-1', projectId: 'inbox-project', createdAt: now, updatedAt: now }],
+      links: [link],
+    };
+    expect(() => migrateLinkShelfDatabase({ ...tagged, settings: { ...validDatabase.settings, schemaVersion: 2 } })).toThrow();
+    expect(migrateLinkShelfDatabase(tagged).links[0].tags).toEqual(['work']);
   });
 
   it('rejects backup records with duplicate IDs', () => {

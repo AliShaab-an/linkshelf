@@ -80,7 +80,7 @@ describe('LinkShelfRepository', () => {
     });
 
     expect(updated).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       includePinnedTabsByDefault: true,
       confirmBeforeBulkClose: false,
       notificationsEnabled: false,
@@ -100,7 +100,7 @@ describe('LinkShelfRepository', () => {
 
     expect(backup).toMatchObject({
       format: 'linkshelf-backup',
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt: now,
     });
     expect(backup.database.projects[0].isInbox).toBe(true);
@@ -134,7 +134,7 @@ describe('LinkShelfRepository', () => {
     const migrated = await createRepository(storage).initialize();
 
     expect(migrated.settings).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       displayDensity: 'comfortable',
       defaultRestoreMode: 'normal',
     });

@@ -15,7 +15,7 @@ function valid() {
   });
   return database;
 }
-const backup = () => ({ format: 'linkshelf-backup', schemaVersion: 2, exportedAt: NOW, database: valid() });
+const backup = () => ({ format: 'linkshelf-backup', schemaVersion: 3, exportedAt: NOW, database: valid() });
 
 describe('storage recovery through actual background messages', () => {
   let values: Record<string, any>;
