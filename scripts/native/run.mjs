@@ -201,11 +201,11 @@ try {
   const uiState = { lastSection: 'projects', selectedProjectId: 'legacy-project', sessionOrder: 'oldest', expandedSessionIds: ['legacy-session'] };
   await h.page.evaluate(value => chrome.storage.local.set({ linkshelfUiState: value, syntheticUnrelated: 'preserve' }), uiState);
   const bookmarksBefore = bookmarkContents(await h.page.evaluate(() => chrome.bookmarks.getTree()));
-  for (const version of [1, 2]) {
+  for (const version of [1, 2, 3]) {
     const historical = library(4, version);
     await h.seed(historical); await h.stopWorker();
     const expected = structuredClone(historical);
-    expected.settings = { ...expected.settings, schemaVersion: 2, ...(version === 1 ? { displayDensity: 'comfortable', defaultRestoreMode: 'normal' } : {}) };
+    expected.settings = { ...expected.settings, schemaVersion: 3, ...(version === 1 ? { displayDensity: 'comfortable', defaultRestoreMode: 'normal' } : {}) };
     assert.deepEqual(await h.database(), expected);
     await h.import(backup(historical));
     assert.deepEqual(await h.database(), expected);

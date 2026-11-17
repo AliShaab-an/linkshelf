@@ -4,7 +4,7 @@ import { MAX_BACKUP_BYTES } from './constants';
 import { readBackupFile, stringifyBackup } from './backup';
 
 const backup = {
-  format: 'linkshelf-backup', schemaVersion: 2, exportedAt: '2026-11-09T10:00:00.000Z',
+  format: 'linkshelf-backup', schemaVersion: 3, exportedAt: '2026-11-09T10:00:00.000Z',
   database: createEmptyDatabase('2026-11-09T10:00:00.000Z'),
 };
 

@@ -2,6 +2,7 @@ import { createEmptyDatabase, createInboxProject, INBOX_PROJECT_ID } from '@/dom
 import { stringifyBackup } from '@/domain/backup';
 import { sameRestoreIdentity, type RestoreIdentity } from '@/domain/restore-identity';
 import {
+  CURRENT_SCHEMA_VERSION,
   LinkShelfDatabaseSchema,
   LinkShelfBackupSchema,
   migrateLinkShelfDatabaseStructure,
@@ -15,6 +16,7 @@ import {
   type SettingsPatch,
 } from '@/domain/schemas';
 import { getDomain, normalizeUrl } from '@/domain/url';
+import { parseSearchQuery, parseTags } from '@/domain/tags';
 import type { StorageAdapter } from './storage-adapter';
 import { getIntegrityDiagnostics, structuralDiagnostics, type IntegrityDiagnostic } from '@/domain/integrity';
 import { storedValuesEqual, stringifyRecoveryExport, type RawRecoveryExport, type StorageStatus } from '@/domain/recovery';
@@ -46,6 +48,13 @@ export class InvalidLinkStateError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'InvalidLinkStateError';
+  }
+}
+
+export class InvalidTagsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidTagsError';
   }
 }
 
@@ -283,7 +292,7 @@ export class LinkShelfRepository {
   async exportBackup(): Promise<LinkShelfBackup> {
     const backup = LinkShelfBackupSchema.parse({
       format: 'linkshelf-backup',
-      schemaVersion: 2,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       exportedAt: this.now(),
       database: await this.getDatabase(),
     });
@@ -739,13 +748,9 @@ export class LinkShelfRepository {
   }
 
   async searchLinks(query: string): Promise<LinkSearchResult[]> {
-    const tokens = query
-      .trim()
-      .toLocaleLowerCase()
-      .split(/\s+/)
-      .filter(Boolean);
+    const { terms, tags } = parseSearchQuery(query);
 
-    if (tokens.length === 0) return [];
+    if (terms.length === 0 && tags.length === 0) return [];
 
     const database = await this.getDatabase();
     const projectNames = new Map(
@@ -755,15 +760,46 @@ export class LinkShelfRepository {
     const results: LinkSearchResult[] = [];
     for (const link of database.links) {
       if (link.status !== 'parked' && link.status !== 'archived') continue;
+      if (tags.length && !tags.every((tag) => link.tags?.includes(tag))) continue;
       const projectName = projectNames.get(link.projectId) ?? 'Unknown project';
-      const searchableText = `${link.title}\n${link.url}\n${link.domain}\n${link.note ?? ''}\n${projectName}`.toLocaleLowerCase();
-      if (tokens.every((token) => searchableText.includes(token))) {
+      const searchableText = [link.title, link.url, link.domain, link.note ?? '', projectName, ...(link.tags ?? [])].join('\n').toLocaleLowerCase();
+      if (terms.every((term) => searchableText.includes(term))) {
         results.push({ link, projectName });
       }
     }
     return results.sort((first, second) =>
       second.link.updatedAt.localeCompare(first.link.updatedAt),
     );
+  }
+
+  /** Replaces a parked or archived link's tags. An empty list clears them. */
+  async setLinkTags(linkId: string, input: unknown): Promise<SavedLink> {
+    const parsed = parseTags(input);
+    if (!parsed.ok) throw new InvalidTagsError(parsed.message);
+    return this.updateLinkState(
+      linkId,
+      ['parked', 'archived'],
+      (link, timestamp) => {
+        const current = link.tags ?? [];
+        if (current.length === parsed.tags.length && current.every((tag, index) => tag === parsed.tags[index])) return link;
+        const updated: SavedLink = { ...link, updatedAt: timestamp };
+        if (parsed.tags.length) updated.tags = parsed.tags;
+        else delete updated.tags;
+        return updated;
+      },
+      'Only parked or archived links can be tagged.',
+    );
+  }
+
+  /** Tag usage across parked and archived links, most used first. */
+  async getTagCounts(): Promise<Array<{ tag: string; count: number }>> {
+    const counts = new Map<string, number>();
+    for (const link of (await this.getDatabase()).links) {
+      if (link.status !== 'parked' && link.status !== 'archived') continue;
+      for (const tag of link.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return [...counts].map(([tag, count]) => ({ tag, count }))
+      .sort((first, second) => second.count - first.count || first.tag.localeCompare(second.tag));
   }
 
   async getLink(linkId: string): Promise<SavedLink | undefined> {
@@ -1226,7 +1262,7 @@ export class LinkShelfRepository {
     const diagnostics = getIntegrityDiagnostics(candidate);
     if (diagnostics.length) throw this.enterRecovery(diagnostics);
     const version = (storedValue as { settings: { schemaVersion: number } }).settings.schemaVersion;
-    if (version !== 2 || candidate !== database) {
+    if (version !== CURRENT_SCHEMA_VERSION || candidate !== database) {
       const database = await this.writeValidated(candidate, storedValue);
       return { database, original: database };
     }

@@ -28,7 +28,7 @@ describe('background operation outcomes', () => {
     return stored().links[0];
   }
   async function importPreview() {
-    const backup: LinkShelfBackup = { format: 'linkshelf-backup', schemaVersion: 2, exportedAt: '2026-11-09T10:00:00.000Z', database: createEmptyDatabase() };
+    const backup: LinkShelfBackup = { format: 'linkshelf-backup', schemaVersion: 3, exportedAt: '2026-11-09T10:00:00.000Z', database: createEmptyDatabase() };
     const preview = await request({ type: 'PREVIEW_IMPORT_DATA', payload: { backup, mode: 'replace' } });
     return { type: 'IMPORT_DATA', payload: { backup, mode: 'replace', revisionToken: preview.preview.revisionToken } };
   }
@@ -314,5 +314,31 @@ describe('background operation outcomes', () => {
     expect(api.tabs.create).not.toHaveBeenCalled();
     expect((await request({ type: 'BOOKMARK_LINK', payload: { linkId: link.id, parentId: 'folder' } })).success).toBe(true);
     expect(stored().links[0]).toMatchObject({ id: link.id, status: 'removed', bookmarkId: 'bookmark-1' });
+  });
+
+  it('sets and lists tags through worker messages and reports invalid requests with typed errors', async () => {
+    const link = await parkedLink();
+    const set = await request({ type: 'SET_LINK_TAGS', payload: { linkId: link.id, tags: [' Work ', 'Ideas'] } });
+    expect(set).toMatchObject({ success: true, link: { id: link.id, tags: ['work', 'ideas'] } });
+    expect(stored().links[0].tags).toEqual(['work', 'ideas']);
+    expect(await request({ type: 'GET_TAGS' })).toEqual({ success: true, tags: [{ tag: 'ideas', count: 1 }, { tag: 'work', count: 1 }] });
+    expect(await request({ type: 'SET_LINK_TAGS', payload: { linkId: link.id, tags: ['a,b'] } }))
+      .toMatchObject({ success: false, error: { code: 'INVALID_TAGS' } });
+    expect(await request({ type: 'SET_LINK_TAGS', payload: { linkId: 'missing', tags: ['x'] } }))
+      .toMatchObject({ success: false, error: { code: 'LINK_NOT_FOUND' } });
+    expect(stored().links[0].tags).toEqual(['work', 'ideas']);
+    expect(LinkShelfDatabaseSchema.safeParse(stored()).success).toBe(true);
+    await expect(request({ type: 'SET_LINK_TAGS', payload: { linkId: link.id, tags: 'nope' } })).rejects.toThrow('not handled');
+  });
+
+  it('filters search by tag and leaves native bookmarks out of tag-filtered searches', async () => {
+    api.bookmarks.getTree.mockResolvedValue([{ id: '0', children: [{ id: 'b1', title: 'work bookmark', url: 'https://bookmark.example.com/' }] }]);
+    const link = await parkedLink();
+    expect(await request({ type: 'SEARCH_LINKS', payload: { query: 'tag:work' } })).toMatchObject({ success: true, results: [], bookmarks: [] });
+    await request({ type: 'SET_LINK_TAGS', payload: { linkId: link.id, tags: ['work'] } });
+    const tagged = await request({ type: 'SEARCH_LINKS', payload: { query: 'tag:work' } });
+    expect(tagged.results.map((result: any) => result.link.id)).toEqual([link.id]);
+    expect(tagged.bookmarks).toEqual([]);
+    expect((await request({ type: 'SEARCH_LINKS', payload: { query: 'work' } })).bookmarks).toHaveLength(1);
   });
 });

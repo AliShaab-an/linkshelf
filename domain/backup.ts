@@ -26,8 +26,8 @@ export async function readBackupFile(file: Pick<File, 'size' | 'text'>): Promise
     throw new Error('This file could not be read as JSON. Choose a complete, unmodified LinkShelf backup.');
   }
   if (typeof value === 'object' && value !== null && 'schemaVersion' in value &&
-    value.schemaVersion !== 1 && value.schemaVersion !== 2) {
-    throw new Error('This backup uses an unsupported schema version. Update LinkShelf or choose a supported version-1 or version-2 backup.');
+    value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3) {
+    throw new Error('This backup uses an unsupported schema version. Update LinkShelf or choose a supported version-1, version-2, or version-3 backup.');
   }
   try {
     return parseSupportedLinkShelfBackup(value);

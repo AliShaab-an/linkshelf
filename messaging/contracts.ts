@@ -434,6 +434,29 @@ export interface MoveLinkMessage {
   payload: { linkId: string; projectId: string };
 }
 
+export interface SetLinkTagsMessage {
+  type: 'SET_LINK_TAGS';
+  payload: { linkId: string; tags: string[] };
+}
+
+export type SetLinkTagsResponse =
+  | { success: true; link: SavedLink }
+  | {
+      success: false;
+      error: {
+        code: 'LINK_NOT_FOUND' | 'INVALID_STATE' | 'INVALID_TAGS' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR';
+        message: string;
+      };
+    };
+
+export interface GetTagsMessage {
+  type: 'GET_TAGS';
+}
+
+export type GetTagsResponse =
+  | { success: true; tags: Array<{ tag: string; count: number }> }
+  | { success: false; error: { message: string } };
+
 export type LinkLifecycleResponse = OperationWarnings & (
   | { success: true; link: SavedLink }
   | {
@@ -884,6 +907,18 @@ export function isMoveLinkMessage(message: unknown): message is MoveLinkMessage 
     typeof candidate.payload.projectId === 'string' && candidate.payload.projectId.length > 0;
 }
 
+export function isSetLinkTagsMessage(message: unknown): message is SetLinkTagsMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<SetLinkTagsMessage>;
+  return candidate.type === 'SET_LINK_TAGS' &&
+    typeof candidate.payload?.linkId === 'string' && candidate.payload.linkId.length > 0 &&
+    Array.isArray(candidate.payload.tags);
+}
+
+export function isGetTagsMessage(message: unknown): message is GetTagsMessage {
+  return typeof message === 'object' && message !== null && (message as Partial<GetTagsMessage>).type === 'GET_TAGS';
+}
+
 export function isRestoreSessionMessage(
   message: unknown,
 ): message is RestoreSessionMessage {
@@ -1213,6 +1248,21 @@ export async function moveLink(linkId: string, projectId: string): Promise<LinkL
   } satisfies MoveLinkMessage)) as unknown;
   assertResponse(response);
   return response as LinkLifecycleResponse;
+}
+
+export async function setLinkTags(linkId: string, tags: string[]): Promise<SetLinkTagsResponse> {
+  const response = (await browser.runtime.sendMessage({
+    type: 'SET_LINK_TAGS',
+    payload: { linkId, tags },
+  } satisfies SetLinkTagsMessage)) as unknown;
+  assertResponse(response);
+  return response as SetLinkTagsResponse;
+}
+
+export async function getTags(): Promise<GetTagsResponse> {
+  const response = (await browser.runtime.sendMessage({ type: 'GET_TAGS' } satisfies GetTagsMessage)) as unknown;
+  assertResponse(response);
+  return response as GetTagsResponse;
 }
 
 export async function restoreSession(

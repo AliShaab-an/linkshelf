@@ -14,7 +14,7 @@ interface RelationalDatabase {
 }
 
 export function structuralDiagnostics(error: unknown): IntegrityDiagnostic[] {
-  const fields = new Set(['projects', 'sessions', 'links', 'settings', 'id', 'name', 'description', 'color', 'isInbox', 'createdAt', 'updatedAt', 'projectId', 'sessionId', 'note', 'reminderAt', 'reminderNotifiedAt', 'sourceWindowId', 'title', 'url', 'normalizedUrl', 'domain', 'status', 'pinnedBeforeParking', 'originalIndex', 'originalGroup', 'faviconUrl', 'restoredAt', 'archivedAt', 'removedAt', 'bookmarkId', 'bookmarkedAt', 'schemaVersion', 'defaultProjectId', 'includePinnedTabsByDefault', 'confirmBeforeBulkClose', 'notificationsEnabled', 'defaultRestoreBehavior', 'displayDensity', 'defaultRestoreMode', 'trackingParamsToRemove']);
+  const fields = new Set(['projects', 'sessions', 'links', 'settings', 'id', 'name', 'description', 'color', 'isInbox', 'createdAt', 'updatedAt', 'projectId', 'sessionId', 'note', 'tags', 'reminderAt', 'reminderNotifiedAt', 'sourceWindowId', 'title', 'url', 'normalizedUrl', 'domain', 'status', 'pinnedBeforeParking', 'originalIndex', 'originalGroup', 'faviconUrl', 'restoredAt', 'archivedAt', 'removedAt', 'bookmarkId', 'bookmarkedAt', 'schemaVersion', 'defaultProjectId', 'includePinnedTabsByDefault', 'confirmBeforeBulkClose', 'notificationsEnabled', 'defaultRestoreBehavior', 'displayDensity', 'defaultRestoreMode', 'trackingParamsToRemove']);
   const issues = error && typeof error === 'object' && 'issues' in error && Array.isArray(error.issues) ? error.issues : [];
   const diagnostics = issues.slice(0, 20).map((issue: { path?: unknown[] }) => ({
     code: 'INVALID_STRUCTURE',
