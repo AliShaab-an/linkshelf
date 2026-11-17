@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { getIntegrityDiagnostics } from './integrity';
+import { isValidTag, MAX_TAGS_PER_LINK } from './tags';
 
-export const CURRENT_SCHEMA_VERSION = 2 as const;
+export const CURRENT_SCHEMA_VERSION = 3 as const;
 
 const IdSchema = z.string().min(1);
 const IsoUtcDateTimeSchema = z.iso.datetime();
@@ -44,6 +45,11 @@ export const OriginalTabGroupSchema = z.strictObject({
   color: z.string().optional(),
 });
 
+export const TagsSchema = z.array(z.string().refine(isValidTag, 'Invalid tag.'))
+  .min(1)
+  .max(MAX_TAGS_PER_LINK)
+  .refine((tags) => new Set(tags).size === tags.length, 'Tags must be unique.');
+
 export const SavedLinkSchema = z.strictObject({
   id: IdSchema,
   sessionId: IdSchema,
@@ -54,6 +60,7 @@ export const SavedLinkSchema = z.strictObject({
   domain: z.string().min(1),
   faviconUrl: z.url().optional(),
   note: z.string().optional(),
+  tags: TagsSchema.optional(),
   status: LinkStatusSchema,
   pinnedBeforeParking: z.boolean(),
   originalIndex: z.number().int().nonnegative().optional(),
@@ -70,6 +77,9 @@ export const SavedLinkSchema = z.strictObject({
 });
 
 export type SavedLink = z.infer<typeof SavedLinkSchema>;
+
+// Versions 1 and 2 predate tags, so their records must not contain them.
+const LegacySavedLinkSchema = z.strictObject(SavedLinkSchema.omit({ tags: true }).shape);
 
 export const RestoreBehaviorSchema = z.enum([
   'restore-and-remove',
@@ -89,6 +99,18 @@ const SettingsV1Schema = z.strictObject({
   confirmBeforeBulkClose: z.boolean(),
   notificationsEnabled: z.boolean(),
   defaultRestoreBehavior: RestoreBehaviorSchema,
+  trackingParamsToRemove: z.array(z.string().min(1)),
+});
+
+const SettingsV2Schema = z.strictObject({
+  schemaVersion: z.literal(2),
+  defaultProjectId: IdSchema,
+  includePinnedTabsByDefault: z.boolean(),
+  confirmBeforeBulkClose: z.boolean(),
+  notificationsEnabled: z.boolean(),
+  defaultRestoreBehavior: RestoreBehaviorSchema,
+  displayDensity: DisplayDensitySchema,
+  defaultRestoreMode: RestoreModeSchema,
   trackingParamsToRemove: z.array(z.string().min(1)),
 });
 
@@ -134,26 +156,39 @@ export const LinkShelfDatabaseSchema = LinkShelfDatabaseStructureSchema.superRef
 const LinkShelfDatabaseV1Schema = z.strictObject({
   projects: z.array(ProjectSchema),
   sessions: z.array(ParkingSessionSchema),
-  links: z.array(SavedLinkSchema),
+  links: z.array(LegacySavedLinkSchema),
   settings: SettingsV1Schema,
+});
+
+const LinkShelfDatabaseV2Schema = z.strictObject({
+  projects: z.array(ProjectSchema),
+  sessions: z.array(ParkingSessionSchema),
+  links: z.array(LegacySavedLinkSchema),
+  settings: SettingsV2Schema,
 });
 
 export type LinkShelfDatabase = z.infer<typeof LinkShelfDatabaseSchema>;
 
-export function migrateLinkShelfDatabaseStructure(value: unknown): LinkShelfDatabase {
-  const version = value && typeof value === 'object' && 'settings' in value && value.settings && typeof value.settings === 'object' && 'schemaVersion' in value.settings
+function schemaVersionOf(value: unknown): unknown {
+  return value && typeof value === 'object' && 'settings' in value && value.settings && typeof value.settings === 'object' && 'schemaVersion' in value.settings
     ? value.settings.schemaVersion : undefined;
-  if (version !== 1) return LinkShelfDatabaseStructureSchema.parse(value);
-  const previous = LinkShelfDatabaseV1Schema.parse(value);
-  return {
-    ...previous,
-    settings: {
-      ...previous.settings,
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-      displayDensity: 'comfortable',
-      defaultRestoreMode: 'normal',
-    },
-  };
+}
+
+function upgradeV2(previous: z.infer<typeof LinkShelfDatabaseV2Schema>): LinkShelfDatabase {
+  return { ...previous, settings: { ...previous.settings, schemaVersion: CURRENT_SCHEMA_VERSION } };
+}
+
+export function migrateLinkShelfDatabaseStructure(value: unknown): LinkShelfDatabase {
+  const version = schemaVersionOf(value);
+  if (version === 1) {
+    const previous = LinkShelfDatabaseV1Schema.parse(value);
+    return upgradeV2({
+      ...previous,
+      settings: { ...previous.settings, schemaVersion: 2, displayDensity: 'comfortable', defaultRestoreMode: 'normal' },
+    });
+  }
+  if (version === 2) return upgradeV2(LinkShelfDatabaseV2Schema.parse(value));
+  return LinkShelfDatabaseStructureSchema.parse(value);
 }
 
 export function migrateLinkShelfDatabase(value: unknown): LinkShelfDatabase {
@@ -177,11 +212,19 @@ const LinkShelfBackupV1Schema = z.strictObject({
   database: LinkShelfDatabaseV1Schema,
 });
 
+const LinkShelfBackupV2Schema = z.strictObject({
+  format: z.literal('linkshelf-backup'),
+  schemaVersion: z.literal(2),
+  exportedAt: IsoUtcDateTimeSchema,
+  database: LinkShelfDatabaseV2Schema,
+});
+
 export function parseSupportedLinkShelfBackup(value: unknown): LinkShelfBackup {
   const current = LinkShelfBackupSchema.safeParse(value);
   if (current.success) return current.data;
 
-  const previous = LinkShelfBackupV1Schema.parse(value);
+  const version = value && typeof value === 'object' && 'schemaVersion' in value ? value.schemaVersion : undefined;
+  const previous = version === 2 ? LinkShelfBackupV2Schema.parse(value) : LinkShelfBackupV1Schema.parse(value);
   return LinkShelfBackupSchema.parse({
     ...previous,
     schemaVersion: CURRENT_SCHEMA_VERSION,

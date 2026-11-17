@@ -25,6 +25,8 @@ import {
   isRemoveLinkMessage,
   isUndoParkedLinkMessage,
   isMoveLinkMessage,
+  isSetLinkTagsMessage,
+  isGetTagsMessage,
   isRestoreLinkMessage,
   isRestoreProjectMessage,
   isRestoreSessionMessage,
@@ -59,11 +61,13 @@ import {
   executeSidePanelCommand,
   isPanelCommand,
 } from '@/features/commands/side-panel-commands';
+import { parseSearchQuery } from '@/domain/tags';
 import { ChromeStorageAdapter } from '@/storage/storage-adapter';
 import {
   DuplicateProjectNameError,
   InvalidLinkStateError,
   InvalidProjectNameError,
+  InvalidTagsError,
   LinkNotFoundError,
   LinkShelfRepository,
   ProjectNotFoundError,
@@ -78,7 +82,7 @@ export default defineBackground(() => {
   const searchPages = createSearchPages(async (query) => {
     if (!query.trim()) return { results: [], bookmarks: [] };
     const [results, tree] = await Promise.all([repository.searchLinks(query), browser.bookmarks.getTree()]);
-    return { results, bookmarks: searchBookmarkTree(tree, query) };
+    return { results, bookmarks: parseSearchQuery(query).tags.length ? [] : searchBookmarkTree(tree, query) };
   });
   browser.storage.onChanged?.addListener((changes, area) => {
     if (area === 'local' && Object.hasOwn(changes, DATABASE_STORAGE_KEY)) {
@@ -837,6 +841,38 @@ export default defineBackground(() => {
         sendResponse,
         synchronizeReminderAlarms,
       );
+      return true;
+    }
+
+    if (isSetLinkTagsMessage(message)) {
+      const { linkId, tags } = message.payload;
+      void operations.reserve([`link:${linkId}`], () => repository.setLinkTags(linkId, tags))
+        .then((link) => sendResponse({ success: true, link }))
+        .catch((error) => {
+          const known: Array<[new (...args: never[]) => Error, string]> = [
+            [OperationInProgressError, 'OPERATION_IN_PROGRESS'],
+            [LinkNotFoundError, 'LINK_NOT_FOUND'],
+            [InvalidLinkStateError, 'INVALID_STATE'],
+            [InvalidTagsError, 'INVALID_TAGS'],
+          ];
+          const match = known.find(([type]) => error instanceof type);
+          if (match) {
+            sendResponse({ success: false, error: { code: match[1], message: error.message } });
+            return;
+          }
+          console.error('Failed to update link tags:', error);
+          sendResponse({ success: false, error: { code: 'UNEXPECTED_ERROR', message: 'LinkShelf could not update tags.' } });
+        });
+      return true;
+    }
+
+    if (isGetTagsMessage(message)) {
+      void repository.getTagCounts()
+        .then((tags) => sendResponse({ success: true, tags }))
+        .catch((error) => {
+          console.error('Failed to read tags:', error);
+          sendResponse({ success: false, error: { message: 'LinkShelf could not load tags.' } });
+        });
       return true;
     }
 

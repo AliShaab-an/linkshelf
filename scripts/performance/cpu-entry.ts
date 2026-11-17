@@ -17,7 +17,7 @@ const api = {
     data = value;
     copy = structuredClone(value);
     text = JSON.stringify(value);
-    backupText = JSON.stringify({ format: 'linkshelf-backup', schemaVersion: 2, exportedAt: '2026-11-01T10:00:00.000Z', database: value });
+    backupText = JSON.stringify({ format: 'linkshelf-backup', schemaVersion: 3, exportedAt: '2026-11-01T10:00:00.000Z', database: value });
     repository = new LinkShelfRepository({ get: async () => data, set: async () => { throw new Error('CPU read benchmark must not write'); } });
     await repository.initialize();
     preparedGroups = new Map((await repository.getParkedSessionGroups()).map(group => [group.session.id, group.links]));

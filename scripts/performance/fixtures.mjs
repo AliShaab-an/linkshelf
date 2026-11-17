@@ -39,12 +39,12 @@ export function dataset(count, distribution, origin = 'https://benchmark.invalid
     };
   });
   return { projects, sessions, links, settings: {
-    schemaVersion: 2, defaultProjectId: 'project-0', includePinnedTabsByDefault: false,
+    schemaVersion: 3, defaultProjectId: 'project-0', includePinnedTabsByDefault: false,
     confirmBeforeBulkClose: true, notificationsEnabled: true, defaultRestoreBehavior: 'restore-and-remove',
     displayDensity: 'compact', defaultRestoreMode: 'normal', trackingParamsToRemove: ['utm_source'],
   } };
 }
-export const envelope = database => ({ format: 'linkshelf-backup', schemaVersion: 2, exportedAt: epoch, database });
+export const envelope = database => ({ format: 'linkshelf-backup', schemaVersion: 3, exportedAt: epoch, database });
 export function describe(database) {
   const text = JSON.stringify(database);
   return { links: database.links.length, projects: database.projects.length, sessions: database.sessions.length,

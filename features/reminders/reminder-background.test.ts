@@ -295,6 +295,6 @@ describe('actual background reminder handlers', () => {
     expect(stored().links.map((link) => link.id)).toEqual(links.map((link) => link.id));
     expect(stored().links.every((link) => link.reminderNotifiedAt === START)).toBe(true);
     expect(api.notifications.create).toHaveBeenCalledTimes(1);
-    expect(stored().settings.schemaVersion).toBe(2);
+    expect(stored().settings.schemaVersion).toBe(3);
   });
 });

@@ -20,10 +20,16 @@ function fixture(count = 4): LinkShelfDatabase {
   }));
   return database;
 }
-function backup(database = fixture()) { return { format: 'linkshelf-backup' as const, schemaVersion: 2 as const, exportedAt: NOW, database }; }
+function backup(database = fixture()) { return { format: 'linkshelf-backup' as const, schemaVersion: 3 as const, exportedAt: NOW, database }; }
 function legacy(database: LinkShelfDatabase) {
   const { displayDensity: _density, defaultRestoreMode: _mode, ...settings } = database.settings;
   return { ...database, settings: { ...settings, schemaVersion: 1 } };
+}
+function legacyV2(database: LinkShelfDatabase) {
+  return { ...database, settings: { ...database.settings, schemaVersion: 2 } };
+}
+function legacyOf(version: number, database: LinkShelfDatabase) {
+  return version === 1 ? legacy(database) : legacyV2(database);
 }
 class MemoryStorage {
   value: unknown;
@@ -339,7 +345,7 @@ describe('shared integrity validation and safe initialization', () => {
     await repository.initialize();
     const before = structuredClone(storage.value);
     storage.set.mockClear();
-    const source = version === 1 ? legacy(fixture()) : fixture();
+    const source = legacyOf(version, fixture());
     const malformed = {
       ...backup(), schemaVersion: version,
       database: { ...source, links: Array.from({ length: 2048 }, () => null) },
@@ -357,7 +363,7 @@ describe('shared integrity validation and safe initialization', () => {
   });
 
   it.each([1, 2])('preserves a bounded malformed schema-%i stored array and recovers only from a confirmed trusted backup', async (version) => {
-    const source = version === 1 ? legacy(fixture()) : fixture();
+    const source = legacyOf(version, fixture());
     const malformed = { ...source, links: Array.from({ length: 2048 }, () => null) };
     const { repository, storage } = setup(malformed);
     await expect(repository.initialize()).rejects.toBeInstanceOf(StorageValidationError);
@@ -444,7 +450,7 @@ describe('shared integrity validation and safe initialization', () => {
   it('creates defaults only for genuinely absent data and verifies the write', async () => {
     const storage = new MemoryStorage(undefined);
     const repository = new LinkShelfRepository(storage, () => NOW);
-    expect((await repository.initialize()).settings.schemaVersion).toBe(2);
+    expect((await repository.initialize()).settings.schemaVersion).toBe(3);
     expect(storage.set).toHaveBeenCalledTimes(1);
     expect(storage.get.mock.invocationCallOrder.at(-1)).toBeGreaterThan(storage.set.mock.invocationCallOrder[0]);
     expect(LinkShelfDatabaseSchema.safeParse(storage.value).success).toBe(true);
@@ -504,7 +510,7 @@ describe('shared integrity validation and safe initialization', () => {
     storage.set.mockImplementationOnce(async (key, value) => { if (kind === 'after') await write(key, value); throw new Error('Migration failed'); });
     await expect(repository.initialize()).rejects.toThrow('Migration failed');
     expect(storage.value).toEqual(original);
-    expect((await new LinkShelfRepository(storage).initialize()).settings.schemaVersion).toBe(2);
+    expect((await new LinkShelfRepository(storage).initialize()).settings.schemaVersion).toBe(3);
     expect((storage.value as LinkShelfDatabase).links).toEqual(fixture().links);
   });
 
@@ -673,8 +679,8 @@ describe('explicit recovery from independently validated backups', () => {
   }
   it.each([1, 2])('restores a supported version-%i backup only after export, preview and confirmation', async (version) => {
     const f = await recoverable();
-    const source = version === 1 ? { ...backup(), schemaVersion: 1, database: legacy(fixture()) } : backup();
-    expect(parseSupportedLinkShelfBackup(source).schemaVersion).toBe(2);
+    const source = { ...backup(), schemaVersion: version, database: legacyOf(version, fixture()) };
+    expect(parseSupportedLinkShelfBackup(source).schemaVersion).toBe(3);
     const preview = await f.repository.previewRecoveryBackup(source, f.exported.rawRevisionToken);
     expect(f.storage.value).toEqual(f.raw);
     expect(f.storage.set).not.toHaveBeenCalled();
