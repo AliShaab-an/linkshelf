@@ -791,6 +791,13 @@ export class LinkShelfRepository {
     );
   }
 
+  /** Returns the given URLs that already exist as parked links (compared by normalized URL). */
+  async findParkedDuplicateUrls(urls: string[]): Promise<string[]> {
+    const database = await this.getDatabase();
+    const parked = new Set(database.links.filter((link) => link.status === 'parked').map((link) => link.normalizedUrl));
+    return urls.filter((url) => parked.has(normalizeUrl(url, database.settings.trackingParamsToRemove)));
+  }
+
   /** Tag usage across parked and archived links, most used first. */
   async getTagCounts(): Promise<Array<{ tag: string; count: number }>> {
     const counts = new Map<string, number>();

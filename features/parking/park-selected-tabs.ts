@@ -9,6 +9,8 @@ import { closeSavedTab, type SafeTabCloseDependencies } from './safe-tab-close';
 
 export interface ParkSelectedTabsDependencies extends SafeTabCloseDependencies {
   persistTabs(input: ParkTabsInput): Promise<ParkTabsResult>;
+  /** Returns the URLs that already exist as parked links. */
+  findParkedDuplicateUrls(urls: string[]): Promise<string[]>;
 }
 
 export async function executeParkSelectedTabs(
@@ -65,15 +67,23 @@ export async function executeParkSelectedTabs(
     };
   }
 
-  let parkedRecords: ParkTabsResult;
+  let parkedRecords: ParkTabsResult | undefined;
+  let skipped: BrowserTabSnapshot[] = [];
+  let toPark = tabs;
 
   try {
-    parkedRecords = await dependencies.persistTabs({
+    if (message.payload.duplicates === 'skip') {
+      const duplicateUrls = new Set(await dependencies.findParkedDuplicateUrls(tabs.map((tab) => tab.url!)));
+      skipped = tabs.filter((tab) => duplicateUrls.has(tab.url!));
+      toPark = tabs.filter((tab) => !duplicateUrls.has(tab.url!));
+    }
+
+    if (toPark.length > 0) parkedRecords = await dependencies.persistTabs({
       projectId: message.payload.projectId,
       note: message.payload.note,
       reminderAt: message.payload.reminderAt,
       sourceWindowId: tabs[0].windowId,
-      tabs: tabs.map((tab) => ({
+      tabs: toPark.map((tab) => ({
         title: tab.title || 'Untitled tab',
         url: tab.url!,
         faviconUrl: tab.favIconUrl,
@@ -105,8 +115,9 @@ export async function executeParkSelectedTabs(
   return {
     success: true,
     saved: true,
-    sessionId: parkedRecords.session.id,
-    linkIds: parkedRecords.links.map((link) => link.id),
+    ...(parkedRecords ? { sessionId: parkedRecords.session.id } : {}),
+    linkIds: parkedRecords?.links.map((link) => link.id) ?? [],
+    ...(skipped.length ? { skippedDuplicateTabIds: skipped.map((tab) => tab.id!) } : {}),
     closedTabIds: closeResults
       .filter((result) => result.closed)
       .map((result) => result.tabId),

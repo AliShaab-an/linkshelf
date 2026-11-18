@@ -10,6 +10,7 @@ export function parkingOutcome(response: Extract<ParkSelectedTabsResponse, { suc
     saved: response.linkIds.length,
     closed: response.closedTabIds.length,
     unconfirmed: response.failedToCloseTabIds.length,
-    target: { projectId, sessionId: response.sessionId },
+    skipped: response.skippedDuplicateTabIds?.length ?? 0,
+    target: response.sessionId ? { projectId, sessionId: response.sessionId } : undefined,
   };
 }

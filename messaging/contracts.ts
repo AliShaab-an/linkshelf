@@ -218,6 +218,8 @@ export interface ParkCurrentTabMessage {
     projectId: string;
     note?: string;
     reminderAt?: string;
+    /** What to do when this URL is already parked. Defaults to `park`. */
+    duplicates?: 'park' | 'skip';
   };
 }
 
@@ -228,15 +230,28 @@ export interface ParkSelectedTabsMessage {
     projectId: string;
     note?: string;
     reminderAt?: string;
+    /** What to do with tabs whose URL is already parked. Defaults to `park`. */
+    duplicates?: 'park' | 'skip';
   };
 }
+
+export interface GetParkDuplicatesMessage {
+  type: 'GET_PARK_DUPLICATES';
+  payload: { tabIds: number[] };
+}
+
+export type GetParkDuplicatesResponse =
+  | { success: true; duplicateTabIds: number[] }
+  | { success: false; error: { message: string } };
 
 export type ParkSelectedTabsResponse = OperationWarnings & (
   | {
       success: true;
       saved: true;
-      sessionId: string;
+      /** Absent when every selected tab was an already-parked duplicate. */
+      sessionId?: string;
       linkIds: string[];
+      skippedDuplicateTabIds?: number[];
       closedTabIds: number[];
       failedToCloseTabIds: number[];
     }
@@ -571,8 +586,10 @@ export type ParkCurrentTabResponse = OperationWarnings & (
       success: true;
       saved: true;
       closed: true;
-      linkId: string;
-      sessionId: string;
+      /** Absent when the tab was an already-parked duplicate and was only closed. */
+      linkId?: string;
+      sessionId?: string;
+      skippedDuplicate?: true;
     }
   | {
       success: false;
@@ -611,7 +628,9 @@ export function isParkCurrentTabMessage(
     (candidate.payload.note === undefined ||
       typeof candidate.payload.note === 'string') &&
     (candidate.payload.reminderAt === undefined ||
-      typeof candidate.payload.reminderAt === 'string')
+      typeof candidate.payload.reminderAt === 'string') &&
+    (candidate.payload.duplicates === undefined ||
+      candidate.payload.duplicates === 'park' || candidate.payload.duplicates === 'skip')
   );
 }
 
@@ -734,8 +753,18 @@ export function isParkSelectedTabsMessage(
     (candidate.payload.note === undefined ||
       typeof candidate.payload.note === 'string') &&
     (candidate.payload.reminderAt === undefined ||
-      typeof candidate.payload.reminderAt === 'string')
+      typeof candidate.payload.reminderAt === 'string') &&
+    (candidate.payload.duplicates === undefined ||
+      candidate.payload.duplicates === 'park' || candidate.payload.duplicates === 'skip')
   );
+}
+
+export function isGetParkDuplicatesMessage(message: unknown): message is GetParkDuplicatesMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<GetParkDuplicatesMessage>;
+  const tabIds = candidate.payload?.tabIds;
+  return candidate.type === 'GET_PARK_DUPLICATES' && Array.isArray(tabIds) && tabIds.length > 0 &&
+    tabIds.every((tabId) => Number.isInteger(tabId) && tabId >= 0) && new Set(tabIds).size === tabIds.length;
 }
 
 export function isGetCurrentWindowTabsMessage(
@@ -1016,6 +1045,7 @@ export async function parkCurrentTab(
     projectId: string;
     note?: string;
     reminderAt?: string;
+    duplicates?: 'park' | 'skip';
   },
 ): Promise<ParkCurrentTabResponse> {
   const message: ParkCurrentTabMessage = {
@@ -1077,6 +1107,7 @@ export async function parkSelectedTabs(
     projectId: string;
     note?: string;
     reminderAt?: string;
+    duplicates?: 'park' | 'skip';
   },
 ): Promise<ParkSelectedTabsResponse> {
   const message: ParkSelectedTabsMessage = {
@@ -1257,6 +1288,12 @@ export async function setLinkTags(linkId: string, tags: string[]): Promise<SetLi
   } satisfies SetLinkTagsMessage)) as unknown;
   assertResponse(response);
   return response as SetLinkTagsResponse;
+}
+
+export async function getParkDuplicates(tabIds: number[]): Promise<GetParkDuplicatesResponse> {
+  const response = (await browser.runtime.sendMessage({ type: 'GET_PARK_DUPLICATES', payload: { tabIds } } satisfies GetParkDuplicatesMessage)) as unknown;
+  assertResponse(response);
+  return response as GetParkDuplicatesResponse;
 }
 
 export async function getTags(): Promise<GetTagsResponse> {
