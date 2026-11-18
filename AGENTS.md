@@ -1,6 +1,6 @@
 # LinkShelf repository instructions
 
-LinkShelf is a local-first Chrome MV3 extension (WXT, React, TypeScript, Zod). `v0.3` is the integration branch. Work on a new branch from the latest accepted `v0.3` for each approved phase; never edit `main`, `v0.2`, `v0.3`, or `experiment/ui-redesign` directly. Inspect Git status before switching branches and preserve unrelated changes.
+LinkShelf is a local-first Chrome MV3 extension (WXT, React, TypeScript, Zod). `v0.4` is the integration branch for the v0.4 release. Work on a new branch from the latest accepted `v0.4` for each approved phase (a phase branch may hold several features, one commit each); never edit `main`, `v0.2`, `v0.3`, `v0.4`, or `experiment/ui-redesign` directly. Inspect Git status before switching branches and preserve unrelated changes.
 
 For any LinkShelf phase implementation, review, regression fix, or PR preparation, use the `$linkshelf-phase-workflow` skill. Consult the Phase 3 roadmap and past reports in Git history when relevant. The `0.3.0` release merge commit `49ccf52` contains those documents.
 

@@ -2,9 +2,9 @@ name: Verify
 
 on:
   pull_request:
-    branches: [main, v0.3]
+    branches: [main, v0.4]
   push:
-    branches: [v0.3, 'fix/**', 'test/**', 'codex/**']
+    branches: [v0.4, 'feat/**', 'fix/**', 'test/**', 'codex/**']
   workflow_dispatch:
 
 permissions:
