@@ -177,7 +177,10 @@ try {
     await heading('Saved').focus();
     await actions.waitFor({ state: 'hidden' });
     await firstMore.click();
-    await more(card(fixture.links[1].title)).click();
+    // A menu near the top opens downward and can cover the next card's button, so use focus and Enter.
+    const secondMore = more(card(fixture.links[1].title));
+    await secondMore.focus();
+    await page.keyboard.press('Enter');
     assert.equal(await actions.count(), 1);
     assert.equal(await firstMore.getAttribute('aria-expanded'), 'false');
     await heading('Saved').click();

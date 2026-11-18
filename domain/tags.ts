@@ -58,3 +58,26 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
   }
   return { terms, tags };
 }
+
+/** A `tag:` filter token for a normalized tag, quoted when it contains spaces. */
+export function formatTagFilter(tag: string): string {
+  return /\s/u.test(tag) ? `tag:"${tag}"` : `tag:${tag}`;
+}
+
+/** Adds the tag filter to a query, or removes it when already present. */
+export function toggleTagInQuery(query: string, tag: string): string {
+  const target = normalizeTag(tag);
+  let removed = false;
+  const kept: string[] = [];
+  for (const match of query.matchAll(/tag:"([^"]*)"|tag:(\S*)|\S+/giu)) {
+    const quoted = match[1];
+    const bare = match[2];
+    if ((quoted !== undefined || bare !== undefined) && normalizeTag(quoted ?? bare) === target) {
+      removed = true;
+      continue;
+    }
+    kept.push(match[0]);
+  }
+  if (!removed) kept.push(formatTagFilter(target));
+  return kept.join(' ');
+}

@@ -26,6 +26,8 @@ import {
 } from '@/messaging/contracts';
 import { formatLinkDate, LinkFavicon, NotePreview, SavedLinkCard } from './SavedLinkCard';
 import { MoveLinkDialog } from './MoveLinkDialog';
+import { TagLinkDialog } from './TagLinkDialog';
+import { TagFilterBar } from './ui/TagFilterBar';
 import { hasActiveModal } from './ui/Modal';
 import { RemoveLinkDialog } from './RemoveLinkDialog';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
@@ -33,6 +35,7 @@ import { Disclosure } from './ui/Disclosure';
 import { Icon } from './ui/Icon';
 import { Select } from './ui/Select';
 import {
+  collectTagCounts,
   filterAndSortProjectGroups,
   groupSessionsByDay,
   PROJECT_LINK_BATCH_SIZE,
@@ -94,6 +97,8 @@ export function ProjectsSection({ savedSession, onPark }: {
   const [dialogPending, setDialogPending] = useState(false);
   const [removeCandidate, setRemoveCandidate] = useState<SavedLink | null>(null);
   const [moveCandidate, setMoveCandidate] = useState<SavedLink | null>(null);
+  const [tagCandidate, setTagCandidate] = useState<SavedLink | null>(null);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [moveDestination, setMoveDestination] = useState('');
   const [filter, setFilter] = useState('');
   const [sessionOrder, setSessionOrder] = useState<SessionOrder>('newest');
@@ -118,9 +123,11 @@ export function ProjectsSection({ savedSession, onPark }: {
     (total, group) => total + group.links.length,
     0,
   );
+  const tagCounts = useMemo(() => collectTagCounts(groups), [groups]);
+  const activeTag = tagFilter && tagCounts.some(({ tag }) => tag === tagFilter) ? tagFilter : null;
   const visibleGroups = useMemo(
-    () => filterAndSortProjectGroups(groups, filter, sessionOrder),
-    [groups, filter, sessionOrder],
+    () => filterAndSortProjectGroups(groups, filter, sessionOrder, activeTag ?? undefined),
+    [groups, filter, sessionOrder, activeTag],
   );
   const visibleDays = useMemo(() => groupByDay ? groupSessionsByDay(visibleGroups, sessionOrder)
     : [{ key: 'all', label: null, sessions: visibleGroups }], [groupByDay, sessionOrder, visibleGroups]);
@@ -129,7 +136,7 @@ export function ProjectsSection({ savedSession, onPark }: {
     0,
   );
   const sessionCounts = useMemo(() => new Map(groups.map(({ session, links }) => [session.id, links.length])), [groups]);
-  const filtering = Boolean(filter.trim());
+  const filtering = Boolean(filter.trim()) || activeTag !== null;
   const hiddenLinkCount = parkedLinkCount - visibleLinkCount;
   const activeExpansion = filtering ? filteredExpansion : expandedSessionIds;
   const moveProjects = projects.filter(project => project.id !== moveCandidate?.projectId);
@@ -257,6 +264,7 @@ export function ProjectsSection({ savedSession, onPark }: {
     setIsConfirmingDelete(false);
     setIsConfirmingRestoreProject(false);
     changeFilter('');
+    setTagFilter(null);
     setSessionLimits({});
     try {
       const response = await getParkedSessionGroups(projectId);
@@ -294,6 +302,7 @@ export function ProjectsSection({ savedSession, onPark }: {
       rememberView({ selectedProjectId: response.project.id, expandedSessionIds: [] });
       setNewName('');
       changeFilter('');
+      setTagFilter(null);
       setIsAddingProject(false);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'LinkShelf could not create the project.');
@@ -589,6 +598,23 @@ export function ProjectsSection({ savedSession, onPark }: {
     setMoveCandidate(link);
   }
 
+  function startTagging(link: SavedLink) {
+    setMessage(null);
+    setError(null);
+    setWarnings([]);
+    setPartialRestore(false);
+    setTagCandidate(link);
+  }
+
+  function finishTagging(updated: SavedLink) {
+    setGroups((current) => current.map((group) => ({
+      ...group,
+      links: group.links.map((link) => link.id === updated.id ? updated : link),
+    })));
+    setTagCandidate(null);
+    setMessage(updated.tags?.length ? `Saved tags for “${updated.title}”.` : `Removed tags from “${updated.title}”.`);
+  }
+
   async function confirmMove() {
     if (dialogPending || !moveCandidate || !moveDestination) return;
     setDialogPending(true);
@@ -826,6 +852,11 @@ export function ProjectsSection({ savedSession, onPark }: {
           onConfirm={() => void confirmRemoveLink()}
         />
       )}
+      {tagCandidate && (
+        <TagLinkDialog link={tagCandidate} suggestions={tagCounts.map(({ tag }) => tag)}
+          returnFocus={(invoker) => invoker ?? projectFilter.current ?? sectionHeading.current}
+          onSaved={finishTagging} onCancel={() => setTagCandidate(null)} />
+      )}
       {moveCandidate && (
         <MoveLinkDialog link={moveCandidate} projects={moveProjects} selectedProjectId={moveDestination}
           feedback={<OperationFeedback {...feedback} pending={dialogPending ? 'Moving link…' : undefined} />}
@@ -834,13 +865,15 @@ export function ProjectsSection({ savedSession, onPark }: {
           onConfirm={() => void confirmMove()} />
       )}
 
+      {!isLoading && !error && tagCounts.length > 0 && <TagFilterBar tags={tagCounts} selected={activeTag ? [activeTag] : []}
+        onToggle={(tag) => { setSessionLimits({}); setFilteredExpansion(null); setTagFilter(activeTag === tag ? null : tag); }} />}
       {isLoading && <SkeletonCards count={2} />}
       {!isLoading && !error && groups.length === 0 && selectedProject && <EmptyState title="Nothing saved yet">
         <p>Park a tab to get started.</p>
         <button type="button" className={`${toolbarButton} mt-2 bg-blue-700 text-white hover:bg-blue-800`} onClick={() => onPark(selectedProject.id)}>Park tabs</button>
       </EmptyState>}
       {!isLoading && !error && groups.length > 0 && visibleGroups.length === 0 && <EmptyState title="No matching tabs">
-        <button type="button" className={`${toolbarButton} text-blue-700 hover:bg-blue-50`} onClick={() => { changeFilter(''); projectFilter.current?.focus(); }}>Clear filter</button>
+        <button type="button" className={`${toolbarButton} text-blue-700 hover:bg-blue-50`} onClick={() => { changeFilter(''); setTagFilter(null); projectFilter.current?.focus(); }}>Clear filter</button>
       </EmptyState>}
       {visibleGroups.length > 0 && <>
         <h3 className="sr-only">Sessions</h3>
@@ -900,6 +933,7 @@ export function ProjectsSection({ savedSession, onPark }: {
                   onRestore={() => void handleRestore(link)}
                   onRestoreAndRemove={() => void handleRestore(link, 'restore-and-remove')}
                   onArchive={() => void handleArchive(link)}
+                  onEditTags={() => startTagging(link)}
                   onMove={projects.length > 1 ? () => startMoving(link) : undefined}
                   onRemove={() => startRemoving(link)}
                 />)}
