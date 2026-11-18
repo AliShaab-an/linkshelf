@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ParkedSessionGroup } from '@/messaging/contracts';
 import {
+  collectTagCounts,
   filterAndSortProjectGroups,
   groupSessionsByDay,
   PROJECT_LINK_BATCH_SIZE,
@@ -47,6 +48,32 @@ describe('project view helpers', () => {
     expect(filterAndSortProjectGroups([older], 'special.dev', 'newest')[0].links[0].originalIndex).toBe(3);
     expect(filterAndSortProjectGroups([older], 'before launch', 'newest')[0].links[0].originalIndex).toBe(4);
     expect(filterAndSortProjectGroups([older], 'client research', 'newest')[0].links).toHaveLength(60);
+  });
+
+  describe('tags', () => {
+    const tagged = group('tagged', '2026-08-21T10:00:00.000Z', 4);
+    tagged.links[0] = { ...tagged.links[0], tags: ['work', 'read later'] };
+    tagged.links[1] = { ...tagged.links[1], tags: ['work'] };
+    tagged.links[3] = { ...tagged.links[3], tags: ['ideas'] };
+
+    it('filters by an exact tag and combines it with text filtering', () => {
+      expect(filterAndSortProjectGroups([tagged], '', 'newest', 'work')[0].links.map((link) => link.originalIndex)).toEqual([0, 1]);
+      expect(filterAndSortProjectGroups([tagged], 'reference 1', 'newest', 'work')[0].links.map((link) => link.originalIndex)).toEqual([1]);
+      expect(filterAndSortProjectGroups([tagged], '', 'newest', 'work2')).toEqual([]);
+      expect(filterAndSortProjectGroups([tagged], '', 'newest', 'wor')).toEqual([]);
+    });
+
+    it('matches tags in the text filter and keeps the original link order', () => {
+      expect(filterAndSortProjectGroups([tagged], 'ideas', 'newest')[0].links.map((link) => link.originalIndex)).toEqual([3]);
+      expect(filterAndSortProjectGroups([tagged], '', 'newest')[0].links).toHaveLength(4);
+    });
+
+    it('counts tags across groups, most used first then alphabetically', () => {
+      expect(collectTagCounts([tagged, older])).toEqual([
+        { tag: 'work', count: 2 }, { tag: 'ideas', count: 1 }, { tag: 'read later', count: 1 },
+      ]);
+      expect(collectTagCounts([newer])).toEqual([]);
+    });
   });
 
   it('reveals large sessions in batches without reordering', () => {

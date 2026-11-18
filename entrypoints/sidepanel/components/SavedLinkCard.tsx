@@ -24,15 +24,32 @@ interface SavedLinkCardProps {
   onUnarchive?: () => void;
   onBookmark?: () => void;
   onMove?: () => void;
+  onEditTags?: () => void;
   onRemove?: () => void;
 }
 
-export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', inSession = false, showParkedDate = true, isRestoring, onRestore, onRestoreAndRemove, onArchive, onUnarchive, onBookmark, onMove, onRemove }: SavedLinkCardProps) {
+export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', inSession = false, showParkedDate = true, isRestoring, onRestore, onRestoreAndRemove, onArchive, onUnarchive, onBookmark, onMove, onEditTags, onRemove }: SavedLinkCardProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [opensDown, setOpensDown] = useState(false);
   const actionsButton = useRef<HTMLButtonElement>(null);
   const actionsPanel = useRef<HTMLDivElement>(null);
   const actionsId = useId();
-  const secondaryActions = Boolean(onMove || onArchive || onUnarchive || onRemove || onRestoreAndRemove);
+  const secondaryActions = Boolean(onMove || onEditTags || onArchive || onUnarchive || onRemove || onRestoreAndRemove);
+
+  // The menu opens upward; flip it when sticky headers would cover its first items.
+  useLayoutEffect(() => {
+    if (!actionsOpen) {
+      setOpensDown(false);
+      return;
+    }
+    const button = actionsButton.current;
+    const panel = actionsPanel.current;
+    if (!button || !panel) return;
+    const styles = getComputedStyle(document.documentElement);
+    const covered = ['--sidebar-shell-height', '--saved-toolbar-height']
+      .reduce((total, name) => total + (Number.parseFloat(styles.getPropertyValue(name)) || 0), 0);
+    setOpensDown(button.getBoundingClientRect().top - covered < panel.offsetHeight + 16);
+  }, [actionsOpen]);
 
   useEffect(() => {
     if (!actionsOpen) return;
@@ -84,6 +101,7 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
         <h3 className="line-clamp-2 wrap-anywhere text-sm font-semibold leading-snug text-slate-900" dir="auto" title={link.title}>{link.title}</h3>
         <p className="mt-0.5 truncate text-xs text-slate-600" title={projectName ? `${link.domain} · ${projectName}` : link.domain}>{link.domain}{projectName ? ` · ${projectName}` : ''}</p>
         {(showParkedDate || isDue || link.status === 'archived') && <p className={`mt-0.5 text-xs ${isDue ? 'font-semibold text-amber-700' : 'text-slate-600'}`}>{isDue && link.reminderAt ? `Parked · Due ${formatLinkDate(link.reminderAt)}` : link.status === 'archived' ? `Archived ${formatLinkDate(link.archivedAt ?? link.updatedAt)}` : `Parked ${formatLinkDate(link.createdAt)}`}</p>}
+        {link.tags && link.tags.length > 0 && <CardTags tags={link.tags} />}
       </div>
     </div>
     {!row && note && <NotePreview note={note} />}
@@ -96,16 +114,29 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
     {row && note && <div className="col-span-2"><NotePreview note={note} /></div>}
 
     {secondaryActions && <div id={actionsId} ref={actionsPanel} hidden={!actionsOpen || isRestoring}
-      className="dropdown-panel absolute right-4 bottom-14 z-20 min-w-40 space-y-1" role="group" aria-label="Link actions">
+      className={`dropdown-panel absolute right-4 ${opensDown ? 'top-full mt-1' : 'bottom-14'} z-20 min-w-40 space-y-1`} role="group" aria-label="Link actions">
       {actionsOpen && !isRestoring && <>
         {onMove && <ActionButton onClick={() => action(onMove)}>Move to project</ActionButton>}
         {onArchive && <ActionButton onClick={() => action(onArchive)}>Archive</ActionButton>}
+        {onEditTags && <ActionButton onClick={() => action(onEditTags)}>{link.tags?.length ? 'Edit tags' : 'Add tags'}</ActionButton>}
         {onRestoreAndRemove && <ActionButton onClick={() => action(onRestoreAndRemove)}>Restore and remove from list</ActionButton>}
         {onUnarchive && <ActionButton onClick={() => action(onUnarchive)}>Return to project</ActionButton>}
         {onRemove && <ActionButton danger onClick={() => action(onRemove)}>Remove</ActionButton>}
       </>}
     </div>}
   </article>;
+}
+
+const VISIBLE_CARD_TAGS = 3;
+
+/** A bounded tag summary: the first few tags plus a count, all named in the list label. */
+function CardTags({ tags }: { tags: string[] }) {
+  const shown = tags.slice(0, VISIBLE_CARD_TAGS);
+  const hidden = tags.length - shown.length;
+  return <ul className="mt-1 flex flex-wrap gap-1" aria-label="Tags" title={tags.join(', ')}>
+    {shown.map((tag) => <li key={tag} className="max-w-full truncate rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700" dir="auto">{tag}</li>)}
+    {hidden > 0 && <li className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700" aria-label={`and ${hidden} more: ${tags.slice(VISIBLE_CARD_TAGS).join(', ')}`}>+{hidden}</li>}
+  </ul>;
 }
 
 export function LinkFavicon({ link }: { link: Pick<SavedLink, 'domain' | 'faviconUrl'> }) {

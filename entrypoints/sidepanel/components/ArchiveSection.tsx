@@ -8,6 +8,7 @@ import {
   unarchiveLink,
 } from '@/messaging/contracts';
 import { RemoveLinkDialog } from './RemoveLinkDialog';
+import { TagLinkDialog } from './TagLinkDialog';
 import { SavedLinkCard } from './SavedLinkCard';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 import { ListNavigation } from './ui/ListNavigation';
@@ -24,6 +25,7 @@ export function ArchiveSection() {
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [dialogPending, setDialogPending] = useState(false);
   const [removeCandidate, setRemoveCandidate] = useState<SavedLink | null>(null);
+  const [tagCandidate, setTagCandidate] = useState<SavedLink | null>(null);
   const [page, setPage] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -141,18 +143,26 @@ export function ArchiveSection() {
     }
   }
 
+  function finishTagging(updated: SavedLink) {
+    setLinks((current) => current.map((link) => link.id === updated.id ? updated : link));
+    setTagCandidate(null);
+    setError(null);
+    setMessage(updated.tags?.length ? `Saved tags for “${updated.title}”.` : `Removed tags from “${updated.title}”.`);
+  }
+
   const feedback = { pending: workingId ? 'Updating link…' : undefined, message, error: error || loadError, warnings };
 
   return (
     <>
-      <OperationFeedback {...(!(removeCandidate) ? feedback : {})} />
+      <OperationFeedback {...(!(removeCandidate || tagCandidate) ? feedback : {})} />
       <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inactive links</p><h2 ref={heading} tabIndex={-1} className="mt-1 text-lg font-bold">Archive</h2><p className="mt-1 text-sm text-slate-500">Archived links stay searchable. Use Return to project to park a link in its original project again.</p></div>
       {removeCandidate && <RemoveLinkDialog link={removeCandidate} feedback={<OperationFeedback {...feedback} pending={dialogPending ? 'Updating link…' : undefined} />} returnFocus={(invoker) => invoker ?? heading.current} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} />}
+      {tagCandidate && <TagLinkDialog link={tagCandidate} suggestions={[...new Set(links.flatMap((link) => link.tags ?? []))]} returnFocus={(invoker) => invoker ?? heading.current} onSaved={finishTagging} onCancel={() => setTagCandidate(null)} />}
       {isLoading && <SkeletonCards count={2} />}
       {!isLoading && !error && !loadError && links.length === 0 && <EmptyState title="Archive is empty">Links you archive remain searchable and will appear here.</EmptyState>}
       <ListNavigation label="Archived links pages" range={range} count={links.length} onPage={setPage} />
       <div ref={cards} data-page={range.page} className="space-y-3">
-        {links.slice(range.start, range.end).map((link) => <SavedLinkCard key={link.id} cardId={`archived-${link.id}`} link={link} projectName={projectNames.get(link.projectId)} isRestoring={workingId === link.id} onUnarchive={() => void returnToProject(link)} onRemove={() => { if (!isRefreshing) startRemoving(link); }} />)}
+        {links.slice(range.start, range.end).map((link) => <SavedLinkCard key={link.id} cardId={`archived-${link.id}`} link={link} projectName={projectNames.get(link.projectId)} isRestoring={workingId === link.id} onEditTags={() => { setMessage(null); setError(null); setWarnings([]); setTagCandidate(link); }} onUnarchive={() => void returnToProject(link)} onRemove={() => { if (!isRefreshing) startRemoving(link); }} />)}
       </div>
     </>
   );
