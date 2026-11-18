@@ -36,10 +36,27 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
   const eligibleTabs = tabs.filter(tab => tab.status === 'eligible');
   const selectedTabs = eligibleTabs.filter(tab => selected.has(tab.id));
   const project = projects.find(item => item.id === projectId);
+  const unavailableTabs = tabs.filter(tab => tab.status !== 'eligible');
   const duplicates = new Set(duplicateIds);
   const selectedDuplicates = selectedTabs.filter(tab => duplicates.has(tab.id));
   const skipping = duplicateMode === 'skip' ? selectedDuplicates.length : 0;
   const toSave = selectedTabs.length - skipping;
+
+  function renderTab(tab: WindowTabCandidate) {
+    return <li key={tab.id}>
+      <label className={`flex min-h-12 items-start gap-3 rounded-xl border p-3 ${selected.has(tab.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+        <input type="checkbox" className="mt-1 size-4 shrink-0 accent-blue-700" aria-label={`Select ${tab.title}`}
+          checked={selected.has(tab.id)} disabled={tab.status !== 'eligible' || loading || !!loadError || pending}
+          onChange={() => choose(selected.has(tab.id) ? selectedIds.filter(id => id !== tab.id) : [...selectedIds, tab.id])} />
+        <span className="min-w-0 flex-1">
+          <span className="block break-words text-sm font-semibold">{tab.title}</span>
+          <span className="block break-all text-xs text-slate-600">{tab.domain}</span>
+          {tab.reason && <span className="mt-1 block text-xs text-slate-600">{tab.reason}</span>}
+        </span>
+        {tab.status !== 'eligible' && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold capitalize">{tab.status}</span>}
+      </label>
+    </li>;
+  }
 
   async function review() {
     setResult(undefined);
@@ -172,21 +189,11 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
       onClick={() => choose(selectedTabs.length === eligibleTabs.length ? [] : eligibleTabs.map(tab => tab.id))}>
       {selectedTabs.length === eligibleTabs.length ? 'Clear selection' : 'Select all eligible'}
     </Button>}
-    <ul aria-label="Tabs in this window" className="space-y-2">
-      {tabs.map(tab => <li key={tab.id}>
-        <label className={`flex min-h-12 items-start gap-3 rounded-xl border p-3 ${selected.has(tab.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
-          <input type="checkbox" className="mt-1 size-4 shrink-0 accent-blue-700" aria-label={`Select ${tab.title}`}
-            checked={selected.has(tab.id)} disabled={tab.status !== 'eligible' || loading || !!loadError || pending}
-            onChange={() => choose(selected.has(tab.id) ? selectedIds.filter(id => id !== tab.id) : [...selectedIds, tab.id])} />
-          <span className="min-w-0 flex-1">
-            <span className="block break-words text-sm font-semibold">{tab.title}</span>
-            <span className="block break-all text-xs text-slate-600">{tab.domain}</span>
-            {tab.reason && <span className="mt-1 block text-xs text-slate-600">{tab.reason}</span>}
-          </span>
-          {tab.status !== 'eligible' && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold capitalize">{tab.status}</span>}
-        </label>
-      </li>)}
-    </ul>
+    {eligibleTabs.length > 0 && <ul aria-label="Tabs in this window" className="space-y-2">{eligibleTabs.map(renderTab)}</ul>}
+    {unavailableTabs.length > 0 && <details className="mt-3">
+      <summary className="min-h-10 cursor-pointer content-center rounded text-sm font-semibold text-slate-700">{unavailableTabs.length} {unavailableTabs.length === 1 ? 'tab' : 'tabs'} can’t be parked</summary>
+      <ul aria-label="Tabs that can’t be parked" className="mt-2 space-y-2">{unavailableTabs.map(renderTab)}</ul>
+    </details>}
     <div className="parking-actions sticky bottom-0 z-30 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-t-xl border border-slate-200 bg-white p-3 shadow-lg">
       <span role="status" className="text-sm font-semibold">{selectedTabs.length} selected</span>
       <Button type="button" variant="primary" disabled={!selectedTabs.length || !project || loading || !!loadError || pending || needsRefresh}

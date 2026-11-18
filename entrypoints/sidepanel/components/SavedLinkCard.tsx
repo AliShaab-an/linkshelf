@@ -35,10 +35,12 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
   const actionsPanel = useRef<HTMLDivElement>(null);
   const actionsId = useId();
   const secondaryActions = Boolean(onMove || onEditTags || onArchive || onUnarchive || onRemove || onRestoreAndRemove);
+  // Without a primary action the menu button sits in the header instead of taking a row of its own.
+  const menuInHeader = secondaryActions && !onRestore && !onBookmark;
 
   // The menu opens upward; flip it when sticky headers would cover its first items.
   useLayoutEffect(() => {
-    if (!actionsOpen) {
+    if (!actionsOpen || menuInHeader) {
       setOpensDown(false);
       return;
     }
@@ -74,6 +76,7 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
 
   const compact = density === 'compact';
   const row = inSession && compact;
+  const actionsTrigger = secondaryActions && <button ref={actionsButton} type="button" className="dropdown-trigger shrink-0" aria-label="More link actions" aria-expanded={actionsOpen && !isRestoring} aria-controls={actionsId} disabled={isRestoring} onClick={() => setActionsOpen((open) => !open)}><Icon name="more"/></button>;
   const primaryAction = 'inline-flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-sm font-semibold disabled:opacity-45';
 
   return <article id={cardId} data-saved-row={inSession || undefined} tabIndex={inSession ? 0 : undefined}
@@ -103,18 +106,19 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
         {(showParkedDate || isDue || link.status === 'archived') && <p className={`mt-0.5 text-xs ${isDue ? 'font-semibold text-amber-700' : 'text-slate-600'}`}>{isDue && link.reminderAt ? `Parked · Due ${formatLinkDate(link.reminderAt)}` : link.status === 'archived' ? `Archived ${formatLinkDate(link.archivedAt ?? link.updatedAt)}` : `Parked ${formatLinkDate(link.createdAt)}`}</p>}
         {link.tags && link.tags.length > 0 && <CardTags tags={link.tags} />}
       </div>
+      {menuInHeader && actionsTrigger}
     </div>
     {!row && note && <NotePreview note={note} />}
 
-    <div className={`flex items-center gap-1.5 ${row ? '' : compact ? 'mt-1.5' : 'mt-2.5'}`}>
+    {!menuInHeader && <div className={`flex items-center gap-1.5 ${row ? '' : compact ? 'mt-1.5' : 'mt-2.5'}`}>
       {onRestore && <button type="button" aria-label={isRestoring ? undefined : 'Restore link'} className={`${primaryAction} ${inSession ? 'text-blue-700 hover:bg-blue-50' : 'flex-1 bg-blue-700 text-white hover:bg-blue-800'}`} disabled={isRestoring} onClick={onRestore}>{!row && <Icon name="undo" className="size-4 shrink-0"/>}{isRestoring ? 'Working…' : 'Restore'}</button>}
       {onBookmark && <button type="button" aria-label="Bookmark in Chrome" className={`${primaryAction} flex-1 border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100`} disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark" className="size-4 shrink-0"/>Bookmark</button>}
-      {secondaryActions && <button ref={actionsButton} type="button" className="dropdown-trigger shrink-0" aria-label="More link actions" aria-expanded={actionsOpen && !isRestoring} aria-controls={actionsId} disabled={isRestoring} onClick={() => setActionsOpen((open) => !open)}><Icon name="more"/></button>}
-    </div>
+      {actionsTrigger}
+    </div>}
     {row && note && <div className="col-span-2"><NotePreview note={note} /></div>}
 
     {secondaryActions && <div id={actionsId} ref={actionsPanel} hidden={!actionsOpen || isRestoring}
-      className={`dropdown-panel absolute right-4 ${opensDown ? 'top-full mt-1' : 'bottom-14'} z-20 min-w-40 space-y-1`} role="group" aria-label="Link actions">
+      className={`dropdown-panel absolute right-4 ${menuInHeader ? 'top-14' : opensDown ? 'top-full mt-1' : 'bottom-14'} z-20 min-w-40 space-y-1`} role="group" aria-label="Link actions">
       {actionsOpen && !isRestoring && <>
         {onMove && <ActionButton onClick={() => action(onMove)}>Move to project</ActionButton>}
         {onArchive && <ActionButton onClick={() => action(onArchive)}>Archive</ActionButton>}
