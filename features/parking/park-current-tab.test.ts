@@ -53,6 +53,7 @@ function createDependencies(): ParkCurrentTabDependencies {
   return {
     getTab: vi.fn().mockResolvedValue(tab),
     persistTab: vi.fn().mockResolvedValue(parkedRecords),
+    findParkedDuplicateUrls: vi.fn().mockResolvedValue([]),
     closeTab: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -131,6 +132,40 @@ describe('executeParkCurrentTab', () => {
     expect(response).toMatchObject({
       success: false,
       error: { code: 'TAB_NOT_ELIGIBLE' },
+    });
+  });
+
+  describe('duplicates', () => {
+    const skip: ParkCurrentTabMessage = { ...message, payload: { ...message.payload, duplicates: 'skip' } };
+
+    it('does not check for duplicates unless asked', async () => {
+      const dependencies = createDependencies();
+      await executeParkCurrentTab(message, dependencies);
+      expect(dependencies.findParkedDuplicateUrls).not.toHaveBeenCalled();
+    });
+
+    it('closes an already-saved tab without creating a second record', async () => {
+      const dependencies = createDependencies();
+      vi.mocked(dependencies.findParkedDuplicateUrls).mockResolvedValue([tab.url!]);
+      const response = await executeParkCurrentTab(skip, dependencies);
+      expect(dependencies.persistTab).not.toHaveBeenCalled();
+      expect(dependencies.closeTab).toHaveBeenCalledWith(42);
+      expect(response).toEqual({ success: true, saved: true, closed: true, skippedDuplicate: true });
+    });
+
+    it('saves normally when the URL is new', async () => {
+      const dependencies = createDependencies();
+      const response = await executeParkCurrentTab(skip, dependencies);
+      expect(dependencies.persistTab).toHaveBeenCalledTimes(1);
+      expect(response).toMatchObject({ success: true, linkId: 'link-1' });
+    });
+
+    it('keeps the tab open when the duplicate check fails', async () => {
+      const dependencies = createDependencies();
+      vi.mocked(dependencies.findParkedDuplicateUrls).mockRejectedValue(new Error('read failed'));
+      const response = await executeParkCurrentTab(skip, dependencies);
+      expect(dependencies.closeTab).not.toHaveBeenCalled();
+      expect(response).toMatchObject({ success: false, saved: false, error: { code: 'STORAGE_FAILED' } });
     });
   });
 });

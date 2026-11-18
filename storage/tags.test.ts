@@ -117,3 +117,12 @@ describe('link tags in the repository', () => {
     expect((await repository.getLink(first.id))?.tags).toEqual(['new']);
   });
 });
+
+describe('parked duplicate lookup', () => {
+  it('matches parked links by normalized URL and ignores other statuses', async () => {
+    const { repository, first, second } = await tagged();
+    expect(await repository.findParkedDuplicateUrls(['https://a.example.com/?utm_source=x', 'https://c.example.com/'])).toEqual(['https://a.example.com/?utm_source=x']);
+    await repository.archiveLink(second.id);
+    expect(await repository.findParkedDuplicateUrls([second.url, first.url])).toEqual([first.url]);
+  });
+});

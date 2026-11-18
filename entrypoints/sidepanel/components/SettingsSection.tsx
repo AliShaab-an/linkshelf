@@ -5,11 +5,14 @@ import { useSettingsPreferences } from './useSettingsPreferences';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useRef, useState } from 'react';
 import type { LinkShelfBackup } from '@/domain/schemas';
+import { buildExport, type ExportFormat } from '@/domain/export';
+import { Select } from './ui/Select';
 import { BACKUP_SIZE_LIMIT_LABEL } from '@/domain/constants';
 import { readBackupFile, stringifyBackup } from '@/domain/backup';
 import type { ImportBackupPreview, ImportMode } from '@/storage/repository';
 import {
   exportData,
+  getSettings,
   importData,
   previewImportData,
 } from '@/messaging/contracts';
@@ -20,6 +23,9 @@ export function SettingsSection() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const preferences = useSettingsPreferences();
   const [isExporting, setIsExporting] = useState(false);
+  const [readableProject, setReadableProject] = useState('');
+  const [readableFormat, setReadableFormat] = useState<ExportFormat>('markdown');
+  const [readableProjects, setReadableProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [importBackup, setImportBackup] = useState<LinkShelfBackup | null>(null);
@@ -28,6 +34,14 @@ export function SettingsSection() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let current = true;
+    void getSettings().then((response) => {
+      if (current && response.success) setReadableProjects(response.projects.map(({ id, name }) => ({ id, name })));
+    }).catch(() => undefined);
+    return () => { current = false; };
+  }, []);
 
   useEffect(() => {
     void browser.commands.getAll().then((commands) => setShortcuts(
@@ -51,6 +65,27 @@ export function SettingsSection() {
       setMessage('Backup downloaded. Store it somewhere private because it contains your URLs and notes.');
     } catch (caughtError) {
       setError(toMessage(caughtError, 'LinkShelf could not export your data.'));
+    } finally { setIsExporting(false); }
+  }
+
+  async function downloadReadable() {
+    setWarnings([]);
+    setIsExporting(true); setError(null); setMessage(null);
+    try {
+      const response = await exportData();
+      if (!response.success) throw new Error(response.error.message);
+      const result = buildExport(response.backup.database, { projectId: readableProject || undefined, format: readableFormat, exportedAt: response.backup.exportedAt });
+      const extension = readableFormat === 'html' ? 'html' : 'md';
+      const blob = new Blob([result.content], { type: readableFormat === 'html' ? 'text/html' : 'text/markdown' });
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = `linkshelf-export-${response.backup.exportedAt.slice(0, 10)}.${extension}`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+      setMessage(`${result.truncated ? 'Partial export downloaded: some links were left out. ' : 'Export downloaded. '}${result.linkCount} ${result.linkCount === 1 ? 'link' : 'links'} in ${result.projectCount} ${result.projectCount === 1 ? 'project' : 'projects'}. This file cannot be imported back; use Download backup for a restorable copy.`);
+    } catch (caughtError) {
+      setError(toMessage(caughtError, 'LinkShelf could not create this export.'));
     } finally { setIsExporting(false); }
   }
 
@@ -116,6 +151,22 @@ export function SettingsSection() {
           <p className="mt-2 text-sm text-slate-600">Export projects, sessions, links, reminders, and settings as readable JSON. Chrome bookmarks are not included.</p>
           <p className="mt-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">Backups can contain sensitive URLs and notes. Store the file securely.</p>
           <button type="button" className="mt-4 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-50" disabled={isExporting} onClick={() => void downloadBackup()}>{isExporting ? 'Preparing backup...' : 'Download backup'}</button>
+
+          <div className="my-4 border-t border-slate-200" />
+          <h4 className="text-sm font-semibold">Export to read or share</h4>
+          <p className="mt-1 text-xs text-slate-500">Create a Markdown or HTML list of saved and archived links with notes and tags. It is read-only and cannot be imported back. Use Download backup above for a restorable JSON copy.</p>
+          <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="readable-project">Project</label>
+          <Select id="readable-project" className="mt-1 w-full" value={readableProject} disabled={isExporting}
+            onChange={(event) => setReadableProject(event.target.value)}>
+            <option value="">All projects</option>
+            {readableProjects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </Select>
+          <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="readable-format">Format</label>
+          <Select id="readable-format" className="mt-1 w-full" value={readableFormat} disabled={isExporting} onChange={(event) => setReadableFormat(event.target.value as ExportFormat)}>
+            <option value="markdown">Markdown (.md)</option>
+            <option value="html">HTML (.html)</option>
+          </Select>
+          <button type="button" className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-50" disabled={isExporting} onClick={() => void downloadReadable()}>{isExporting ? 'Preparing export...' : 'Download export'}</button>
 
           <div className="my-4 border-t border-slate-200" />
           <h4 className="text-sm font-semibold">Import backup</h4>

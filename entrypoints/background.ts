@@ -26,6 +26,7 @@ import {
   isUndoParkedLinkMessage,
   isMoveLinkMessage,
   isSetLinkTagsMessage,
+  isGetParkDuplicatesMessage,
   isGetTagsMessage,
   isRestoreLinkMessage,
   isRestoreProjectMessage,
@@ -184,14 +185,14 @@ export default defineBackground(() => {
 
   function parkCurrent(message: ParkCurrentTabMessage) {
     return operations.reserve([`tab:${message.payload.tabId}`], () => watchTabSnapshots(browser.tabs, [message.payload.tabId], (hasTabChanged) => executeParkCurrentTab(message, {
-      getTab: (id) => browser.tabs.get(id), persistTab: (input) => repository.parkTab(input),
+      getTab: (id) => browser.tabs.get(id), persistTab: (input) => repository.parkTab(input), findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
       closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
     })));
   }
 
   function parkSelected(message: ParkSelectedTabsMessage) {
     return operations.reserve(message.payload.tabIds.map((id) => `tab:${id}`), () => watchTabSnapshots(browser.tabs, message.payload.tabIds, (hasTabChanged) => executeParkSelectedTabs(message, {
-      getTab: (id) => browser.tabs.get(id), persistTabs: (input) => repository.parkTabs(input),
+      getTab: (id) => browser.tabs.get(id), persistTabs: (input) => repository.parkTabs(input), findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
       closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
     })));
   }
@@ -862,6 +863,22 @@ export default defineBackground(() => {
           }
           console.error('Failed to update link tags:', error);
           sendResponse({ success: false, error: { code: 'UNEXPECTED_ERROR', message: 'LinkShelf could not update tags.' } });
+        });
+      return true;
+    }
+
+    if (isGetParkDuplicatesMessage(message)) {
+      void (async () => {
+        const tabs = (await Promise.all(message.payload.tabIds.map(async (id) => {
+          try { return await browser.tabs.get(id); } catch { return undefined; }
+        }))).filter((tab) => tab?.id !== undefined && tab.url);
+        const duplicateUrls = new Set(await repository.findParkedDuplicateUrls(tabs.map((tab) => tab!.url!)));
+        return tabs.filter((tab) => duplicateUrls.has(tab!.url!)).map((tab) => tab!.id!);
+      })()
+        .then((duplicateTabIds) => sendResponse({ success: true, duplicateTabIds }))
+        .catch((error) => {
+          console.error('Failed to check duplicates:', error);
+          sendResponse({ success: false, error: { message: 'LinkShelf could not check for duplicates.' } });
         });
       return true;
     }

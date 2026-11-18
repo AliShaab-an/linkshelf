@@ -20,6 +20,8 @@ export interface BrowserTabSnapshot {
 
 export interface ParkCurrentTabDependencies extends SafeTabCloseDependencies {
   persistTab(input: ParkTabInput): Promise<ParkTabResult>;
+  /** Returns the URLs that already exist as parked links. */
+  findParkedDuplicateUrls(urls: string[]): Promise<string[]>;
 }
 
 export async function executeParkCurrentTab(
@@ -66,10 +68,13 @@ export async function executeParkCurrentTab(
     };
   }
 
-  let parkedRecords: ParkTabResult;
+  let parkedRecords: ParkTabResult | undefined;
+  let skippedDuplicate = false;
 
   try {
-    parkedRecords = await dependencies.persistTab({
+    skippedDuplicate = message.payload.duplicates === 'skip' &&
+      (await dependencies.findParkedDuplicateUrls([tab.url])).length > 0;
+    if (!skippedDuplicate) parkedRecords = await dependencies.persistTab({
       projectId: message.payload.projectId,
       note: message.payload.note,
       reminderAt: message.payload.reminderAt,
@@ -100,8 +105,7 @@ export async function executeParkCurrentTab(
       success: false,
       saved: true,
       closed: false,
-      linkId: parkedRecords.link.id,
-      sessionId: parkedRecords.session.id,
+      ...(parkedRecords ? { linkId: parkedRecords.link.id, sessionId: parkedRecords.session.id } : {}),
       error: {
         code: closure === 'changed' ? 'TAB_CHANGED' : 'TAB_CLOSE_FAILED',
         message: closure === 'changed'
@@ -117,7 +121,7 @@ export async function executeParkCurrentTab(
     success: true,
     saved: true,
     closed: true,
-    linkId: parkedRecords.link.id,
-    sessionId: parkedRecords.session.id,
+    ...(parkedRecords ? { linkId: parkedRecords.link.id, sessionId: parkedRecords.session.id } : {}),
+    ...(skippedDuplicate ? { skippedDuplicate: true as const } : {}),
   };
 }

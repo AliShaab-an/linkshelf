@@ -61,6 +61,7 @@ function createDependencies(): ParkSelectedTabsDependencies {
   return {
     getTab: vi.fn(async (tabId) => tabs.find((tab) => tab.id === tabId)!),
     persistTabs: vi.fn().mockResolvedValue(parkedRecords),
+    findParkedDuplicateUrls: vi.fn().mockResolvedValue([]),
     closeTab: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -143,6 +144,44 @@ describe('executeParkSelectedTabs', () => {
       success: true,
       closedTabIds: [10],
       failedToCloseTabIds: [11],
+    });
+  });
+
+  describe('duplicates', () => {
+    const skip: ParkSelectedTabsMessage = { ...message, payload: { ...message.payload, duplicates: 'skip' } };
+
+    it('does not look for duplicates unless asked', async () => {
+      const dependencies = createDependencies();
+      await executeParkSelectedTabs(message, dependencies);
+      expect(dependencies.findParkedDuplicateUrls).not.toHaveBeenCalled();
+      expect(dependencies.persistTabs).toHaveBeenCalledWith(expect.objectContaining({ tabs: expect.arrayContaining([expect.objectContaining({ url: tabs[0].url }), expect.objectContaining({ url: tabs[1].url })]) }));
+    });
+
+    it('saves only new tabs, reports skipped ones, and closes both', async () => {
+      const dependencies = createDependencies();
+      vi.mocked(dependencies.findParkedDuplicateUrls).mockResolvedValue([tabs[0].url]);
+      const response = await executeParkSelectedTabs(skip, dependencies);
+      const saved = vi.mocked(dependencies.persistTabs).mock.calls[0][0].tabs;
+      expect(saved.map((tab) => tab.url)).toEqual([tabs[1].url]);
+      expect(response).toMatchObject({ success: true, skippedDuplicateTabIds: [10], closedTabIds: [10, 11] });
+      expect(dependencies.closeTab).toHaveBeenCalledTimes(2);
+    });
+
+    it('closes without creating a session when every tab is already saved', async () => {
+      const dependencies = createDependencies();
+      vi.mocked(dependencies.findParkedDuplicateUrls).mockResolvedValue(tabs.map((tab) => tab.url));
+      const response = await executeParkSelectedTabs(skip, dependencies);
+      expect(dependencies.persistTabs).not.toHaveBeenCalled();
+      expect(response).toMatchObject({ success: true, linkIds: [], skippedDuplicateTabIds: [10, 11], closedTabIds: [10, 11] });
+      expect('sessionId' in response).toBe(false);
+    });
+
+    it('keeps every tab open when the duplicate check or save fails', async () => {
+      const dependencies = createDependencies();
+      vi.mocked(dependencies.findParkedDuplicateUrls).mockRejectedValue(new Error('read failed'));
+      const response = await executeParkSelectedTabs(skip, dependencies);
+      expect(response).toMatchObject({ success: false, error: { code: 'STORAGE_FAILED' } });
+      expect(dependencies.closeTab).not.toHaveBeenCalled();
     });
   });
 });
