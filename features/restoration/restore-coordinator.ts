@@ -7,11 +7,15 @@ import { executeRestoreLink } from './restore-link';
 import { executeRestoreSession } from './restore-session';
 import { executeRestoreProject } from './restore-project';
 import type { RestoreTabOutcome } from './restore-collection';
+import { waitForTabCommit, type TabCommitApi } from './tab-commit';
 
 interface RestoreTabsApi {
   query(query: { windowId: number }): Promise<unknown[]>;
   create(input: { url: string; active: boolean; windowId: number; index?: number }): Promise<{ id?: number }>;
   discard(id: number): Promise<{ discarded?: boolean } | undefined>;
+  /** Optional so tests can omit it; production passes the real tabs API. */
+  get?: TabCommitApi['get'];
+  onUpdated?: TabCommitApi['onUpdated'];
 }
 
 export function createRestoreCoordinator(repository: LinkShelfRepository, operations: OperationCoordinator, tabs: RestoreTabsApi) {
@@ -28,7 +32,12 @@ export function createRestoreCoordinator(repository: LinkShelfRepository, operat
     if (markAsRestored) opened.set(link.id, { identity: restoreIdentity(link), outcome });
     if (unloaded && tab.id !== undefined) {
       try {
-        if ((await tabs.discard(tab.id))?.discarded) {
+        // Discarding before the navigation commits leaves a blank tab, so wait; if Chrome never
+        // commits it, the tab simply stays loaded and is reported as a fallback.
+        const committed = tabs.get && tabs.onUpdated
+          ? await waitForTabCommit({ get: tabs.get.bind(tabs), onUpdated: tabs.onUpdated }, tab.id)
+          : true;
+        if (committed && (await tabs.discard(tab.id))?.discarded) {
           outcome.discarded = true;
           outcome.fallback = false;
         }
