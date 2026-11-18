@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { LinkShelfBackup } from '@/domain/schemas';
 import { buildExport, type ExportFormat } from '@/domain/export';
 import { Select } from './ui/Select';
+import { SnapshotsPanel } from './SnapshotsPanel';
 import { BACKUP_SIZE_LIMIT_LABEL } from '@/domain/constants';
 import { readBackupFile, stringifyBackup } from '@/domain/backup';
 import type { ImportBackupPreview, ImportMode } from '@/storage/repository';
@@ -193,6 +194,8 @@ export function SettingsSection() {
             <div className="mt-3 flex gap-2"><button type="button" className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${importPreview.mode === 'replace' ? 'bg-red-700' : 'bg-slate-900'}`} disabled={isImporting || importPreview.conflicts > 0} onClick={() => void confirmImport()}>{isImporting ? 'Importing...' : importPreview.mode === 'replace' ? 'Replace LinkShelf data' : 'Confirm merge'}</button><button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={isImporting} onClick={() => setImportPreview(null)}>Cancel</button></div>
           </InlineConfirmation>}
         </section>
+
+        <SnapshotsPanel />
 
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <h3 className="font-semibold">Keyboard shortcuts</h3>

@@ -36,7 +36,16 @@
         <p>LinkShelf processes the following information only to provide its visible features:</p>
         <ul>
           <li>Titles, URLs, favicons, pin state, and original position of tabs the user chooses to park.</li>
-          <li>Project names, notes, reminder dates, and settings entered by the user.</li>
+          <li>Project names, notes, tags, reminder dates, and settings entered by the user.</li>
+          <li>
+            Only if the user turns on <em>Recent window snapshots</em> in Settings (off by default): the
+            titles and web addresses of all open tabs in normal browser windows, including pages the user has not
+            saved, and the times they were captured. At most three saved snapshots are kept, plus one working
+            copy that is refreshed every few minutes. Internal browser pages and non-web addresses are not stored.
+            Web addresses can contain private information. Snapshots stay on the device, are not included in
+            exports or backups, and are deleted when the user turns the setting off or chooses
+            <em>Delete all snapshots</em>.
+          </li>
           <li>Chrome bookmark titles and URLs for local search, duplicate detection, and user-requested bookmark creation.</li>
           <li>Local records describing whether a saved link was parked, restored, bookmarked, archived, or removed.</li>
         </ul>
@@ -61,17 +70,18 @@
 
         <h2>Chrome permissions</h2>
         <ul>
-          <li><strong>Tabs:</strong> read tabs selected by the user, close them after successful storage, and restore them later.</li>
+          <li><strong>Tabs:</strong> read tabs selected by the user, close them after successful storage, and restore them later. If the user enables window snapshots, also read the titles and addresses of open tabs to keep those snapshots.</li>
           <li><strong>Bookmarks:</strong> search bookmark titles and URLs and create a bookmark when explicitly requested.</li>
           <li><strong>Storage:</strong> keep LinkShelf projects, links, sessions, reminders, settings, and lifecycle history locally.</li>
-          <li><strong>Alarms and notifications:</strong> schedule and display reminders created by the user.</li>
+          <li><strong>Alarms and notifications:</strong> schedule and display reminders created by the user, and refresh window snapshots when the user has enabled them.</li>
           <li><strong>Side panel:</strong> provide the extension interface. Current-tab parking uses the existing Tabs permission; LinkShelf does not request <code>activeTab</code>.</li>
         </ul>
         <p>LinkShelf does not request broad website host access and does not inject scripts into webpages.</p>
 
         <h2>Export, import, retention, and deletion</h2>
         <p>
-          Users can export LinkShelf-owned data to a JSON file. Exported files may contain sensitive
+          Users can export LinkShelf-owned data to a JSON file, and can create a read-only Markdown or HTML
+          list of saved links. Exported files may contain sensitive
           URLs and notes and are controlled by the user after download. Import reads only a file
           explicitly selected by the user, validates it before writing, and never modifies native
           Chrome bookmarks.

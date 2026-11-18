@@ -2,6 +2,7 @@ import type { OperationWarnings } from '@/features/operations/secondary-result';
 import type { RawRecoveryExport, StorageStatus } from '@/domain/recovery';
 import type { RecoveryBackupPreview } from '@/storage/repository';
 import { SettingsPatchSchema, type SettingsPatch } from '@/domain/schemas';
+import type { SnapshotSummary } from '@/domain/snapshots';
 import type {
   LinkShelfBackup,
   ParkingSession,
@@ -1326,3 +1327,53 @@ export async function restoreProject(
   assertResponse(response);
   return response as RestoreProjectResponse;
 }
+
+export type SnapshotListResponse =
+  | { success: true; enabled: boolean; snapshots: SnapshotSummary[] }
+  | { success: false; error: { message: string } };
+
+export interface GetSnapshotsMessage { type: 'GET_SNAPSHOTS' }
+export interface SetSnapshotsEnabledMessage { type: 'SET_SNAPSHOTS_ENABLED'; payload: { enabled: boolean } }
+export interface DeleteSnapshotsMessage { type: 'DELETE_SNAPSHOTS' }
+export interface RestoreSnapshotMessage { type: 'RESTORE_SNAPSHOT'; payload: { snapshotId: string } }
+
+export type RestoreSnapshotResponse =
+  | { success: true; opened: number; failed: number; total: number }
+  | {
+      success: false;
+      opened: number;
+      error: { code: 'SNAPSHOT_NOT_FOUND' | 'TAB_OPEN_FAILED' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR'; message: string };
+    };
+
+export function isGetSnapshotsMessage(message: unknown): message is GetSnapshotsMessage {
+  return typeof message === 'object' && message !== null && (message as { type?: unknown }).type === 'GET_SNAPSHOTS';
+}
+
+export function isSetSnapshotsEnabledMessage(message: unknown): message is SetSnapshotsEnabledMessage {
+  const candidate = message as Partial<SetSnapshotsEnabledMessage> | null;
+  return typeof candidate === 'object' && candidate !== null && candidate.type === 'SET_SNAPSHOTS_ENABLED' &&
+    typeof candidate.payload?.enabled === 'boolean';
+}
+
+export function isDeleteSnapshotsMessage(message: unknown): message is DeleteSnapshotsMessage {
+  return typeof message === 'object' && message !== null && (message as { type?: unknown }).type === 'DELETE_SNAPSHOTS';
+}
+
+export function isRestoreSnapshotMessage(message: unknown): message is RestoreSnapshotMessage {
+  const candidate = message as Partial<RestoreSnapshotMessage> | null;
+  return typeof candidate === 'object' && candidate !== null && candidate.type === 'RESTORE_SNAPSHOT' &&
+    typeof candidate.payload?.snapshotId === 'string' && candidate.payload.snapshotId.length > 0;
+}
+
+async function sendSnapshotMessage<T>(message: unknown): Promise<T> {
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as T;
+}
+
+export const getSnapshots = () => sendSnapshotMessage<SnapshotListResponse>({ type: 'GET_SNAPSHOTS' } satisfies GetSnapshotsMessage);
+export const setSnapshotsEnabled = (enabled: boolean) =>
+  sendSnapshotMessage<SnapshotListResponse>({ type: 'SET_SNAPSHOTS_ENABLED', payload: { enabled } } satisfies SetSnapshotsEnabledMessage);
+export const deleteSnapshots = () => sendSnapshotMessage<SnapshotListResponse>({ type: 'DELETE_SNAPSHOTS' } satisfies DeleteSnapshotsMessage);
+export const restoreSnapshot = (snapshotId: string) =>
+  sendSnapshotMessage<RestoreSnapshotResponse>({ type: 'RESTORE_SNAPSHOT', payload: { snapshotId } } satisfies RestoreSnapshotMessage);

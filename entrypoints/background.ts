@@ -27,6 +27,10 @@ import {
   isMoveLinkMessage,
   isSetLinkTagsMessage,
   isGetParkDuplicatesMessage,
+  isGetSnapshotsMessage,
+  isSetSnapshotsEnabledMessage,
+  isDeleteSnapshotsMessage,
+  isRestoreSnapshotMessage,
   isGetTagsMessage,
   isRestoreLinkMessage,
   isRestoreProjectMessage,
@@ -52,6 +56,9 @@ import { executeParkSelectedTabs } from '@/features/parking/park-selected-tabs';
 import { classifyWindowTabs } from '@/features/parking/window-tabs';
 import { REMINDER_ALARM_PREFIX } from '@/features/reminders/reminder-service';
 import { createRestoreCoordinator } from '@/features/restoration/restore-coordinator';
+import { createSnapshotService } from '@/features/snapshots/snapshot-service';
+import { SnapshotStore } from '@/storage/snapshot-store';
+import { SNAPSHOT_ALARM_NAME, SNAPSHOT_ALARM_PERIOD_MINUTES } from '@/domain/snapshots';
 import type { SavedLink } from '@/domain/schemas';
 import {
   SIDE_PANEL_INTENTS_KEY,
@@ -97,6 +104,30 @@ export default defineBackground(() => {
     event?.addListener(searchPages.invalidate);
   }
   const operations = new OperationCoordinator();
+  const snapshots = createSnapshotService({
+    store: new SnapshotStore(new ChromeStorageAdapter()),
+    windows: {
+      getAll: async () => (await browser.windows.getAll({ populate: true, windowTypes: ['normal'] }))
+        .map((window) => ({ windowId: window.id, // Tabs discarded before loading only expose their address as pendingUrl.
+        tabs: (window.tabs ?? []).map((tab) => ({ url: tab.url || tab.pendingUrl, title: tab.title })) })),
+    },
+  });
+
+  /** The alarm only exists while the opt-in feature is on. */
+  async function reconcileSnapshotAlarm() {
+    try {
+      const { enabled } = await snapshots.summaries();
+      if (!enabled) {
+        await browser.alarms.clear(SNAPSHOT_ALARM_NAME);
+        return;
+      }
+      if (!(await browser.alarms.get(SNAPSHOT_ALARM_NAME))) {
+        await browser.alarms.create(SNAPSHOT_ALARM_NAME, { periodInMinutes: SNAPSHOT_ALARM_PERIOD_MINUTES });
+      }
+    } catch (error) {
+      console.warn('LinkShelf could not update the snapshot alarm:', error);
+    }
+  }
   const restoration = createRestoreCoordinator(repository, operations, browser.tabs);
   const bookmarking = createBookmarkCoordinator(operations, {
     getLink: (id) => repository.getLink(id),
@@ -269,9 +300,18 @@ export default defineBackground(() => {
       });
     }
   });
-  browser.runtime.onStartup.addListener(() => void initializeExtension());
+  browser.runtime.onStartup.addListener(() => {
+    void initializeExtension();
+    void snapshots.started().then(reconcileSnapshotAlarm);
+  });
+  browser.windows?.onRemoved?.addListener((windowId) => void snapshots.windowClosed(windowId));
+  void reconcileSnapshotAlarm();
 
   browser.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === SNAPSHOT_ALARM_NAME) {
+      void snapshots.capture();
+      return;
+    }
     if (!alarm.name.startsWith(REMINDER_ALARM_PREFIX)) return;
     void synchronizeReminderAlarms().catch((error) => console.error('Failed to reconcile LinkShelf reminders:', error));
   });
@@ -863,6 +903,44 @@ export default defineBackground(() => {
           }
           console.error('Failed to update link tags:', error);
           sendResponse({ success: false, error: { code: 'UNEXPECTED_ERROR', message: 'LinkShelf could not update tags.' } });
+        });
+      return true;
+    }
+
+    if (isGetSnapshotsMessage(message) || isSetSnapshotsEnabledMessage(message) || isDeleteSnapshotsMessage(message)) {
+      void (async () => {
+        if (isSetSnapshotsEnabledMessage(message)) {
+          const list = await snapshots.setEnabled(message.payload.enabled);
+          await reconcileSnapshotAlarm();
+          return list;
+        }
+        if (isDeleteSnapshotsMessage(message)) await snapshots.clear();
+        return snapshots.summaries();
+      })()
+        .then((list) => sendResponse({ success: true, ...list }))
+        .catch((error) => {
+          console.error('Snapshot request failed:', error);
+          sendResponse({ success: false, error: { message: 'LinkShelf could not update snapshots.' } });
+        });
+      return true;
+    }
+
+    if (isRestoreSnapshotMessage(message)) {
+      void operations.reserve(['snapshot-restore'], async () => {
+        const windowId = await selectRestoreWindow(sender.tab?.windowId);
+        return operations.enqueue(`window:${windowId}`, () => snapshots.restore(message.payload.snapshotId, windowId, browser.tabs));
+      })
+        .then(sendResponse)
+        .catch((error) => {
+          console.error('Snapshot restoration failed:', error);
+          sendResponse({
+            success: false,
+            opened: 0,
+            error: {
+              code: error instanceof OperationInProgressError ? 'OPERATION_IN_PROGRESS' : 'UNEXPECTED_ERROR',
+              message: error instanceof Error ? error.message : 'LinkShelf could not restore this snapshot.',
+            },
+          });
         });
       return true;
     }
