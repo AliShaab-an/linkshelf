@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHarness, navigateSidebar, poll } from './harness.mjs';
+import { createHarness, navigateSidebar, poll, choose } from './harness.mjs';
 
 const h = await createHarness();
 const { page } = h;
@@ -49,7 +49,7 @@ try {
 
   // Set a custom reminder on a saved link, then clear it.
   await navigateSidebar(page, 'Saved');
-  await page.getByLabel('Project', { exact: true }).selectOption('legacy-inbox');
+  await choose(page.getByLabel('Project', { exact: true }), 'legacy-inbox');
   const card = page.locator('article').filter({ has: page.getByRole('heading', { name: 'Plain link', exact: true }) });
   await card.waitFor();
   await card.getByRole('button', { name: 'More link actions' }).click();

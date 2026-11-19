@@ -5,7 +5,7 @@ import { getCurrentWindowTabs, getParkDuplicates, getSettings, parkSelectedTabs,
 import { Modal } from './ui/Modal';
 import { OperationWarnings } from './ui/OperationWarnings';
 import { Button } from './ui/Button';
-import { Select } from './ui/Select';
+import { Dropdown } from './ui/Dropdown';
 import { parkingOutcome, type SavedSessionTarget } from '../parking-outcome';
 
 export function ParkTabsSection({ initialProjectId, onViewSession }: { initialProjectId?: string; onViewSession(target: SavedSessionTarget): void }) {
@@ -206,9 +206,8 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
       <form onSubmit={event => void confirm(event)} className="mt-3">
         <fieldset disabled={pending} className="min-w-0 space-y-3">
           <label className="block text-sm font-semibold" htmlFor="bulk-project">Save to project</label>
-          <Select id="bulk-project" className="w-full" value={projectId} onChange={event => setProjectId(event.target.value)}>
-            {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </Select>
+          <Dropdown id="bulk-project" className="w-full" value={projectId}
+            options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={setProjectId} />
           <details open={extraDetails} onToggle={event => setExtraDetails(event.currentTarget.open)}>
             <summary className="cursor-pointer rounded py-2 text-sm font-semibold text-blue-800">Add note or reminder</summary>
             <label className="mt-2 block text-sm font-semibold" htmlFor="bulk-note">Shared note (optional)</label>

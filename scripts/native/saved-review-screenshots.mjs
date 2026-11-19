@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHarness, navigateSidebar, poll } from './harness.mjs';
+import { createHarness, navigateSidebar, poll, choose } from './harness.mjs';
 import { dataset } from '../performance/fixtures.mjs';
 
 const stage = process.argv[2];
@@ -53,7 +53,7 @@ try {
     await zoom(factor);
     await poll(() => page.evaluate(() => innerWidth), value => value === width / factor, 'effective CSS viewport width');
     await navigateSidebar(page, 'Saved');
-    await page.getByLabel('Project', { exact: true }).selectOption(project.id);
+    await choose(page.getByLabel('Project', { exact: true }), project.id);
     await page.getByRole('button', { name: 'Restore session', exact: true }).first().waitFor();
     await capture('saved', label);
     await navigateSidebar(page, 'Review');

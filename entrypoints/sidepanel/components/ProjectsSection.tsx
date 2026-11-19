@@ -34,7 +34,8 @@ import { RemoveLinkDialog } from './RemoveLinkDialog';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 import { Disclosure } from './ui/Disclosure';
 import { Icon } from './ui/Icon';
-import { Select } from './ui/Select';
+import { Dropdown } from './ui/Dropdown';
+import { SegmentedControl } from './ui/SegmentedControl';
 import {
   collectTagCounts,
   filterAndSortProjectGroups,
@@ -63,7 +64,7 @@ export function ProjectsSection({ savedSession, onPark }: {
   const target = useRef(savedSession).current;
   const targetButton = useRef<HTMLButtonElement>(null);
   const sectionHeading = useRef<HTMLHeadingElement>(null);
-  const projectSelector = useRef<HTMLSelectElement>(null);
+  const projectSelector = useRef<HTMLButtonElement>(null);
   const projectFilter = useRef<HTMLInputElement>(null);
   const toolbar = useRef<HTMLDivElement>(null);
   const sessions = useRef<HTMLDivElement>(null);
@@ -692,11 +693,9 @@ export function ProjectsSection({ savedSession, onPark }: {
       <div ref={toolbar} className={`projects-toolbar relative z-20 mb-3 grid grid-cols-1 gap-2 ${isAddingProject || isConfirmingRestoreProject || isRenaming || isConfirmingDelete ? '' : 'projects-toolbar-sticky'}`}>
         <div className="relative flex items-center gap-2">
           <label className="sr-only" htmlFor="project-selector">Project</label>
-          <Select ref={projectSelector} id="project-selector" className="w-0 flex-1"
+          <Dropdown ref={projectSelector} id="project-selector" className="w-0 flex-1"
             title={selectedProject?.name} disabled={managingProject || restoring || isCreating || isLoading}
-            value={selectedId} onChange={(event) => void selectProject(event.target.value)}>
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </Select>
+            value={selectedId} options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={projectId => void selectProject(projectId)} />
           <button ref={createTrigger} type="button" aria-label="New project" title="New project"
             aria-expanded={isAddingProject} aria-controls={isAddingProject ? 'create-project' : undefined}
             disabled={managingProject || restoring || isCreating || isLoading}
@@ -760,32 +759,29 @@ export function ProjectsSection({ savedSession, onPark }: {
           <input ref={projectFilter} id="project-filter" type="search" aria-keyshortcuts="/" title="Press / to focus the project filter"
             className="saved-project-filter min-h-10 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
             placeholder="Filter this project" value={filter} onChange={(event) => changeFilter(event.target.value)} />
-          <Disclosure label="View options" triggerContent={<>View <span aria-hidden="true">▾</span></>}>
+          <Disclosure label="View options" panelWidth="w-64" triggerContent={<>View <span aria-hidden="true">▾</span></>}>
             {close => <>
-              <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
-                Session order
-                <Select value={sessionOrder} onChange={(event) => setOrder(event.target.value as SessionOrder)}>
-                  <option value="newest">Newest first</option>
-                  <option value="oldest">Oldest first</option>
-                  <option value="title">Link title A–Z{groupByDay ? ' within each day' : ''}</option>
-                </Select>
-              </label>
-              <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
-                Group sessions
-                <Select value={groupByDay ? 'day' : 'none'} onChange={event => {
-                  const byDay = event.target.value === 'day';
+              <div className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
+                <span id="view-session-order-label">Session order</span>
+                <Dropdown aria-labelledby="view-session-order-label" value={sessionOrder} onChange={setOrder} options={[
+                  { value: 'newest', label: 'Newest first' },
+                  { value: 'oldest', label: 'Oldest first' },
+                  { value: 'title', label: `Link title A–Z${groupByDay ? ' within each day' : ''}` },
+                ] satisfies { value: SessionOrder; label: string }[]} />
+              </div>
+              <div className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
+                <span id="view-group-label">Group sessions</span>
+                <SegmentedControl aria-labelledby="view-group-label" value={groupByDay ? 'day' : 'none'} onChange={grouping => {
+                  const byDay = grouping === 'day';
                   setGroupByDay(byDay);
                   rememberView({ groupSessionsByDay: byDay });
-                }}>
-                  <option value="day">By day</option><option value="none">No grouping</option>
-                </Select>
-              </label>
-              <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
-                Saved link spacing
-                <Select value={density} onChange={(event) => void changeDensity(event.target.value as DisplayDensity)}>
-                  <option value="comfortable">Comfortable</option><option value="compact">Compact</option>
-                </Select>
-              </label>
+                }} options={[{ value: 'day', label: 'By day' }, { value: 'none', label: 'No grouping' }]} />
+              </div>
+              <div className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
+                <span id="view-density-label">Saved link spacing</span>
+                <SegmentedControl aria-labelledby="view-density-label" value={density} onChange={(value: DisplayDensity) => void changeDensity(value)}
+                  options={[{ value: 'comfortable', label: 'Comfortable' }, { value: 'compact', label: 'Compact' }]} />
+              </div>
               {visibleGroups.length > 0 && <div className="border-t border-slate-200 pt-1">
                 <button type="button" className="dropdown-action" onClick={() => { setAllSessions(true); close(); }}>Expand all</button>
                 <button type="button" className="dropdown-action" onClick={() => { setAllSessions(false); close(); }}>Collapse all</button>
@@ -826,12 +822,12 @@ export function ProjectsSection({ savedSession, onPark }: {
               This is a large project and will open many tabs at once.
             </p>
           )}
-          <label className="mt-3 block text-sm font-medium text-blue-950" htmlFor="restore-load-mode">When to load tabs</label>
-          <Select id="restore-load-mode" className="mt-1 w-full" value={chosenRestoreMode ?? defaultRestoreMode} disabled={isRestoringProject}
-            onChange={event => setChosenRestoreMode(event.target.value as RestoreMode)}>
-            <option value="normal">Immediately{defaultRestoreMode === 'normal' ? ' · Default' : ''}</option>
-            <option value="unloaded">When selected{defaultRestoreMode === 'unloaded' ? ' · Default' : ''}</option>
-          </Select>
+          <span id="restore-load-mode-label" className="mt-3 block text-sm font-medium text-blue-950">When to load tabs</span>
+          <SegmentedControl<RestoreMode> className="mt-1" aria-labelledby="restore-load-mode-label" value={chosenRestoreMode ?? defaultRestoreMode} disabled={isRestoringProject}
+            onChange={setChosenRestoreMode} options={[
+              { value: 'normal', label: `Immediately${defaultRestoreMode === 'normal' ? ' · Default' : ''}` },
+              { value: 'unloaded', label: `When selected${defaultRestoreMode === 'unloaded' ? ' · Default' : ''}` },
+            ] satisfies { value: RestoreMode; label: string }[]} />
           <div className="mt-3 flex flex-wrap justify-end gap-2">
             <button type="button" className={`${toolbarButton} border border-blue-300 bg-white`} disabled={isRestoringProject} onClick={() => setIsConfirmingRestoreProject(false)}>Cancel</button>
             <button type="button" className={`${toolbarButton} bg-blue-700 text-white hover:bg-blue-800`} disabled={isRestoringProject}

@@ -6,7 +6,7 @@ import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useRef, useState } from 'react';
 import type { LinkShelfBackup } from '@/domain/schemas';
 import { buildExport, type ExportFormat } from '@/domain/export';
-import { Select } from './ui/Select';
+import { Dropdown } from './ui/Dropdown';
 import { SnapshotsPanel } from './SnapshotsPanel';
 import { AutoBackupsPanel } from './AutoBackupsPanel';
 import { BACKUP_SIZE_LIMIT_LABEL } from '@/domain/constants';
@@ -169,16 +169,11 @@ export function SettingsSection() {
           <h4 className="text-sm font-semibold">Export to read or share</h4>
           <p className="mt-1 text-xs text-slate-500">Create a Markdown or HTML list of saved and archived links with notes and tags. It is read-only and cannot be imported back. Use Download backup above for a restorable JSON copy.</p>
           <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="readable-project">Project</label>
-          <Select id="readable-project" className="mt-1 w-full" value={readableProject} disabled={isExporting}
-            onChange={(event) => setReadableProject(event.target.value)}>
-            <option value="">All projects</option>
-            {readableProjects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </Select>
+          <Dropdown id="readable-project" className="mt-1 w-full" value={readableProject} disabled={isExporting} onChange={setReadableProject}
+            options={[{ value: '', label: 'All projects' }, ...readableProjects.map(project => ({ value: project.id, label: project.name }))]} />
           <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="readable-format">Format</label>
-          <Select id="readable-format" className="mt-1 w-full" value={readableFormat} disabled={isExporting} onChange={(event) => setReadableFormat(event.target.value as ExportFormat)}>
-            <option value="markdown">Markdown (.md)</option>
-            <option value="html">HTML (.html)</option>
-          </Select>
+          <Dropdown<ExportFormat> id="readable-format" className="mt-1 w-full" value={readableFormat} disabled={isExporting} onChange={setReadableFormat}
+            options={[{ value: 'markdown', label: 'Markdown (.md)' }, { value: 'html', label: 'HTML (.html)' }] satisfies { value: ExportFormat; label: string }[]} />
           <button type="button" className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-50" disabled={isExporting} onClick={() => void downloadReadable()}>{isExporting ? 'Preparing export...' : 'Download export'}</button>
 
           <div className="my-4 border-t border-slate-200" />

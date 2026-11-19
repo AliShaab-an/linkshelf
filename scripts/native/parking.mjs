@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHarness, navigateSidebar, poll } from './harness.mjs';
+import { createHarness, navigateSidebar, poll, choose, chosenValue } from './harness.mjs';
 
 const h = await createHarness();
 const page = h.page;
@@ -54,7 +54,7 @@ try {
     await modal.waitFor();
     assert.equal(await modal.getByRole('heading').evaluate(el => document.activeElement === el), true);
     await inViewport(button('Save & close 3'));
-    await modal.getByLabel('Save to project').selectOption(project.id);
+    await choose(modal.getByLabel('Save to project'), project.id);
     await modal.getByText('Add note or reminder', { exact: true }).click();
     await modal.getByLabel('Shared note (optional)').fill('Synthetic parking note');
     await modal.getByLabel('Shared reminder (optional)').fill('2098-01-02T10:30');
@@ -67,7 +67,7 @@ try {
     assert.equal(await page.evaluate(() => innerWidth), 320);
     await inViewport(button('Review selection'));
     await button('Review selection').click();
-    assert.equal(await modal.getByLabel('Save to project').inputValue(), project.id);
+    assert.equal(await chosenValue(modal.getByLabel('Save to project')), project.id);
     assert.equal(await modal.getByLabel('Shared note (optional)').inputValue(), 'Synthetic parking note');
     assert.equal(await modal.getByLabel('Shared reminder (optional)').inputValue(), '2098-01-02T10:30');
     await inViewport(button('Save & close 3'));
@@ -147,7 +147,7 @@ try {
     await page.screenshot({ path: path.join(h.output, 'parking-partial-320.png') });
     await button('View saved session').click();
     await page.getByRole('heading', { name: 'Synthetic /parking-6', exact: true }).waitFor();
-    assert.equal(await page.getByLabel('Project', { exact: true }).inputValue(), project.id);
+    assert.equal(await chosenValue(page.getByLabel('Project', { exact: true })), project.id);
     const active = await page.evaluate(() => ({
       expanded: document.activeElement.getAttribute('aria-expanded'),
       text: document.activeElement.textContent,

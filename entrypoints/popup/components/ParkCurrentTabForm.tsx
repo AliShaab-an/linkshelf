@@ -1,6 +1,6 @@
 import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { Select } from '@/entrypoints/sidepanel/components/ui/Select';
+import { Dropdown } from '@/entrypoints/sidepanel/components/ui/Dropdown';
 import {
   localReminderToUtc,
   toLocalDateTimeInputValue,
@@ -118,10 +118,9 @@ export function ParkCurrentTabForm({ tabId }: { tabId: number }) {
     <form onSubmit={handlePark}>
       {!saved && <fieldset className="min-w-0" disabled={status === 'parking'}>
         <label className="text-sm font-semibold text-slate-700" htmlFor="project">Save to</label>
-        <Select id="project" className="mt-1 w-full" title={project?.name} value={projectId} disabled={isLoadingProjects || !project} onChange={(event) => setProjectId(event.target.value)}>
-          {!project && <option value="">{isLoadingProjects ? 'Loading projects…' : 'No project available'}</option>}
-          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-        </Select>
+        <Dropdown id="project" className="mt-1 w-full" value={projectId} disabled={isLoadingProjects || !project}
+          placeholder={isLoadingProjects ? 'Loading projects…' : 'No project available'}
+          options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={setProjectId} />
         {projectError && <p className="mt-1.5 text-sm text-red-700" role="alert">{projectError}</p>}
 
         {isDuplicate && <fieldset className="mt-2 min-w-0 rounded-lg border border-amber-300 bg-amber-50 p-2.5">

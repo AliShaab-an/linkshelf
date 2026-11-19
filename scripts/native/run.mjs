@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { navigateSidebar, createHarness, poll } from './harness.mjs';
+import { navigateSidebar, createHarness, poll, choose } from './harness.mjs';
 import { backup, library } from './fixtures.mjs';
 
 const h = await createHarness();
@@ -232,7 +232,7 @@ try {
     await h.page.screenshot({ path: path.join(h.output, `settings-${width}.png`), fullPage: true });
   }
   await navigateSidebar(h.page, 'Projects');
-  await h.page.getByLabel('Project', { exact: true }).selectOption('legacy-project');
+  await choose(h.page.getByLabel('Project', { exact: true }), 'legacy-project');
   await h.page.getByLabel('Filter this project').fill('Synthetic');
   await h.page.keyboard.press('Tab');
   assert.ok(await h.page.evaluate(() => document.activeElement !== document.body));
