@@ -38,6 +38,7 @@ import {
   isSearchLinksMessage,
   isUnarchiveLinkMessage,
   isTrashMessage,
+  isAutoBackupMessage,
   isUpdateSettingsMessage,
   isPatchSettingsMessage,
   isStorageRecoveryMessage,
@@ -60,6 +61,9 @@ import { createRestoreCoordinator } from '@/features/restoration/restore-coordin
 import { createSnapshotService } from '@/features/snapshots/snapshot-service';
 import { SnapshotStore } from '@/storage/snapshot-store';
 import { SNAPSHOT_ALARM_NAME, SNAPSHOT_ALARM_PERIOD_MINUTES } from '@/domain/snapshots';
+import { AUTO_BACKUP_ALARM_NAME, AUTO_BACKUP_PERIOD_MINUTES } from '@/domain/auto-backups';
+import { AutoBackupStore } from '@/storage/auto-backup-store';
+import { createAutoBackupService } from '@/features/backups/auto-backup-service';
 import type { SavedLink } from '@/domain/schemas';
 import {
   SIDE_PANEL_INTENTS_KEY,
@@ -105,6 +109,25 @@ export default defineBackground(() => {
     event?.addListener(searchPages.invalidate);
   }
   const operations = new OperationCoordinator();
+  const autoBackups = createAutoBackupService({
+    store: new AutoBackupStore(new ChromeStorageAdapter()),
+    exportBackup: () => repository.exportBackup(),
+    getUsage: async () => ({
+      used: await browser.storage.local.getBytesInUse(null),
+      quota: browser.storage.local.QUOTA_BYTES || 10 * 1024 * 1024,
+    }),
+  });
+
+  /** A daily alarm drives automatic backups; the service itself checks whether they are on. */
+  async function ensureAutoBackupAlarm() {
+    try {
+      if (!(await browser.alarms.get(AUTO_BACKUP_ALARM_NAME))) {
+        await browser.alarms.create(AUTO_BACKUP_ALARM_NAME, { delayInMinutes: 5, periodInMinutes: AUTO_BACKUP_PERIOD_MINUTES });
+      }
+    } catch (error) {
+      console.warn('LinkShelf could not schedule automatic backups:', error);
+    }
+  }
   const snapshots = createSnapshotService({
     store: new SnapshotStore(new ChromeStorageAdapter()),
     windows: {
@@ -306,13 +329,19 @@ export default defineBackground(() => {
   browser.runtime.onStartup.addListener(() => {
     void initializeExtension();
     void snapshots.started().then(reconcileSnapshotAlarm);
+    void autoBackups.runIfDue();
   });
   browser.windows?.onRemoved?.addListener((windowId) => void snapshots.windowClosed(windowId));
   void reconcileSnapshotAlarm();
+  void ensureAutoBackupAlarm();
 
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === SNAPSHOT_ALARM_NAME) {
       void snapshots.capture();
+      return;
+    }
+    if (alarm.name === AUTO_BACKUP_ALARM_NAME) {
+      void autoBackups.runIfDue();
       return;
     }
     if (!alarm.name.startsWith(REMINDER_ALARM_PREFIX)) return;
@@ -449,12 +478,15 @@ export default defineBackground(() => {
       }
 
       if (isImportDataMessage(message)) {
-        void repository
-          .importBackup(
+        void (async () => {
+          // Replacing everything is the one import that can lose data, so keep a copy first.
+          if (message.payload.mode === 'replace') await autoBackups.run('before-import');
+          return repository.importBackup(
             message.payload.backup,
             message.payload.mode,
             message.payload.revisionToken,
-          )
+          );
+        })()
           .then(async (result) => {
             sendResponse(await withSecondaryWarning({ success: true as const, result, warnings: [] as string[] }, synchronizeReminderAlarms, 'Your backup was imported, but reminders could not be updated. Reload LinkShelf to retry reminders.'));
           })
@@ -728,6 +760,27 @@ export default defineBackground(() => {
           });
         });
 
+      return true;
+    }
+
+    if (isAutoBackupMessage(message)) {
+      const { action, id } = message.payload;
+      void (async () => {
+        if (action === 'enable') return { ...(await autoBackups.setEnabled(true)) };
+        if (action === 'disable') return { ...(await autoBackups.setEnabled(false)) };
+        if (action === 'delete') return { ...(await autoBackups.remove(id!)) };
+        if (action === 'get') {
+          const found = await autoBackups.get(id!);
+          if (!found) throw new Error('This automatic backup no longer exists.');
+          return { ...(await autoBackups.list()), backup: found.entry.backup };
+        }
+        return { ...(await autoBackups.list()) };
+      })()
+        .then((result) => sendResponse({ success: true, ...result }))
+        .catch((error) => {
+          console.error('Automatic backup request failed:', error);
+          sendResponse({ success: false, error: { message: error instanceof Error && /no longer exists/.test(error.message) ? error.message : 'LinkShelf could not update automatic backups.' } });
+        });
       return true;
     }
 

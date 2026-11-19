@@ -3,6 +3,7 @@ import type { RawRecoveryExport, StorageStatus } from '@/domain/recovery';
 import type { RecoveryBackupPreview } from '@/storage/repository';
 import { SettingsPatchSchema, type SettingsPatch } from '@/domain/schemas';
 import type { SnapshotSummary } from '@/domain/snapshots';
+import type { AutoBackupList } from '@/features/backups/auto-backup-service';
 import type {
   LinkShelfBackup,
   ParkingSession,
@@ -1405,3 +1406,31 @@ export const getTrash = () => sendTrashMessage('list');
 export const restoreFromTrash = (linkId: string) => sendTrashMessage('restore', linkId);
 export const deleteFromTrash = (linkId: string) => sendTrashMessage('delete', linkId);
 export const emptyTrash = () => sendTrashMessage('empty');
+
+export type AutoBackupAction = 'list' | 'enable' | 'disable' | 'delete' | 'get';
+export interface AutoBackupMessage { type: 'AUTO_BACKUP'; payload: { action: AutoBackupAction; id?: string } }
+export type AutoBackupResponse =
+  | ({ success: true; backup?: LinkShelfBackup } & AutoBackupList)
+  | { success: false; error: { message: string } };
+
+export function isAutoBackupMessage(message: unknown): message is AutoBackupMessage {
+  const candidate = message as Partial<AutoBackupMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'AUTO_BACKUP') return false;
+  const payload = candidate.payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+  if (!['list', 'enable', 'disable', 'delete', 'get'].includes(payload.action as string)) return false;
+  const needsId = payload.action === 'delete' || payload.action === 'get';
+  return needsId ? typeof payload.id === 'string' && payload.id.length > 0 : payload.id === undefined;
+}
+
+async function sendAutoBackupMessage(action: AutoBackupAction, id?: string): Promise<AutoBackupResponse> {
+  const message: AutoBackupMessage = { type: 'AUTO_BACKUP', payload: id === undefined ? { action } : { action, id } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as AutoBackupResponse;
+}
+
+export const getAutoBackups = () => sendAutoBackupMessage('list');
+export const setAutoBackupsEnabled = (enabled: boolean) => sendAutoBackupMessage(enabled ? 'enable' : 'disable');
+export const deleteAutoBackup = (id: string) => sendAutoBackupMessage('delete', id);
+export const getAutoBackup = (id: string) => sendAutoBackupMessage('get', id);

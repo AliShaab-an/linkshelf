@@ -8,6 +8,7 @@ import type { LinkShelfBackup } from '@/domain/schemas';
 import { buildExport, type ExportFormat } from '@/domain/export';
 import { Select } from './ui/Select';
 import { SnapshotsPanel } from './SnapshotsPanel';
+import { AutoBackupsPanel } from './AutoBackupsPanel';
 import { BACKUP_SIZE_LIMIT_LABEL } from '@/domain/constants';
 import { stringifyBackup } from '@/domain/backup';
 import { readImportFile, type ImportFile } from '@/domain/importers';
@@ -105,6 +106,13 @@ export function SettingsSection() {
     }
   }
 
+  function chooseAutoBackup(backup: LinkShelfBackup, name: string) {
+    setWarnings([]); setError(null); setMessage(null); setImportPreview(null);
+    setImportFile({ source: 'LinkShelf', backup });
+    setImportBackup(backup);
+    setImportFileName(name);
+  }
+
   async function chooseImportMode(mode: ImportMode) {
     if (!importBackup || isPreviewing || isImporting) return;
     setWarnings([]);
@@ -172,6 +180,9 @@ export function SettingsSection() {
             <option value="html">HTML (.html)</option>
           </Select>
           <button type="button" className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-50" disabled={isExporting} onClick={() => void downloadReadable()}>{isExporting ? 'Preparing export...' : 'Download export'}</button>
+
+          <div className="my-4 border-t border-slate-200" />
+          <AutoBackupsPanel disabled={isPreviewing || isImporting || preferences.saving || importPreview !== null} onChoose={chooseAutoBackup} />
 
           <div className="my-4 border-t border-slate-200" />
           <h4 className="text-sm font-semibold">Import backup or another tool’s export</h4>
