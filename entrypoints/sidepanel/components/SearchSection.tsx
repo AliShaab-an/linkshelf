@@ -6,6 +6,7 @@ import {
   archiveLink,
   bookmarkLink,
   getBookmarkFolders,
+  getTags,
   openBookmark,
   removeLink,
   restoreLink,
@@ -19,6 +20,9 @@ import {
 import { BookmarkLinkDialog } from './BookmarkLinkDialog';
 import { NativeBookmarkCard } from './NativeBookmarkCard';
 import { RemoveLinkDialog } from './RemoveLinkDialog';
+import { TagLinkDialog } from './TagLinkDialog';
+import { TagFilterBar } from './ui/TagFilterBar';
+import { parseSearchQuery, toggleTagInQuery } from '@/domain/tags';
 import { SavedLinkCard } from './SavedLinkCard';
 import { ListNavigation } from './ui/ListNavigation';
 import { listRange, LIST_PAGE_SIZE } from '../list-range';
@@ -55,6 +59,8 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
   const [selectedFolderId, setSelectedFolderId] = useState('');
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [duplicate, setDuplicate] = useState<NativeBookmarkResult | undefined>();
+  const [tagCandidate, setTagCandidate] = useState<SavedLink | null>(null);
+  const [tagCounts, setTagCounts] = useState<Array<{ tag: string; count: number }>>([]);
 
   useEffect(() => {
     if (focusRequestId) searchInputRef.current?.focus();
@@ -122,6 +128,26 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
 
     return () => { requestVersion.current++; window.clearTimeout(timeoutId); };
   }, [query, refreshVersion]);
+
+  useEffect(() => {
+    let current = true;
+    void getTags().then((response) => { if (current && response.success) setTagCounts(response.tags); }).catch(() => undefined);
+    return () => { current = false; };
+  }, [refreshVersion]);
+
+  function startTagging(link: SavedLink) {
+    focusSearchAfterMutation.current = false;
+    setMessage(null);
+    setError(null);
+    setWarnings([]);
+    setTagCandidate(link);
+  }
+
+  function finishTagging(updated: SavedLink) {
+    setTagCandidate(null);
+    setMessage(updated.tags?.length ? `Saved tags for “${updated.title}”.` : `Removed tags from “${updated.title}”.`);
+    refreshSearch();
+  }
 
   function changeQuery(value: string) {
     if (value === query) return;
@@ -323,7 +349,7 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
 
   return (
     <>
-      <OperationFeedback {...(!(removeCandidate || bookmarkCandidate) ? feedback : {})} />
+      <OperationFeedback {...(!(removeCandidate || bookmarkCandidate || tagCandidate) ? feedback : {})} />
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Local search</p>
         <h2 className="mt-1 text-lg font-bold">Search your shelf and bookmarks</h2>
@@ -331,8 +357,10 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
       </div>
       <label className="sr-only" htmlFor="link-search">Search saved links</label>
       <input ref={searchInputRef} id="link-search" type="search" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="React docs, client project, example.com..." value={query} onChange={(event) => changeQuery(event.target.value)} />
+      {tagCounts.length > 0 && <div className="mt-3"><TagFilterBar tags={tagCounts} selected={parseSearchQuery(query).tags} onToggle={(tag) => changeQuery(toggleTagInQuery(query, tag))} /></div>}
       <div className="mt-2 flex justify-between text-xs text-slate-500"><span role="status">{isSearching ? 'Searching...' : query.trim() ? `${resultCount} result${resultCount === 1 ? '' : 's'}` : 'Type to search'}</span><span>Stored locally</span></div>
 
+      {tagCandidate && <TagLinkDialog link={tagCandidate} suggestions={tagCounts.map(({ tag }) => tag)} returnFocus={dialogReturnFocus} onSaved={finishTagging} onCancel={() => setTagCandidate(null)} />}
       {bookmarkCandidate ? <div className="mt-4"><BookmarkLinkDialog feedback={dialogFeedback} returnFocus={dialogReturnFocus} link={bookmarkCandidate} folders={bookmarkFolders} selectedFolderId={selectedFolderId} duplicate={duplicate} isLoadingFolders={isLoadingFolders} isSaving={dialogPending} onSelectFolder={setSelectedFolderId} onCancel={closeBookmark} onConfirm={() => void confirmBookmark()} onOpenDuplicate={() => duplicate && void handleOpen(duplicate, true)} /></div> : removeCandidate ? <div className="mt-4"><RemoveLinkDialog feedback={dialogFeedback} returnFocus={dialogReturnFocus} link={removeCandidate} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} /></div> : null}
       {!isSearching && query.trim() && !error && !pageError && resultCount === 0 && <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center"><h3 className="font-semibold">No matching links</h3><p className="mt-1 text-sm text-slate-500">Try a title, domain, note, or project name.</p></div>}
 
@@ -341,7 +369,7 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
         {page?.nextResults !== undefined && <button type="button" data-search-more className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold aria-disabled:opacity-60" aria-disabled={isSearching || !!loadingMore} onClick={() => void loadMore('results')}>{loadingMore === 'results' ? 'Loading links…' : 'Load more LinkShelf links'}</button>}
       </ListNavigation>
       <div className="mt-2 space-y-3">
-        {results.slice(savedRange.start, savedRange.end).map(({ link, projectName }) => <SavedLinkCard key={link.id} cardId={`search-link-${link.id}`} link={link} projectName={projectName} isRestoring={workingId === link.id} onRestore={link.status === 'parked' ? () => void handleRestore(link) : undefined} onArchive={link.status === 'parked' ? () => void runAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`) : undefined} onUnarchive={link.status === 'archived' ? () => void runAction(link, () => unarchiveLink(link.id), `Returned “${link.title}” to its project.`) : undefined} onBookmark={link.status === 'parked' ? () => void startBookmarking(link) : undefined} onRemove={() => startRemoving(link)} />)}
+        {results.slice(savedRange.start, savedRange.end).map(({ link, projectName }) => <SavedLinkCard key={link.id} cardId={`search-link-${link.id}`} link={link} projectName={projectName} isRestoring={workingId === link.id} onRestore={link.status === 'parked' ? () => void handleRestore(link) : undefined} onArchive={link.status === 'parked' ? () => void runAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`) : undefined} onUnarchive={link.status === 'archived' ? () => void runAction(link, () => unarchiveLink(link.id), `Returned “${link.title}” to its project.`) : undefined} onBookmark={link.status === 'parked' ? () => void startBookmarking(link) : undefined} onEditTags={() => startTagging(link)} onRemove={() => startRemoving(link)} />)}
       </div>
 
       {bookmarks.length > 0 && <h3 ref={bookmarkHeading} tabIndex={-1} className="mt-5 text-xs font-bold uppercase tracking-wide text-slate-500">Chrome bookmarks · {bookmarks.length} of {page?.totalBookmarks ?? bookmarks.length}</h3>}

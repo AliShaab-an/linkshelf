@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { localReminderToUtc, toLocalDateTimeInputValue } from '@/domain/reminders';
 import type { Project } from '@/domain/schemas';
-import { getCurrentWindowTabs, getSettings, parkSelectedTabs, type WindowTabCandidate } from '@/messaging/contracts';
+import { getCurrentWindowTabs, getParkDuplicates, getSettings, parkSelectedTabs, type WindowTabCandidate } from '@/messaging/contracts';
 import { Modal } from './ui/Modal';
 import { OperationWarnings } from './ui/OperationWarnings';
 import { Button } from './ui/Button';
@@ -30,10 +30,47 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
   const refreshButton = useRef<HTMLButtonElement>(null);
   const resultHeading = useRef<HTMLHeadingElement>(null);
   const [selectedNotice, setSelectedNotice] = useState('');
+  const [duplicateIds, setDuplicateIds] = useState<number[]>([]);
+  const [duplicateMode, setDuplicateMode] = useState<'skip' | 'park'>('skip');
   const selected = new Set(selectedIds);
   const eligibleTabs = tabs.filter(tab => tab.status === 'eligible');
   const selectedTabs = eligibleTabs.filter(tab => selected.has(tab.id));
   const project = projects.find(item => item.id === projectId);
+  const unavailableTabs = tabs.filter(tab => tab.status !== 'eligible');
+  const duplicates = new Set(duplicateIds);
+  const selectedDuplicates = selectedTabs.filter(tab => duplicates.has(tab.id));
+  const skipping = duplicateMode === 'skip' ? selectedDuplicates.length : 0;
+  const toSave = selectedTabs.length - skipping;
+
+  function renderTab(tab: WindowTabCandidate) {
+    return <li key={tab.id}>
+      <label className={`flex min-h-12 items-start gap-3 rounded-xl border p-3 ${selected.has(tab.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+        <input type="checkbox" className="mt-1 size-4 shrink-0 accent-blue-700" aria-label={`Select ${tab.title}`}
+          checked={selected.has(tab.id)} disabled={tab.status !== 'eligible' || loading || !!loadError || pending}
+          onChange={() => choose(selected.has(tab.id) ? selectedIds.filter(id => id !== tab.id) : [...selectedIds, tab.id])} />
+        <span className="min-w-0 flex-1">
+          <span className="block break-words text-sm font-semibold">{tab.title}</span>
+          <span className="block break-all text-xs text-slate-600">{tab.domain}</span>
+          {tab.reason && <span className="mt-1 block text-xs text-slate-600">{tab.reason}</span>}
+        </span>
+        {tab.status !== 'eligible' && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold capitalize">{tab.status}</span>}
+      </label>
+    </li>;
+  }
+
+  async function review() {
+    setResult(undefined);
+    setError(undefined);
+    setDuplicateIds([]);
+    setDuplicateMode('skip');
+    setReviewing(true);
+    try {
+      const response = await getParkDuplicates(selectedIds);
+      if (response.success) setDuplicateIds(response.duplicateTabIds);
+    } catch {
+      // The check is advisory; parking without it keeps every selected tab.
+    }
+  }
 
   async function loadTabs(isCurrent = () => true) {
     setLoading(true);
@@ -101,7 +138,7 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
     setError(undefined);
     setWarnings([]);
     try {
-      const response = await parkSelectedTabs(selectedIds, { projectId, note: note.trim() || undefined, reminderAt });
+      const response = await parkSelectedTabs(selectedIds, { projectId, note: note.trim() || undefined, reminderAt, duplicates: selectedDuplicates.length ? duplicateMode : 'park' });
       setWarnings(response.warnings ?? []);
       if (!response.success) {
         setError(response.error.message);
@@ -137,10 +174,10 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
     </div>
 
     {result && <section aria-labelledby="parking-result-title" className={`mb-4 rounded-xl border p-4 ${result.unconfirmed ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
-      <h3 ref={resultHeading} tabIndex={-1} id="parking-result-title" className="font-bold">Parking session saved</h3>
-      <p className="mt-1 wrap-anywhere text-sm">Saved {result.saved} {result.saved === 1 ? 'tab' : 'tabs'}{project ? ` to ${project.name}` : ''}. {result.unconfirmed ? `Closed ${result.closed} of ${result.saved}.` : 'All saved tabs closed.'}</p>
+      <h3 ref={resultHeading} tabIndex={-1} id="parking-result-title" className="font-bold">{result.target ? 'Parking session saved' : 'Nothing new to save'}</h3>
+      <p className="mt-1 wrap-anywhere text-sm">Saved {result.saved} {result.saved === 1 ? 'tab' : 'tabs'}{result.target && project ? ` to ${project.name}` : ''}.{result.skipped > 0 ? ` Skipped ${result.skipped} already saved ${result.skipped === 1 ? 'tab' : 'tabs'}.` : ''} {result.unconfirmed ? `Closed ${result.closed} of ${result.saved + result.skipped}.` : result.skipped > 0 ? 'All handled tabs closed.' : 'All saved tabs closed.'}</p>
       {result.unconfirmed > 0 && <p className="mt-2 text-sm">Chrome could not confirm closing {result.unconfirmed} {result.unconfirmed === 1 ? 'tab' : 'tabs'}. Check your open tabs before parking again.</p>}
-      <Button type="button" variant="primary" className="mt-3" onClick={() => onViewSession(result.target)}>View saved session</Button>
+      {result.target && <Button type="button" variant="primary" className="mt-3" onClick={() => onViewSession(result.target!)}>View saved session</Button>}
     </section>}
     {!reviewing && <OperationWarnings warnings={warnings} />}
     {loading && <p role="status" className="mb-3 text-sm text-slate-600">Reading tabs…</p>}
@@ -152,25 +189,15 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
       onClick={() => choose(selectedTabs.length === eligibleTabs.length ? [] : eligibleTabs.map(tab => tab.id))}>
       {selectedTabs.length === eligibleTabs.length ? 'Clear selection' : 'Select all eligible'}
     </Button>}
-    <ul aria-label="Tabs in this window" className="space-y-2">
-      {tabs.map(tab => <li key={tab.id}>
-        <label className={`flex min-h-12 items-start gap-3 rounded-xl border p-3 ${selected.has(tab.id) ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
-          <input type="checkbox" className="mt-1 size-4 shrink-0 accent-blue-700" aria-label={`Select ${tab.title}`}
-            checked={selected.has(tab.id)} disabled={tab.status !== 'eligible' || loading || !!loadError || pending}
-            onChange={() => choose(selected.has(tab.id) ? selectedIds.filter(id => id !== tab.id) : [...selectedIds, tab.id])} />
-          <span className="min-w-0 flex-1">
-            <span className="block break-words text-sm font-semibold">{tab.title}</span>
-            <span className="block break-all text-xs text-slate-600">{tab.domain}</span>
-            {tab.reason && <span className="mt-1 block text-xs text-slate-600">{tab.reason}</span>}
-          </span>
-          {tab.status !== 'eligible' && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold capitalize">{tab.status}</span>}
-        </label>
-      </li>)}
-    </ul>
+    {eligibleTabs.length > 0 && <ul aria-label="Tabs in this window" className="space-y-2">{eligibleTabs.map(renderTab)}</ul>}
+    {unavailableTabs.length > 0 && <details className="mt-3">
+      <summary className="min-h-10 cursor-pointer content-center rounded text-sm font-semibold text-slate-700">{unavailableTabs.length} {unavailableTabs.length === 1 ? 'tab' : 'tabs'} can’t be parked</summary>
+      <ul aria-label="Tabs that can’t be parked" className="mt-2 space-y-2">{unavailableTabs.map(renderTab)}</ul>
+    </details>}
     <div className="parking-actions sticky bottom-0 z-30 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-t-xl border border-slate-200 bg-white p-3 shadow-lg">
       <span role="status" className="text-sm font-semibold">{selectedTabs.length} selected</span>
       <Button type="button" variant="primary" disabled={!selectedTabs.length || !project || loading || !!loadError || pending || needsRefresh}
-        onClick={() => { setResult(undefined); setError(undefined); setReviewing(true); }}>Review selection</Button>
+        onClick={() => void review()}>Review selection</Button>
     </div>
 
     {reviewing && <Modal titleId="parking-review-title" pending={pending} onClose={back}
@@ -195,6 +222,12 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
             <summary className="cursor-pointer rounded py-2 text-sm font-semibold text-blue-800">Selected tabs</summary>
             <ul className="list-disc space-y-1 pl-5 text-sm">{selectedTabs.map(tab => <li key={tab.id}>{tab.title}</li>)}</ul>
           </details>
+          {selectedDuplicates.length > 0 && <fieldset className="min-w-0 rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <legend className="px-1 text-sm font-semibold text-amber-950">{selectedDuplicates.length} of {selectedTabs.length} selected {selectedTabs.length === 1 ? 'tab is' : 'tabs are'} already saved</legend>
+            <ul className="mb-2 list-disc space-y-0.5 pl-5 text-xs text-amber-950">{selectedDuplicates.slice(0, 5).map(tab => <li key={tab.id} className="wrap-anywhere">{tab.title}</li>)}{selectedDuplicates.length > 5 && <li>and {selectedDuplicates.length - 5} more</li>}</ul>
+            <label className="flex items-start gap-2 text-sm"><input type="radio" name="duplicate-mode" className="mt-1 accent-blue-700" checked={duplicateMode === 'skip'} onChange={() => setDuplicateMode('skip')} /><span>Don’t save them again, but close the tabs</span></label>
+            <label className="mt-1 flex items-start gap-2 text-sm"><input type="radio" name="duplicate-mode" className="mt-1 accent-blue-700" checked={duplicateMode === 'park'} onChange={() => setDuplicateMode('park')} /><span>Save them again</span></label>
+          </fieldset>}
           <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-950">LinkShelf saves these tabs before attempting to close them. Unsaved changes on webpages cannot be restored.</p>
         </fieldset>
         <div role="status" aria-atomic="true">{pending && <p className="mt-2 text-sm">Saving before closing…</p>}</div>
@@ -202,7 +235,7 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
         <OperationWarnings warnings={warnings} />
         <div className="sticky bottom-0 mt-3 flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-white py-2">
           <Button type="button" disabled={pending} onClick={back}>Back</Button>
-          <Button type="submit" variant="primary" disabled={pending || needsRefresh || !project}>Save &amp; close {selectedTabs.length}</Button>
+          <Button type="submit" variant="primary" disabled={pending || needsRefresh || !project}>{toSave === 0 ? `Close ${selectedTabs.length}` : `Save & close ${selectedTabs.length}`}</Button>
         </div>
       </form>
     </Modal>}

@@ -6,7 +6,7 @@ import {
   toLocalDateTimeInputValue,
 } from '@/domain/reminders';
 import type { Project } from '@/domain/schemas';
-import { getSettings, parkCurrentTab } from '@/messaging/contracts';
+import { getParkDuplicates, getSettings, parkCurrentTab } from '@/messaging/contracts';
 
 type ParkStatus = 'idle' | 'parking' | 'success' | 'partial' | 'error';
 
@@ -20,6 +20,8 @@ export function ParkCurrentTabForm({ tabId }: { tabId: number }) {
   const [reminderLocal, setReminderLocal] = useState('');
   const [status, setStatus] = useState<ParkStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
+  const [isDuplicate, setIsDuplicate] = useState(false);
+  const [duplicateMode, setDuplicateMode] = useState<'skip' | 'park'>('skip');
   const pending = useRef(false);
   const outcome = useRef<HTMLParagraphElement>(null);
   const project = projects.find(item => item.id === projectId);
@@ -51,6 +53,14 @@ export function ParkCurrentTabForm({ tabId }: { tabId: number }) {
     return () => { current = false; };
   }, []);
 
+  useEffect(() => {
+    let current = true;
+    void getParkDuplicates([tabId]).then((response) => {
+      if (current && response.success) setIsDuplicate(response.duplicateTabIds.includes(tabId));
+    }).catch(() => undefined); // The check is advisory; parking still keeps the tab.
+    return () => { current = false; };
+  }, [tabId]);
+
   async function handlePark(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!project || pending.current || saved) return;
@@ -73,7 +83,9 @@ export function ParkCurrentTabForm({ tabId }: { tabId: number }) {
         projectId,
         note: note.trim() || undefined,
         reminderAt,
+        duplicates: isDuplicate ? duplicateMode : 'park',
       });
+      const skipping = isDuplicate && duplicateMode === 'skip';
       setWarnings(response.warnings ?? []);
       if (!response.success) {
         setStatus(response.saved ? 'partial' : 'error');
@@ -82,12 +94,12 @@ export function ParkCurrentTabForm({ tabId }: { tabId: number }) {
           const closure = response.error.code === 'TAB_CHANGED'
             ? 'The tab changed and LinkShelf left it open.'
             : 'Chrome couldn’t confirm the tab closed. Check your open tabs.';
-          setMessage(`Saved to ${project.name}. ${closure}`);
+          setMessage(`${skipping ? 'Already saved' : `Saved to ${project.name}`}. ${closure}`);
         }
         return;
       }
       setStatus('success');
-      setMessage(`Saved to ${project.name} and closed the tab.`);
+      setMessage(response.skippedDuplicate ? 'Already saved, so nothing new was added. Closed the tab.' : `Saved to ${project.name} and closed the tab.`);
     } catch (error) {
       setStatus('error');
       setMessage(
@@ -112,6 +124,12 @@ export function ParkCurrentTabForm({ tabId }: { tabId: number }) {
         </Select>
         {projectError && <p className="mt-1.5 text-sm text-red-700" role="alert">{projectError}</p>}
 
+        {isDuplicate && <fieldset className="mt-2 min-w-0 rounded-lg border border-amber-300 bg-amber-50 p-2.5">
+          <legend className="px-1 text-sm font-semibold text-amber-950">This page is already saved</legend>
+          <label className="flex items-start gap-2 text-sm"><input type="radio" name="duplicate-mode" className="mt-1 accent-blue-700" checked={duplicateMode === 'skip'} onChange={() => setDuplicateMode('skip')} /><span>Don’t save it again, but close the tab</span></label>
+          <label className="mt-1 flex items-start gap-2 text-sm"><input type="radio" name="duplicate-mode" className="mt-1 accent-blue-700" checked={duplicateMode === 'park'} onChange={() => setDuplicateMode('park')} /><span>Save it again</span></label>
+        </fieldset>}
+
         <details className="mt-1">
           <summary className="min-h-10 content-center rounded text-sm font-medium text-blue-700">
             Add note or reminder
@@ -127,7 +145,7 @@ export function ParkCurrentTabForm({ tabId }: { tabId: number }) {
         </details>
 
         <button type="submit" className="mt-2 min-h-11 w-full rounded-lg bg-blue-700 px-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50" disabled={!project || isLoadingProjects || Boolean(projectError) || status === 'parking'}>
-          {status === 'parking' ? 'Parking tab…' : 'Park and close'}
+          {status === 'parking' ? 'Parking tab…' : isDuplicate && duplicateMode === 'skip' ? 'Close tab' : 'Park and close'}
         </button>
       </fieldset>}
       {message && <p ref={outcome} tabIndex={saved ? -1 : undefined} className={`mt-2 rounded-lg p-2.5 text-sm wrap-anywhere ${status === 'error' ? 'bg-red-50 text-red-800' : status === 'partial' ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800'}`} role={status === 'error' ? 'alert' : 'status'}>{message}</p>}

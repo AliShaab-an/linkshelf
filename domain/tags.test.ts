@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LinkShelfBackupSchema, SavedLinkSchema, TagsSchema } from './schemas';
 import { createEmptyDatabase } from './defaults';
-import { isValidTag, MAX_TAG_LENGTH, MAX_TAGS_PER_LINK, normalizeTag, parseSearchQuery, parseTags } from './tags';
+import { formatTagFilter, isValidTag, MAX_TAG_LENGTH, MAX_TAGS_PER_LINK, normalizeTag, parseSearchQuery, parseTags, toggleTagInQuery } from './tags';
 
 describe('tag normalization', () => {
   it('trims, collapses whitespace, applies NFC and lower-cases', () => {
@@ -80,5 +80,28 @@ describe('tags in the schema', () => {
     database.links.push({ ...link, status: 'parked', tags: ['work'] });
     const backup = LinkShelfBackupSchema.parse({ format: 'linkshelf-backup', schemaVersion: 3, exportedAt: link.createdAt, database });
     expect(JSON.parse(JSON.stringify(backup)).database.links[0].tags).toEqual(['work']);
+  });
+});
+
+describe('tag filters in a query', () => {
+  it('formats tag filters, quoting tags with spaces', () => {
+    expect(formatTagFilter('work')).toBe('tag:work');
+    expect(formatTagFilter('read later')).toBe('tag:"read later"');
+  });
+
+  it('adds a missing tag filter and keeps what the user typed', () => {
+    expect(toggleTagInQuery('React Guide', 'Work')).toBe('React Guide tag:work');
+    expect(toggleTagInQuery('', 'read later')).toBe('tag:"read later"');
+  });
+
+  it('removes an existing filter in either form and leaves other tokens alone', () => {
+    expect(toggleTagInQuery('React tag:work tag:"read later"', 'work')).toBe('React tag:"read later"');
+    expect(toggleTagInQuery('React tag:work tag:"read later"', 'Read  Later')).toBe('React tag:work');
+    expect(toggleTagInQuery('tag:work', 'work')).toBe('');
+  });
+
+  it('round-trips through the search parser', () => {
+    const query = toggleTagInQuery(toggleTagInQuery('guide', 'a b'), 'c');
+    expect(parseSearchQuery(query)).toEqual({ terms: ['guide'], tags: ['a b', 'c'] });
   });
 });

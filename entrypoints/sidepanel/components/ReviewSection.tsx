@@ -17,6 +17,7 @@ import {
 } from '@/messaging/contracts';
 import { BookmarkLinkDialog } from './BookmarkLinkDialog';
 import { RemoveLinkDialog } from './RemoveLinkDialog';
+import { TagLinkDialog } from './TagLinkDialog';
 import { MoveLinkDialog } from './MoveLinkDialog';
 import { SavedLinkCard } from './SavedLinkCard';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
@@ -33,6 +34,7 @@ export function ReviewSection() {
   const [dialogPending, setDialogPending] = useState(false);
   const [removeCandidate, setRemoveCandidate] = useState<SavedLink | null>(null);
   const [moveCandidate, setMoveCandidate] = useState<SavedLink | null>(null);
+  const [tagCandidate, setTagCandidate] = useState<SavedLink | null>(null);
   const [moveProjectId, setMoveProjectId] = useState('');
   const [bookmarkCandidate, setBookmarkCandidate] = useState<SavedLink | null>(null);
   const [folders, setFolders] = useState<BookmarkFolderOption[]>([]);
@@ -52,6 +54,13 @@ export function ReviewSection() {
       .catch((caughtError) => setError(toMessage(caughtError, 'LinkShelf could not load the review queue.')))
       .finally(() => setIsLoading(false));
   }, []);
+
+  function finishTagging(updated: SavedLink) {
+    setLinks((current) => current.map((link) => link.id === updated.id ? updated : link));
+    setTagCandidate(null);
+    setError(null);
+    setMessage(updated.tags?.length ? `Saved tags for “${updated.title}”.` : `Removed tags from “${updated.title}”.`);
+  }
 
   function finish(link: SavedLink, successMessage: string) {
     setLinks((current) => current.filter((candidate) => candidate.id !== link.id));
@@ -218,16 +227,17 @@ export function ReviewSection() {
 
   return (
     <>
-      <OperationFeedback {...(!(removeCandidate || moveCandidate || bookmarkCandidate) ? feedback : {})} />
+      <OperationFeedback {...(!(removeCandidate || moveCandidate || bookmarkCandidate || tagCandidate) ? feedback : {})} />
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h2 ref={sectionHeading} tabIndex={-1} className="text-lg font-bold">Review</h2>
         {!isLoading && <p className="text-sm text-slate-600">{links.length} {links.length === 1 ? 'link' : 'links'} to review</p>}
       </div>
       {bookmarkCandidate ? <div className="mb-4"><BookmarkLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={bookmarkCandidate} folders={folders} selectedFolderId={selectedFolderId} duplicate={duplicate} isLoadingFolders={isLoadingFolders} isSaving={dialogPending} onSelectFolder={setSelectedFolderId} onCancel={closeBookmark} onConfirm={() => void confirmBookmark()} onOpenDuplicate={() => void openDuplicate()} /></div> : moveCandidate ? <div className="mb-4"><MoveLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={moveCandidate} projects={projects.filter((project) => project.id !== moveCandidate.projectId)} selectedProjectId={moveProjectId} isMoving={dialogPending} onSelect={setMoveProjectId} onCancel={() => setMoveCandidate(null)} onConfirm={() => void confirmMove()} /></div> : removeCandidate ? <div className="mb-4"><RemoveLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={removeCandidate} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} /></div> : null}
+      {tagCandidate && <TagLinkDialog link={tagCandidate} suggestions={[...new Set(links.flatMap((link) => link.tags ?? []))]} returnFocus={(invoker) => invoker ?? sectionHeading.current} onSaved={finishTagging} onCancel={() => setTagCandidate(null)} />}
       {isLoading && <SkeletonCards />}
       {!isLoading && !error && links.length === 0 && <EmptyState title="Review queue is clear">Parked links will appear here when they need a decision.</EmptyState>}
       <div className="space-y-2">
-        {links.map((link) => <SavedLinkCard key={link.id} link={link} projectName={projects.find((project) => project.id === link.projectId)?.name} isRestoring={workingId === link.id} onRestore={() => void restoreReviewLink(link)} onBookmark={() => void startBookmarking(link)} onMove={() => startMoving(link)} onArchive={() => void runLinkAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`)} onRemove={() => startRemoving(link)} />)}
+        {links.map((link) => <SavedLinkCard key={link.id} link={link} projectName={projects.find((project) => project.id === link.projectId)?.name} isRestoring={workingId === link.id} onRestore={() => void restoreReviewLink(link)} onBookmark={() => void startBookmarking(link)} onEditTags={() => { setMessage(null); setError(null); setWarnings([]); setTagCandidate(link); }} onMove={() => startMoving(link)} onArchive={() => void runLinkAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`)} onRemove={() => startRemoving(link)} />)}
       </div>
     </>
   );

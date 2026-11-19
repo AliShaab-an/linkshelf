@@ -135,6 +135,8 @@ describe('background operation outcomes', () => {
     const message = await importPreview();
     const before = structuredClone(stored());
     const original = api.storage.local.set.getMockImplementation();
+    // The first write is the automatic before-import backup, which is allowed to succeed.
+    api.storage.local.set.mockImplementationOnce(original!);
     api.storage.local.set.mockRejectedValueOnce(new Error('Write failed'));
     if (failure === 'rollback') api.storage.local.set.mockRejectedValueOnce(new Error('Rollback failed'));
     else api.storage.local.set.mockImplementation(original);

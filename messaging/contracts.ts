@@ -2,6 +2,8 @@ import type { OperationWarnings } from '@/features/operations/secondary-result';
 import type { RawRecoveryExport, StorageStatus } from '@/domain/recovery';
 import type { RecoveryBackupPreview } from '@/storage/repository';
 import { SettingsPatchSchema, type SettingsPatch } from '@/domain/schemas';
+import type { SnapshotSummary } from '@/domain/snapshots';
+import type { AutoBackupList } from '@/features/backups/auto-backup-service';
 import type {
   LinkShelfBackup,
   ParkingSession,
@@ -218,6 +220,8 @@ export interface ParkCurrentTabMessage {
     projectId: string;
     note?: string;
     reminderAt?: string;
+    /** What to do when this URL is already parked. Defaults to `park`. */
+    duplicates?: 'park' | 'skip';
   };
 }
 
@@ -228,15 +232,28 @@ export interface ParkSelectedTabsMessage {
     projectId: string;
     note?: string;
     reminderAt?: string;
+    /** What to do with tabs whose URL is already parked. Defaults to `park`. */
+    duplicates?: 'park' | 'skip';
   };
 }
+
+export interface GetParkDuplicatesMessage {
+  type: 'GET_PARK_DUPLICATES';
+  payload: { tabIds: number[] };
+}
+
+export type GetParkDuplicatesResponse =
+  | { success: true; duplicateTabIds: number[] }
+  | { success: false; error: { message: string } };
 
 export type ParkSelectedTabsResponse = OperationWarnings & (
   | {
       success: true;
       saved: true;
-      sessionId: string;
+      /** Absent when every selected tab was an already-parked duplicate. */
+      sessionId?: string;
       linkIds: string[];
+      skippedDuplicateTabIds?: number[];
       closedTabIds: number[];
       failedToCloseTabIds: number[];
     }
@@ -449,6 +466,23 @@ export type SetLinkTagsResponse =
       };
     };
 
+export interface SetLinkReminderMessage {
+  type: 'SET_LINK_REMINDER';
+  /** null clears the reminder. */
+  payload: { linkId: string; reminderAt: string | null };
+}
+
+export type SetLinkReminderResponse = OperationWarnings & (
+  | { success: true; link: SavedLink }
+  | {
+      success: false;
+      error: {
+        code: 'LINK_NOT_FOUND' | 'INVALID_STATE' | 'INVALID_REMINDER' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR';
+        message: string;
+      };
+    }
+);
+
 export interface GetTagsMessage {
   type: 'GET_TAGS';
 }
@@ -571,8 +605,10 @@ export type ParkCurrentTabResponse = OperationWarnings & (
       success: true;
       saved: true;
       closed: true;
-      linkId: string;
-      sessionId: string;
+      /** Absent when the tab was an already-parked duplicate and was only closed. */
+      linkId?: string;
+      sessionId?: string;
+      skippedDuplicate?: true;
     }
   | {
       success: false;
@@ -611,7 +647,9 @@ export function isParkCurrentTabMessage(
     (candidate.payload.note === undefined ||
       typeof candidate.payload.note === 'string') &&
     (candidate.payload.reminderAt === undefined ||
-      typeof candidate.payload.reminderAt === 'string')
+      typeof candidate.payload.reminderAt === 'string') &&
+    (candidate.payload.duplicates === undefined ||
+      candidate.payload.duplicates === 'park' || candidate.payload.duplicates === 'skip')
   );
 }
 
@@ -734,8 +772,18 @@ export function isParkSelectedTabsMessage(
     (candidate.payload.note === undefined ||
       typeof candidate.payload.note === 'string') &&
     (candidate.payload.reminderAt === undefined ||
-      typeof candidate.payload.reminderAt === 'string')
+      typeof candidate.payload.reminderAt === 'string') &&
+    (candidate.payload.duplicates === undefined ||
+      candidate.payload.duplicates === 'park' || candidate.payload.duplicates === 'skip')
   );
+}
+
+export function isGetParkDuplicatesMessage(message: unknown): message is GetParkDuplicatesMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<GetParkDuplicatesMessage>;
+  const tabIds = candidate.payload?.tabIds;
+  return candidate.type === 'GET_PARK_DUPLICATES' && Array.isArray(tabIds) && tabIds.length > 0 &&
+    tabIds.every((tabId) => Number.isInteger(tabId) && tabId >= 0) && new Set(tabIds).size === tabIds.length;
 }
 
 export function isGetCurrentWindowTabsMessage(
@@ -915,6 +963,14 @@ export function isSetLinkTagsMessage(message: unknown): message is SetLinkTagsMe
     Array.isArray(candidate.payload.tags);
 }
 
+export function isSetLinkReminderMessage(message: unknown): message is SetLinkReminderMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<SetLinkReminderMessage>;
+  return candidate.type === 'SET_LINK_REMINDER' &&
+    typeof candidate.payload?.linkId === 'string' && candidate.payload.linkId.length > 0 &&
+    (candidate.payload.reminderAt === null || typeof candidate.payload.reminderAt === 'string');
+}
+
 export function isGetTagsMessage(message: unknown): message is GetTagsMessage {
   return typeof message === 'object' && message !== null && (message as Partial<GetTagsMessage>).type === 'GET_TAGS';
 }
@@ -1016,6 +1072,7 @@ export async function parkCurrentTab(
     projectId: string;
     note?: string;
     reminderAt?: string;
+    duplicates?: 'park' | 'skip';
   },
 ): Promise<ParkCurrentTabResponse> {
   const message: ParkCurrentTabMessage = {
@@ -1077,6 +1134,7 @@ export async function parkSelectedTabs(
     projectId: string;
     note?: string;
     reminderAt?: string;
+    duplicates?: 'park' | 'skip';
   },
 ): Promise<ParkSelectedTabsResponse> {
   const message: ParkSelectedTabsMessage = {
@@ -1250,6 +1308,15 @@ export async function moveLink(linkId: string, projectId: string): Promise<LinkL
   return response as LinkLifecycleResponse;
 }
 
+export async function setLinkReminder(linkId: string, reminderAt: string | null): Promise<SetLinkReminderResponse> {
+  const response = (await browser.runtime.sendMessage({
+    type: 'SET_LINK_REMINDER',
+    payload: { linkId, reminderAt },
+  } satisfies SetLinkReminderMessage)) as unknown;
+  assertResponse(response);
+  return response as SetLinkReminderResponse;
+}
+
 export async function setLinkTags(linkId: string, tags: string[]): Promise<SetLinkTagsResponse> {
   const response = (await browser.runtime.sendMessage({
     type: 'SET_LINK_TAGS',
@@ -1257,6 +1324,12 @@ export async function setLinkTags(linkId: string, tags: string[]): Promise<SetLi
   } satisfies SetLinkTagsMessage)) as unknown;
   assertResponse(response);
   return response as SetLinkTagsResponse;
+}
+
+export async function getParkDuplicates(tabIds: number[]): Promise<GetParkDuplicatesResponse> {
+  const response = (await browser.runtime.sendMessage({ type: 'GET_PARK_DUPLICATES', payload: { tabIds } } satisfies GetParkDuplicatesMessage)) as unknown;
+  assertResponse(response);
+  return response as GetParkDuplicatesResponse;
 }
 
 export async function getTags(): Promise<GetTagsResponse> {
@@ -1289,3 +1362,132 @@ export async function restoreProject(
   assertResponse(response);
   return response as RestoreProjectResponse;
 }
+
+export type SnapshotListResponse =
+  | { success: true; enabled: boolean; snapshots: SnapshotSummary[] }
+  | { success: false; error: { message: string } };
+
+export interface GetSnapshotsMessage { type: 'GET_SNAPSHOTS' }
+export interface SetSnapshotsEnabledMessage { type: 'SET_SNAPSHOTS_ENABLED'; payload: { enabled: boolean } }
+export interface DeleteSnapshotsMessage { type: 'DELETE_SNAPSHOTS' }
+export interface RestoreSnapshotMessage { type: 'RESTORE_SNAPSHOT'; payload: { snapshotId: string } }
+
+export type RestoreSnapshotResponse =
+  | { success: true; opened: number; failed: number; total: number }
+  | {
+      success: false;
+      opened: number;
+      error: { code: 'SNAPSHOT_NOT_FOUND' | 'TAB_OPEN_FAILED' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR'; message: string };
+    };
+
+export function isGetSnapshotsMessage(message: unknown): message is GetSnapshotsMessage {
+  return typeof message === 'object' && message !== null && (message as { type?: unknown }).type === 'GET_SNAPSHOTS';
+}
+
+export function isSetSnapshotsEnabledMessage(message: unknown): message is SetSnapshotsEnabledMessage {
+  const candidate = message as Partial<SetSnapshotsEnabledMessage> | null;
+  return typeof candidate === 'object' && candidate !== null && candidate.type === 'SET_SNAPSHOTS_ENABLED' &&
+    typeof candidate.payload?.enabled === 'boolean';
+}
+
+export function isDeleteSnapshotsMessage(message: unknown): message is DeleteSnapshotsMessage {
+  return typeof message === 'object' && message !== null && (message as { type?: unknown }).type === 'DELETE_SNAPSHOTS';
+}
+
+export function isRestoreSnapshotMessage(message: unknown): message is RestoreSnapshotMessage {
+  const candidate = message as Partial<RestoreSnapshotMessage> | null;
+  return typeof candidate === 'object' && candidate !== null && candidate.type === 'RESTORE_SNAPSHOT' &&
+    typeof candidate.payload?.snapshotId === 'string' && candidate.payload.snapshotId.length > 0;
+}
+
+async function sendSnapshotMessage<T>(message: unknown): Promise<T> {
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as T;
+}
+
+export const getSnapshots = () => sendSnapshotMessage<SnapshotListResponse>({ type: 'GET_SNAPSHOTS' } satisfies GetSnapshotsMessage);
+export const setSnapshotsEnabled = (enabled: boolean) =>
+  sendSnapshotMessage<SnapshotListResponse>({ type: 'SET_SNAPSHOTS_ENABLED', payload: { enabled } } satisfies SetSnapshotsEnabledMessage);
+export const deleteSnapshots = () => sendSnapshotMessage<SnapshotListResponse>({ type: 'DELETE_SNAPSHOTS' } satisfies DeleteSnapshotsMessage);
+export const restoreSnapshot = (snapshotId: string) =>
+  sendSnapshotMessage<RestoreSnapshotResponse>({ type: 'RESTORE_SNAPSHOT', payload: { snapshotId } } satisfies RestoreSnapshotMessage);
+
+export type TrashAction = 'list' | 'restore' | 'delete' | 'empty';
+export interface TrashMessage { type: 'TRASH'; payload: { action: TrashAction; linkId?: string } }
+export type TrashResponse =
+  | { success: true; links: SavedLink[]; retentionDays: number; affected: number }
+  | { success: false; error: { message: string } };
+
+export function isTrashMessage(message: unknown): message is TrashMessage {
+  const candidate = message as Partial<TrashMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'TRASH') return false;
+  const payload = candidate.payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+  if (!['list', 'restore', 'delete', 'empty'].includes(payload.action as string)) return false;
+  const needsLink = payload.action === 'restore' || payload.action === 'delete';
+  return needsLink ? typeof payload.linkId === 'string' && payload.linkId.length > 0 : payload.linkId === undefined;
+}
+
+async function sendTrashMessage(action: TrashAction, linkId?: string): Promise<TrashResponse> {
+  const message: TrashMessage = { type: 'TRASH', payload: linkId === undefined ? { action } : { action, linkId } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as TrashResponse;
+}
+
+export const getTrash = () => sendTrashMessage('list');
+export const restoreFromTrash = (linkId: string) => sendTrashMessage('restore', linkId);
+export const deleteFromTrash = (linkId: string) => sendTrashMessage('delete', linkId);
+export const emptyTrash = () => sendTrashMessage('empty');
+
+export type AutoBackupAction = 'list' | 'enable' | 'disable' | 'delete' | 'get';
+export interface AutoBackupMessage { type: 'AUTO_BACKUP'; payload: { action: AutoBackupAction; id?: string } }
+export type AutoBackupResponse =
+  | ({ success: true; backup?: LinkShelfBackup } & AutoBackupList)
+  | { success: false; error: { message: string } };
+
+export function isAutoBackupMessage(message: unknown): message is AutoBackupMessage {
+  const candidate = message as Partial<AutoBackupMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'AUTO_BACKUP') return false;
+  const payload = candidate.payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+  if (!['list', 'enable', 'disable', 'delete', 'get'].includes(payload.action as string)) return false;
+  const needsId = payload.action === 'delete' || payload.action === 'get';
+  return needsId ? typeof payload.id === 'string' && payload.id.length > 0 : payload.id === undefined;
+}
+
+async function sendAutoBackupMessage(action: AutoBackupAction, id?: string): Promise<AutoBackupResponse> {
+  const message: AutoBackupMessage = { type: 'AUTO_BACKUP', payload: id === undefined ? { action } : { action, id } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as AutoBackupResponse;
+}
+
+export const getAutoBackups = () => sendAutoBackupMessage('list');
+export const setAutoBackupsEnabled = (enabled: boolean) => sendAutoBackupMessage(enabled ? 'enable' : 'disable');
+export const deleteAutoBackup = (id: string) => sendAutoBackupMessage('delete', id);
+export const getAutoBackup = (id: string) => sendAutoBackupMessage('get', id);
+
+export type RatePromptAction = 'get' | 'rate' | 'later' | 'never';
+export interface RatePromptMessage { type: 'RATE_PROMPT'; payload: { action: RatePromptAction } }
+export type RatePromptResponse =
+  | { success: true; visible: boolean }
+  | { success: false; error: { message: string } };
+
+export function isRatePromptMessage(message: unknown): message is RatePromptMessage {
+  const candidate = message as Partial<RatePromptMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'RATE_PROMPT') return false;
+  const payload = candidate.payload;
+  return typeof payload === 'object' && payload !== null && ['get', 'rate', 'later', 'never'].includes(payload.action as string);
+}
+
+async function sendRatePromptMessage(action: RatePromptAction): Promise<RatePromptResponse> {
+  const message: RatePromptMessage = { type: 'RATE_PROMPT', payload: { action } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as RatePromptResponse;
+}
+
+export const getRatePrompt = () => sendRatePromptMessage('get');
+export const answerRatePrompt = (answer: Exclude<RatePromptAction, 'get'>) => sendRatePromptMessage(answer);

@@ -17,6 +17,7 @@ import {
 } from '@/domain/schemas';
 import { getDomain, normalizeUrl } from '@/domain/url';
 import { parseSearchQuery, parseTags } from '@/domain/tags';
+import { InvalidReminderError } from '@/domain/reminders';
 import type { StorageAdapter } from './storage-adapter';
 import { getIntegrityDiagnostics, structuralDiagnostics, type IntegrityDiagnostic } from '@/domain/integrity';
 import { storedValuesEqual, stringifyRecoveryExport, type RawRecoveryExport, type StorageStatus } from '@/domain/recovery';
@@ -791,6 +792,30 @@ export class LinkShelfRepository {
     );
   }
 
+  /** Sets, changes (snooze) or clears (null) the reminder of a parked link. */
+  async setLinkReminder(linkId: string, reminderAt: string | null): Promise<SavedLink> {
+    if (reminderAt !== null) {
+      const time = Date.parse(reminderAt);
+      if (typeof reminderAt !== 'string' || Number.isNaN(time) || new Date(time).toISOString() !== reminderAt) {
+        throw new InvalidReminderError('Choose a valid reminder date and time.');
+      }
+      if (time <= Date.parse(this.now())) throw new InvalidReminderError('Reminder must be in the future.');
+      if (time > Date.parse(this.now()) + 10 * 365 * 86_400_000) throw new InvalidReminderError('Choose a reminder within the next 10 years.');
+    }
+    return this.updateLinkState(linkId, ['parked'], (link, timestamp) => {
+      const { reminderAt: _previous, reminderNotifiedAt: _notified, ...rest } = link;
+      if (reminderAt === null && link.reminderAt === undefined) return link;
+      return { ...rest, ...(reminderAt === null ? {} : { reminderAt }), updatedAt: timestamp };
+    }, 'Only parked links can have reminders.');
+  }
+
+  /** Returns the given URLs that already exist as parked links (compared by normalized URL). */
+  async findParkedDuplicateUrls(urls: string[]): Promise<string[]> {
+    const database = await this.getDatabase();
+    const parked = new Set(database.links.filter((link) => link.status === 'parked').map((link) => link.normalizedUrl));
+    return urls.filter((url) => parked.has(normalizeUrl(url, database.settings.trackingParamsToRemove)));
+  }
+
   /** Tag usage across parked and archived links, most used first. */
   async getTagCounts(): Promise<Array<{ tag: string; count: number }>> {
     const counts = new Map<string, number>();
@@ -960,6 +985,55 @@ export class LinkShelfRepository {
       }),
       'Only parked or archived links can be removed.',
     );
+  }
+
+  /** Removed links stay recoverable for this long before they are deleted for good. */
+  static readonly TRASH_RETENTION_DAYS = 30;
+
+  async getRemovedLinks(): Promise<SavedLink[]> {
+    const database = await this.getDatabase();
+    return database.links
+      .filter((link) => link.status === 'removed')
+      .sort((first, second) => (second.removedAt ?? second.updatedAt).localeCompare(first.removedAt ?? first.updatedAt));
+  }
+
+  /** Returns a removed link to the archive when it came from there, otherwise to its project. */
+  async restoreRemovedLink(linkId: string): Promise<SavedLink> {
+    return this.updateLinkState(linkId, ['removed'], (link, timestamp) => {
+      const { removedAt: _removedAt, reminderAt: _reminderAt, reminderNotifiedAt: _notified, ...rest } = link;
+      return { ...rest, status: link.archivedAt ? 'archived' : 'parked', updatedAt: timestamp };
+    }, 'Only removed links can be recovered.');
+  }
+
+  /**
+   * Permanently deletes removed links: the given ids, or every removed link
+   * when none are given. Empty parking sessions are cleaned up with them.
+   */
+  async deleteRemovedLinks(linkIds?: readonly string[]): Promise<number> {
+    return this.deleteRemovedWhere((link) => !linkIds || linkIds.includes(link.id));
+  }
+
+  async purgeExpiredRemovedLinks(at: string = this.now()): Promise<number> {
+    const cutoff = new Date(new Date(at).getTime() - LinkShelfRepository.TRASH_RETENTION_DAYS * 86_400_000).toISOString();
+    return this.deleteRemovedWhere((link) => (link.removedAt ?? link.updatedAt) <= cutoff);
+  }
+
+  private async deleteRemovedWhere(matches: (link: SavedLink) => boolean): Promise<number> {
+    let deleted = 0;
+    await this.mutateDatabase((database) => {
+      const doomed = new Set(database.links.filter((link) => link.status === 'removed' && matches(link)).map((link) => link.id));
+      deleted = doomed.size;
+      if (!deleted) return database;
+      const links = database.links.filter((link) => !doomed.has(link.id));
+      const usedSessions = new Set(links.map((link) => link.sessionId));
+      const emptied = new Set(database.links.filter((link) => doomed.has(link.id)).map((link) => link.sessionId));
+      return {
+        ...database,
+        links,
+        sessions: database.sessions.filter((session) => usedSessions.has(session.id) || !emptied.has(session.id)),
+      };
+    }, { skipIfUnchanged: true });
+    return deleted;
   }
 
   async undoParkedLink(receipt: { linkId: string; projectId: string; sessionId: string; updatedAt: string; status: 'restored' | 'removed' }): Promise<SavedLink> {

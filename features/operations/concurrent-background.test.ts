@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LinkShelfDatabase, SavedLink } from '@/domain/schemas';
+import { DATABASE_STORAGE_KEY } from '@/storage/repository';
 
 const NOW = '2026-11-09T10:00:00.000Z';
 
@@ -304,7 +305,9 @@ describe('concurrent operations through actual background handlers', () => {
     expect(tabs.has(1)).toBe(false);
     expect(api.tabs.get).toHaveBeenCalledTimes(2);
     expect(api.tabs.remove).toHaveBeenCalledTimes(1);
-    expect(api.storage.local.set.mock.invocationCallOrder.at(-1)).toBeLessThan(api.tabs.remove.mock.invocationCallOrder[0]);
+    // The rate prompt's parked-tab counter is written afterwards under its own key; only the database save must come first.
+    const databaseWrites = api.storage.local.set.mock.calls.flatMap((call: unknown[], index: number) => Object.hasOwn(call[0] as object, DATABASE_STORAGE_KEY) ? [api.storage.local.set.mock.invocationCallOrder[index]] : []);
+    expect(databaseWrites.at(-1)).toBeLessThan(api.tabs.remove.mock.invocationCallOrder[0]);
     expect(api.tabs.onUpdated.size()).toBe(0);
   });
 

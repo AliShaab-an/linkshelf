@@ -10,6 +10,7 @@ import { SidePanelNavigation } from './components/SidePanelNavigation';
 import { TodaySection } from './components/TodaySection';
 import { QuickSettings } from './components/QuickSettings';
 import { StorageRecoveryGate } from './components/StorageRecovery';
+import { RatePromptCard } from './components/RatePromptCard';
 import { hasActiveModal } from './components/ui/Modal';
 import { consumeWindowIntent, DEFAULT_UI_STATE, loadUiState, readWindowIntent, updateUiState } from './ui-state';
 import { createNavigationIntents } from './navigation-intents';
@@ -122,6 +123,7 @@ function App() {
             <SidePanelNavigation activeSection={activeSection} onChange={changeSection} />
           </div>
           <section className="mx-auto max-w-2xl p-4 pb-10">
+            {(activeSection === 'park' || activeSection === 'projects' || activeSection === 'today') && <RatePromptCard />}
             {activeSection === 'park' && <ParkTabsSection initialProjectId={parkProjectId} onViewSession={target => {
               intents.current?.supersede();
               navigate('projects', undefined, target);

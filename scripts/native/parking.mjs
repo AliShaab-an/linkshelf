@@ -43,8 +43,9 @@ try {
 
   await check('320 px and 200% zoom keep selection and confirmation reachable; Back preserves the draft', async () => {
     await inViewport(button('Review selection'));
+    await page.getByText(/tabs? can’t be parked/).click();
     assert.equal(await tab('pinned-parking').isDisabled(), true);
-    assert.ok(await page.getByRole('list', { name: 'Tabs in this window' }).getByText('restricted', { exact: true }).count());
+    assert.ok(await page.getByRole('list', { name: 'Tabs that can’t be parked' }).getByText('restricted', { exact: true }).count());
     for (const id of [1, 6, 11]) await activate(tab(`parking-${id}`), 'Space');
     assert.equal(await page.getByRole('checkbox', { checked: true }).count(), 3);
     await inViewport(button('Review selection'));
