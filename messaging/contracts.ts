@@ -3,6 +3,7 @@ import type { RawRecoveryExport, StorageStatus } from '@/domain/recovery';
 import type { RecoveryBackupPreview } from '@/storage/repository';
 import { SettingsPatchSchema, type SettingsPatch } from '@/domain/schemas';
 import type { SnapshotSummary } from '@/domain/snapshots';
+import type { AutoBackupList } from '@/features/backups/auto-backup-service';
 import type {
   LinkShelfBackup,
   ParkingSession,
@@ -464,6 +465,23 @@ export type SetLinkTagsResponse =
         message: string;
       };
     };
+
+export interface SetLinkReminderMessage {
+  type: 'SET_LINK_REMINDER';
+  /** null clears the reminder. */
+  payload: { linkId: string; reminderAt: string | null };
+}
+
+export type SetLinkReminderResponse = OperationWarnings & (
+  | { success: true; link: SavedLink }
+  | {
+      success: false;
+      error: {
+        code: 'LINK_NOT_FOUND' | 'INVALID_STATE' | 'INVALID_REMINDER' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR';
+        message: string;
+      };
+    }
+);
 
 export interface GetTagsMessage {
   type: 'GET_TAGS';
@@ -945,6 +963,14 @@ export function isSetLinkTagsMessage(message: unknown): message is SetLinkTagsMe
     Array.isArray(candidate.payload.tags);
 }
 
+export function isSetLinkReminderMessage(message: unknown): message is SetLinkReminderMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<SetLinkReminderMessage>;
+  return candidate.type === 'SET_LINK_REMINDER' &&
+    typeof candidate.payload?.linkId === 'string' && candidate.payload.linkId.length > 0 &&
+    (candidate.payload.reminderAt === null || typeof candidate.payload.reminderAt === 'string');
+}
+
 export function isGetTagsMessage(message: unknown): message is GetTagsMessage {
   return typeof message === 'object' && message !== null && (message as Partial<GetTagsMessage>).type === 'GET_TAGS';
 }
@@ -1282,6 +1308,15 @@ export async function moveLink(linkId: string, projectId: string): Promise<LinkL
   return response as LinkLifecycleResponse;
 }
 
+export async function setLinkReminder(linkId: string, reminderAt: string | null): Promise<SetLinkReminderResponse> {
+  const response = (await browser.runtime.sendMessage({
+    type: 'SET_LINK_REMINDER',
+    payload: { linkId, reminderAt },
+  } satisfies SetLinkReminderMessage)) as unknown;
+  assertResponse(response);
+  return response as SetLinkReminderResponse;
+}
+
 export async function setLinkTags(linkId: string, tags: string[]): Promise<SetLinkTagsResponse> {
   const response = (await browser.runtime.sendMessage({
     type: 'SET_LINK_TAGS',
@@ -1377,3 +1412,82 @@ export const setSnapshotsEnabled = (enabled: boolean) =>
 export const deleteSnapshots = () => sendSnapshotMessage<SnapshotListResponse>({ type: 'DELETE_SNAPSHOTS' } satisfies DeleteSnapshotsMessage);
 export const restoreSnapshot = (snapshotId: string) =>
   sendSnapshotMessage<RestoreSnapshotResponse>({ type: 'RESTORE_SNAPSHOT', payload: { snapshotId } } satisfies RestoreSnapshotMessage);
+
+export type TrashAction = 'list' | 'restore' | 'delete' | 'empty';
+export interface TrashMessage { type: 'TRASH'; payload: { action: TrashAction; linkId?: string } }
+export type TrashResponse =
+  | { success: true; links: SavedLink[]; retentionDays: number; affected: number }
+  | { success: false; error: { message: string } };
+
+export function isTrashMessage(message: unknown): message is TrashMessage {
+  const candidate = message as Partial<TrashMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'TRASH') return false;
+  const payload = candidate.payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+  if (!['list', 'restore', 'delete', 'empty'].includes(payload.action as string)) return false;
+  const needsLink = payload.action === 'restore' || payload.action === 'delete';
+  return needsLink ? typeof payload.linkId === 'string' && payload.linkId.length > 0 : payload.linkId === undefined;
+}
+
+async function sendTrashMessage(action: TrashAction, linkId?: string): Promise<TrashResponse> {
+  const message: TrashMessage = { type: 'TRASH', payload: linkId === undefined ? { action } : { action, linkId } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as TrashResponse;
+}
+
+export const getTrash = () => sendTrashMessage('list');
+export const restoreFromTrash = (linkId: string) => sendTrashMessage('restore', linkId);
+export const deleteFromTrash = (linkId: string) => sendTrashMessage('delete', linkId);
+export const emptyTrash = () => sendTrashMessage('empty');
+
+export type AutoBackupAction = 'list' | 'enable' | 'disable' | 'delete' | 'get';
+export interface AutoBackupMessage { type: 'AUTO_BACKUP'; payload: { action: AutoBackupAction; id?: string } }
+export type AutoBackupResponse =
+  | ({ success: true; backup?: LinkShelfBackup } & AutoBackupList)
+  | { success: false; error: { message: string } };
+
+export function isAutoBackupMessage(message: unknown): message is AutoBackupMessage {
+  const candidate = message as Partial<AutoBackupMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'AUTO_BACKUP') return false;
+  const payload = candidate.payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+  if (!['list', 'enable', 'disable', 'delete', 'get'].includes(payload.action as string)) return false;
+  const needsId = payload.action === 'delete' || payload.action === 'get';
+  return needsId ? typeof payload.id === 'string' && payload.id.length > 0 : payload.id === undefined;
+}
+
+async function sendAutoBackupMessage(action: AutoBackupAction, id?: string): Promise<AutoBackupResponse> {
+  const message: AutoBackupMessage = { type: 'AUTO_BACKUP', payload: id === undefined ? { action } : { action, id } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as AutoBackupResponse;
+}
+
+export const getAutoBackups = () => sendAutoBackupMessage('list');
+export const setAutoBackupsEnabled = (enabled: boolean) => sendAutoBackupMessage(enabled ? 'enable' : 'disable');
+export const deleteAutoBackup = (id: string) => sendAutoBackupMessage('delete', id);
+export const getAutoBackup = (id: string) => sendAutoBackupMessage('get', id);
+
+export type RatePromptAction = 'get' | 'rate' | 'later' | 'never';
+export interface RatePromptMessage { type: 'RATE_PROMPT'; payload: { action: RatePromptAction } }
+export type RatePromptResponse =
+  | { success: true; visible: boolean }
+  | { success: false; error: { message: string } };
+
+export function isRatePromptMessage(message: unknown): message is RatePromptMessage {
+  const candidate = message as Partial<RatePromptMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'RATE_PROMPT') return false;
+  const payload = candidate.payload;
+  return typeof payload === 'object' && payload !== null && ['get', 'rate', 'later', 'never'].includes(payload.action as string);
+}
+
+async function sendRatePromptMessage(action: RatePromptAction): Promise<RatePromptResponse> {
+  const message: RatePromptMessage = { type: 'RATE_PROMPT', payload: { action } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as RatePromptResponse;
+}
+
+export const getRatePrompt = () => sendRatePromptMessage('get');
+export const answerRatePrompt = (answer: Exclude<RatePromptAction, 'get'>) => sendRatePromptMessage(answer);

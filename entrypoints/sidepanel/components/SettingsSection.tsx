@@ -8,8 +8,10 @@ import type { LinkShelfBackup } from '@/domain/schemas';
 import { buildExport, type ExportFormat } from '@/domain/export';
 import { Select } from './ui/Select';
 import { SnapshotsPanel } from './SnapshotsPanel';
+import { AutoBackupsPanel } from './AutoBackupsPanel';
 import { BACKUP_SIZE_LIMIT_LABEL } from '@/domain/constants';
-import { readBackupFile, stringifyBackup } from '@/domain/backup';
+import { stringifyBackup } from '@/domain/backup';
+import { readImportFile, type ImportFile } from '@/domain/importers';
 import type { ImportBackupPreview, ImportMode } from '@/storage/repository';
 import {
   exportData,
@@ -31,6 +33,7 @@ export function SettingsSection() {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [importBackup, setImportBackup] = useState<LinkShelfBackup | null>(null);
   const [importFileName, setImportFileName] = useState('');
+  const [importFile, setImportFile] = useState<ImportFile | null>(null);
   const [importPreview, setImportPreview] = useState<ImportBackupPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -91,14 +94,23 @@ export function SettingsSection() {
   }
 
   async function selectBackup(file: File | undefined) {
-    setImportBackup(null); setImportPreview(null); setError(null); setMessage(null);
+    setImportBackup(null); setImportFile(null); setImportPreview(null); setError(null); setMessage(null);
     if (!file) return;
     try {
-      setImportBackup(await readBackupFile(file));
+      const read = await readImportFile(file);
+      setImportFile(read);
+      setImportBackup(read.backup);
       setImportFileName(file.name);
     } catch (caughtError) {
       setError(toMessage(caughtError, 'LinkShelf could not read this backup file.'));
     }
+  }
+
+  function chooseAutoBackup(backup: LinkShelfBackup, name: string) {
+    setWarnings([]); setError(null); setMessage(null); setImportPreview(null);
+    setImportFile({ source: 'LinkShelf', backup });
+    setImportBackup(backup);
+    setImportFileName(name);
   }
 
   async function chooseImportMode(mode: ImportMode) {
@@ -125,7 +137,7 @@ export function SettingsSection() {
       if (!response.success) throw new Error(response.error.message);
       const completed = await withSecondaryWarning(response, preferences.reload, 'Your backup was imported, but this view could not refresh. Reopen Settings to load the imported preferences.');
       setWarnings(completed.warnings ?? []);
-      setImportBackup(null); setImportPreview(null); setImportFileName('');
+      setImportBackup(null); setImportFile(null); setImportPreview(null); setImportFileName('');
       setMessage(
         mode === 'replace'
           ? `Backup restored: ${response.result.linksAdded} links loaded.`
@@ -170,21 +182,24 @@ export function SettingsSection() {
           <button type="button" className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-50" disabled={isExporting} onClick={() => void downloadReadable()}>{isExporting ? 'Preparing export...' : 'Download export'}</button>
 
           <div className="my-4 border-t border-slate-200" />
-          <h4 className="text-sm font-semibold">Import backup</h4>
-          <p className="mt-1 text-xs text-slate-500">Validated LinkShelf JSON files up to {BACKUP_SIZE_LIMIT_LABEL} are accepted. Imports must also fit the available Chrome storage space.</p>
+          <AutoBackupsPanel disabled={isPreviewing || isImporting || preferences.saving || importPreview !== null} onChoose={chooseAutoBackup} />
+
+          <div className="my-4 border-t border-slate-200" />
+          <h4 className="text-sm font-semibold">Import backup or another tool’s export</h4>
+          <p className="mt-1 text-xs text-slate-500">Accepts LinkShelf JSON backups, and exports from OneTab (text), Session Buddy (JSON), Toby (JSON), Pocket (HTML) and browser bookmarks (HTML), up to {BACKUP_SIZE_LIMIT_LABEL}. Files from other tools are added as a new project; nothing is replaced. Imports must also fit the available Chrome storage space.</p>
           <label className="mt-3 block cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-center text-sm font-semibold text-slate-700 hover:bg-slate-100">
             Choose backup file
-            <input ref={backupInput} type="file" disabled={isPreviewing || isImporting || preferences.saving} className="sr-only" accept="application/json,.json" onChange={(event) => void selectBackup(event.target.files?.[0])} />
+            <input ref={backupInput} type="file" disabled={isPreviewing || isImporting || preferences.saving} className="sr-only" accept="application/json,.json,.txt,.html,.htm,text/plain,text/html" onChange={(event) => void selectBackup(event.target.files?.[0])} />
           </label>
 
           {importBackup && <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
             <p className="font-semibold">{importFileName}</p>
-            <p className="mt-1 text-xs">Exported {new Date(importBackup.exportedAt).toLocaleString()}</p>
+            <p className="mt-1 text-xs">{importFile?.external ? `${importFile.source} export · ${importFile.external.linkCount} links in ${importFile.external.groupCount} groups${importFile.external.skipped ? ` · ${importFile.external.skipped} skipped (duplicates or unsupported addresses)` : ''}${importFile.external.truncated ? ' · stopped at the 20,000 link limit' : ''}` : `Exported ${new Date(importBackup.exportedAt).toLocaleString()}`}</p>
             <dl className="mt-3 grid grid-cols-3 gap-2 text-center"><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Projects</dt><dd className="font-bold">{importBackup.database.projects.length}</dd></div><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Sessions</dt><dd className="font-bold">{importBackup.database.sessions.length}</dd></div><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Links</dt><dd className="font-bold">{importBackup.database.links.length}</dd></div></dl>
             <dl className="mt-2 grid grid-cols-2 gap-2 text-center"><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Notes</dt><dd className="font-bold">{importBackup.database.sessions.filter((session) => !!session.note?.trim()).length + importBackup.database.links.filter((link) => !!link.note?.trim()).length}</dd></div><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Reminders</dt><dd className="font-bold">{importBackup.database.links.filter((link) => link.reminderAt !== undefined).length}</dd></div></dl>
             <p className="mt-2 text-xs text-blue-800">{importBackup.database.links.filter((link) => link.status === 'parked').length} parked · {importBackup.database.links.filter((link) => link.status === 'archived').length} archived · {importBackup.database.links.filter((link) => link.status === 'restored' || link.status === 'removed').length} history</p>
-            <p className="mt-3 text-xs">Merge adds missing records and keeps current settings. Replace all uses the backup as your library and applies its settings.</p>
-            <div className="mt-3 flex gap-2"><button type="button" className="flex-1 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={isPreviewing || isImporting || preferences.saving} onClick={(event) => { importTrigger.current = event.currentTarget; void chooseImportMode('merge'); }}>{isPreviewing ? 'Checking...' : 'Merge'}</button><button type="button" className="flex-1 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={isPreviewing || isImporting || preferences.saving} onClick={(event) => { importTrigger.current = event.currentTarget; void chooseImportMode('replace'); }}>Replace all</button></div>
+            <p className="mt-3 text-xs">{importFile?.external ? 'Import adds these links as a new project and keeps your current settings.' : 'Merge adds missing records and keeps current settings. Replace all uses the backup as your library and applies its settings.'}</p>
+            <div className="mt-3 flex gap-2"><button type="button" className="flex-1 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={isPreviewing || isImporting || preferences.saving} onClick={(event) => { importTrigger.current = event.currentTarget; void chooseImportMode('merge'); }}>{isPreviewing ? 'Checking...' : importFile?.external ? 'Import' : 'Merge'}</button>{!importFile?.external && <button type="button" className="flex-1 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={isPreviewing || isImporting || preferences.saving} onClick={(event) => { importTrigger.current = event.currentTarget; void chooseImportMode('replace'); }}>Replace all</button>}</div>
           </div>}
 
           {importBackup && importPreview && <InlineConfirmation className={`mt-3 rounded-lg border p-3 ${importPreview.mode === 'replace' ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50'}`} titleId="confirm-import-title" title={<>Confirm {importPreview.mode} import</>}

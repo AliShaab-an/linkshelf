@@ -26,6 +26,7 @@ import {
   isUndoParkedLinkMessage,
   isMoveLinkMessage,
   isSetLinkTagsMessage,
+  isSetLinkReminderMessage,
   isGetParkDuplicatesMessage,
   isGetSnapshotsMessage,
   isSetSnapshotsEnabledMessage,
@@ -37,6 +38,9 @@ import {
   isRestoreSessionMessage,
   isSearchLinksMessage,
   isUnarchiveLinkMessage,
+  isTrashMessage,
+  isAutoBackupMessage,
+  isRatePromptMessage,
   isUpdateSettingsMessage,
   isPatchSettingsMessage,
   isStorageRecoveryMessage,
@@ -59,6 +63,10 @@ import { createRestoreCoordinator } from '@/features/restoration/restore-coordin
 import { createSnapshotService } from '@/features/snapshots/snapshot-service';
 import { SnapshotStore } from '@/storage/snapshot-store';
 import { SNAPSHOT_ALARM_NAME, SNAPSHOT_ALARM_PERIOD_MINUTES } from '@/domain/snapshots';
+import { AUTO_BACKUP_ALARM_NAME, AUTO_BACKUP_PERIOD_MINUTES } from '@/domain/auto-backups';
+import { AutoBackupStore } from '@/storage/auto-backup-store';
+import { InvalidReminderError } from '@/domain/reminders';
+import { createAutoBackupService } from '@/features/backups/auto-backup-service';
 import type { SavedLink } from '@/domain/schemas';
 import {
   SIDE_PANEL_INTENTS_KEY,
@@ -71,6 +79,8 @@ import {
 } from '@/features/commands/side-panel-commands';
 import { parseSearchQuery } from '@/domain/tags';
 import { ChromeStorageAdapter } from '@/storage/storage-adapter';
+import { RatePromptStore } from '@/storage/rate-prompt-store';
+import { RATE_PROMPT_REVIEW_URL, isRatePromptVisible } from '@/domain/rate-prompt';
 import {
   DuplicateProjectNameError,
   InvalidLinkStateError,
@@ -104,6 +114,30 @@ export default defineBackground(() => {
     event?.addListener(searchPages.invalidate);
   }
   const operations = new OperationCoordinator();
+  const ratePrompt = new RatePromptStore(new ChromeStorageAdapter());
+  /** Counting parked tabs for the rate prompt must never affect parking itself. */
+  function countParked(count: number) {
+    void ratePrompt.recordParked(count).catch((error) => console.warn('LinkShelf could not update the rate prompt:', error));
+  }
+  const autoBackups = createAutoBackupService({
+    store: new AutoBackupStore(new ChromeStorageAdapter()),
+    exportBackup: () => repository.exportBackup(),
+    getUsage: async () => ({
+      used: await browser.storage.local.getBytesInUse(null),
+      quota: browser.storage.local.QUOTA_BYTES || 10 * 1024 * 1024,
+    }),
+  });
+
+  /** A daily alarm drives automatic backups; the service itself checks whether they are on. */
+  async function ensureAutoBackupAlarm() {
+    try {
+      if (!(await browser.alarms.get(AUTO_BACKUP_ALARM_NAME))) {
+        await browser.alarms.create(AUTO_BACKUP_ALARM_NAME, { delayInMinutes: 5, periodInMinutes: AUTO_BACKUP_PERIOD_MINUTES });
+      }
+    } catch (error) {
+      console.warn('LinkShelf could not schedule automatic backups:', error);
+    }
+  }
   const snapshots = createSnapshotService({
     store: new SnapshotStore(new ChromeStorageAdapter()),
     windows: {
@@ -202,6 +236,8 @@ export default defineBackground(() => {
     } catch (error) {
       console.error('Failed to initialize LinkShelf reminders:', error);
     }
+    // Removed links are only kept for 30 days; failing here must never block startup.
+    await operations.reserve(['trash'], () => repository.purgeExpiredRemovedLinks()).catch((error) => console.warn('LinkShelf could not clear expired removed links:', error));
   }
 
   function synchronizeReminderAlarms() {
@@ -216,14 +252,14 @@ export default defineBackground(() => {
 
   function parkCurrent(message: ParkCurrentTabMessage) {
     return operations.reserve([`tab:${message.payload.tabId}`], () => watchTabSnapshots(browser.tabs, [message.payload.tabId], (hasTabChanged) => executeParkCurrentTab(message, {
-      getTab: (id) => browser.tabs.get(id), persistTab: (input) => repository.parkTab(input), findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
+      getTab: (id) => browser.tabs.get(id), persistTab: async (input) => { const result = await repository.parkTab(input); countParked(1); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
       closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
     })));
   }
 
   function parkSelected(message: ParkSelectedTabsMessage) {
     return operations.reserve(message.payload.tabIds.map((id) => `tab:${id}`), () => watchTabSnapshots(browser.tabs, message.payload.tabIds, (hasTabChanged) => executeParkSelectedTabs(message, {
-      getTab: (id) => browser.tabs.get(id), persistTabs: (input) => repository.parkTabs(input), findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
+      getTab: (id) => browser.tabs.get(id), persistTabs: async (input) => { const result = await repository.parkTabs(input); countParked(result.links.length); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
       closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
     })));
   }
@@ -293,6 +329,9 @@ export default defineBackground(() => {
   void initializeExtension();
   browser.runtime.onInstalled.addListener((details) => {
     void initializeExtension();
+    if (details.reason === 'install' || details.reason === 'update') {
+      void ratePrompt.begin(details.reason === 'install' ? 'new' : 'existing').catch((error) => console.warn('LinkShelf could not prepare the rate prompt:', error));
+    }
     if (details.reason === 'install') {
       void browser.tabs.create({
         url: browser.runtime.getURL('/onboarding.html'),
@@ -303,13 +342,19 @@ export default defineBackground(() => {
   browser.runtime.onStartup.addListener(() => {
     void initializeExtension();
     void snapshots.started().then(reconcileSnapshotAlarm);
+    void autoBackups.runIfDue();
   });
   browser.windows?.onRemoved?.addListener((windowId) => void snapshots.windowClosed(windowId));
   void reconcileSnapshotAlarm();
+  void ensureAutoBackupAlarm();
 
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === SNAPSHOT_ALARM_NAME) {
       void snapshots.capture();
+      return;
+    }
+    if (alarm.name === AUTO_BACKUP_ALARM_NAME) {
+      void autoBackups.runIfDue();
       return;
     }
     if (!alarm.name.startsWith(REMINDER_ALARM_PREFIX)) return;
@@ -446,12 +491,15 @@ export default defineBackground(() => {
       }
 
       if (isImportDataMessage(message)) {
-        void repository
-          .importBackup(
+        void (async () => {
+          // Replacing everything is the one import that can lose data, so keep a copy first.
+          if (message.payload.mode === 'replace') await autoBackups.run('before-import');
+          return repository.importBackup(
             message.payload.backup,
             message.payload.mode,
             message.payload.revisionToken,
-          )
+          );
+        })()
           .then(async (result) => {
             sendResponse(await withSecondaryWarning({ success: true as const, result, warnings: [] as string[] }, synchronizeReminderAlarms, 'Your backup was imported, but reminders could not be updated. Reload LinkShelf to retry reminders.'));
           })
@@ -728,6 +776,63 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (isRatePromptMessage(message)) {
+      const { action } = message.payload;
+      void (async () => {
+        if (action === 'get') return ratePrompt.get();
+        if (action === 'rate') await browser.tabs.create({ url: RATE_PROMPT_REVIEW_URL, active: true });
+        return ratePrompt.answer(action);
+      })()
+        .then((state) => sendResponse({ success: true, visible: isRatePromptVisible(state) }))
+        .catch((error) => {
+          console.error('Rate prompt request failed:', error);
+          sendResponse({ success: false, error: { message: 'LinkShelf could not open the Chrome Web Store.' } });
+        });
+      return true;
+    }
+
+    if (isAutoBackupMessage(message)) {
+      const { action, id } = message.payload;
+      void (async () => {
+        if (action === 'enable') return { ...(await autoBackups.setEnabled(true)) };
+        if (action === 'disable') return { ...(await autoBackups.setEnabled(false)) };
+        if (action === 'delete') return { ...(await autoBackups.remove(id!)) };
+        if (action === 'get') {
+          const found = await autoBackups.get(id!);
+          if (!found) throw new Error('This automatic backup no longer exists.');
+          return { ...(await autoBackups.list()), backup: found.entry.backup };
+        }
+        return { ...(await autoBackups.list()) };
+      })()
+        .then((result) => sendResponse({ success: true, ...result }))
+        .catch((error) => {
+          console.error('Automatic backup request failed:', error);
+          sendResponse({ success: false, error: { message: error instanceof Error && /no longer exists/.test(error.message) ? error.message : 'LinkShelf could not update automatic backups.' } });
+        });
+      return true;
+    }
+
+    if (isTrashMessage(message)) {
+      const { action, linkId } = message.payload;
+      void operations.reserve(linkId ? ['trash', `link:${linkId}`] : ['trash'], async () => {
+        let affected = 0;
+        if (action === 'restore') { await repository.restoreRemovedLink(linkId!); affected = 1; }
+        else if (action === 'delete') affected = await repository.deleteRemovedLinks([linkId!]);
+        else if (action === 'empty') affected = await repository.deleteRemovedLinks();
+        else affected = await repository.purgeExpiredRemovedLinks();
+        return { affected, links: await repository.getRemovedLinks() };
+      })
+        .then(async (result) => {
+          if (action === 'restore') await synchronizeReminderAlarms().catch(() => undefined);
+          sendResponse({ success: true, links: result.links, affected: result.affected, retentionDays: LinkShelfRepository.TRASH_RETENTION_DAYS });
+        })
+        .catch((error) => {
+          console.error('Trash request failed:', error);
+          sendResponse({ success: false, error: { message: error instanceof Error && /no longer exists|Only removed/.test(error.message) ? 'This link is no longer in the trash. Reload and try again.' : 'LinkShelf could not update the trash.' } });
+        });
+      return true;
+    }
+
     if (isGetArchivedLinksMessage(message)) {
       void repository
         .getArchivedLinks(message.payload?.projectId)
@@ -882,6 +987,35 @@ export default defineBackground(() => {
         sendResponse,
         synchronizeReminderAlarms,
       );
+      return true;
+    }
+
+    if (isSetLinkReminderMessage(message)) {
+      const { linkId, reminderAt } = message.payload;
+      void operations.reserve([`link:${linkId}`], () => repository.setLinkReminder(linkId, reminderAt))
+        .then(async (link) => {
+          const warnings: string[] = [];
+          await synchronizeReminderAlarms().catch((error) => {
+            console.error('Failed to reconcile reminders after a change:', error);
+            warnings.push('The reminder was saved, but Chrome could not schedule it. Reload LinkShelf to retry.');
+          });
+          sendResponse({ success: true, link, ...(warnings.length ? { warnings } : {}) });
+        })
+        .catch((error) => {
+          const known: Array<[new (...args: never[]) => Error, string]> = [
+            [OperationInProgressError, 'OPERATION_IN_PROGRESS'],
+            [LinkNotFoundError, 'LINK_NOT_FOUND'],
+            [InvalidLinkStateError, 'INVALID_STATE'],
+            [InvalidReminderError, 'INVALID_REMINDER'],
+          ];
+          const match = known.find(([type]) => error instanceof type);
+          if (match) {
+            sendResponse({ success: false, error: { code: match[1], message: error.message } });
+            return;
+          }
+          console.error('Failed to update link reminder:', error);
+          sendResponse({ success: false, error: { code: 'UNEXPECTED_ERROR', message: 'LinkShelf could not update the reminder.' } });
+        });
       return true;
     }
 

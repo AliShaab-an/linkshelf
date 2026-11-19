@@ -10,6 +10,7 @@ import {
 import { RemoveLinkDialog } from './RemoveLinkDialog';
 import { TagLinkDialog } from './TagLinkDialog';
 import { SavedLinkCard } from './SavedLinkCard';
+import { TrashPanel } from './TrashPanel';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 import { ListNavigation } from './ui/ListNavigation';
 import { listRange, LIST_PAGE_SIZE } from '../list-range';
@@ -164,6 +165,7 @@ export function ArchiveSection() {
       <div ref={cards} data-page={range.page} className="space-y-3">
         {links.slice(range.start, range.end).map((link) => <SavedLinkCard key={link.id} cardId={`archived-${link.id}`} link={link} projectName={projectNames.get(link.projectId)} isRestoring={workingId === link.id} onEditTags={() => { setMessage(null); setError(null); setWarnings([]); setTagCandidate(link); }} onUnarchive={() => void returnToProject(link)} onRemove={() => { if (!isRefreshing) startRemoving(link); }} />)}
       </div>
+      <TrashPanel />
     </>
   );
 }
