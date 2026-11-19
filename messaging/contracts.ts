@@ -1468,3 +1468,26 @@ export const getAutoBackups = () => sendAutoBackupMessage('list');
 export const setAutoBackupsEnabled = (enabled: boolean) => sendAutoBackupMessage(enabled ? 'enable' : 'disable');
 export const deleteAutoBackup = (id: string) => sendAutoBackupMessage('delete', id);
 export const getAutoBackup = (id: string) => sendAutoBackupMessage('get', id);
+
+export type RatePromptAction = 'get' | 'rate' | 'later' | 'never';
+export interface RatePromptMessage { type: 'RATE_PROMPT'; payload: { action: RatePromptAction } }
+export type RatePromptResponse =
+  | { success: true; visible: boolean }
+  | { success: false; error: { message: string } };
+
+export function isRatePromptMessage(message: unknown): message is RatePromptMessage {
+  const candidate = message as Partial<RatePromptMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'RATE_PROMPT') return false;
+  const payload = candidate.payload;
+  return typeof payload === 'object' && payload !== null && ['get', 'rate', 'later', 'never'].includes(payload.action as string);
+}
+
+async function sendRatePromptMessage(action: RatePromptAction): Promise<RatePromptResponse> {
+  const message: RatePromptMessage = { type: 'RATE_PROMPT', payload: { action } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as RatePromptResponse;
+}
+
+export const getRatePrompt = () => sendRatePromptMessage('get');
+export const answerRatePrompt = (answer: Exclude<RatePromptAction, 'get'>) => sendRatePromptMessage(answer);

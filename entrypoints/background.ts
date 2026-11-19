@@ -40,6 +40,7 @@ import {
   isUnarchiveLinkMessage,
   isTrashMessage,
   isAutoBackupMessage,
+  isRatePromptMessage,
   isUpdateSettingsMessage,
   isPatchSettingsMessage,
   isStorageRecoveryMessage,
@@ -78,6 +79,8 @@ import {
 } from '@/features/commands/side-panel-commands';
 import { parseSearchQuery } from '@/domain/tags';
 import { ChromeStorageAdapter } from '@/storage/storage-adapter';
+import { RatePromptStore } from '@/storage/rate-prompt-store';
+import { RATE_PROMPT_REVIEW_URL, isRatePromptVisible } from '@/domain/rate-prompt';
 import {
   DuplicateProjectNameError,
   InvalidLinkStateError,
@@ -111,6 +114,11 @@ export default defineBackground(() => {
     event?.addListener(searchPages.invalidate);
   }
   const operations = new OperationCoordinator();
+  const ratePrompt = new RatePromptStore(new ChromeStorageAdapter());
+  /** Counting parked tabs for the rate prompt must never affect parking itself. */
+  function countParked(count: number) {
+    void ratePrompt.recordParked(count).catch((error) => console.warn('LinkShelf could not update the rate prompt:', error));
+  }
   const autoBackups = createAutoBackupService({
     store: new AutoBackupStore(new ChromeStorageAdapter()),
     exportBackup: () => repository.exportBackup(),
@@ -244,14 +252,14 @@ export default defineBackground(() => {
 
   function parkCurrent(message: ParkCurrentTabMessage) {
     return operations.reserve([`tab:${message.payload.tabId}`], () => watchTabSnapshots(browser.tabs, [message.payload.tabId], (hasTabChanged) => executeParkCurrentTab(message, {
-      getTab: (id) => browser.tabs.get(id), persistTab: (input) => repository.parkTab(input), findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
+      getTab: (id) => browser.tabs.get(id), persistTab: async (input) => { const result = await repository.parkTab(input); countParked(1); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
       closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
     })));
   }
 
   function parkSelected(message: ParkSelectedTabsMessage) {
     return operations.reserve(message.payload.tabIds.map((id) => `tab:${id}`), () => watchTabSnapshots(browser.tabs, message.payload.tabIds, (hasTabChanged) => executeParkSelectedTabs(message, {
-      getTab: (id) => browser.tabs.get(id), persistTabs: (input) => repository.parkTabs(input), findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
+      getTab: (id) => browser.tabs.get(id), persistTabs: async (input) => { const result = await repository.parkTabs(input); countParked(result.links.length); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
       closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
     })));
   }
@@ -321,6 +329,9 @@ export default defineBackground(() => {
   void initializeExtension();
   browser.runtime.onInstalled.addListener((details) => {
     void initializeExtension();
+    if (details.reason === 'install' || details.reason === 'update') {
+      void ratePrompt.begin(details.reason === 'install' ? 'new' : 'existing').catch((error) => console.warn('LinkShelf could not prepare the rate prompt:', error));
+    }
     if (details.reason === 'install') {
       void browser.tabs.create({
         url: browser.runtime.getURL('/onboarding.html'),
@@ -762,6 +773,21 @@ export default defineBackground(() => {
           });
         });
 
+      return true;
+    }
+
+    if (isRatePromptMessage(message)) {
+      const { action } = message.payload;
+      void (async () => {
+        if (action === 'get') return ratePrompt.get();
+        if (action === 'rate') await browser.tabs.create({ url: RATE_PROMPT_REVIEW_URL, active: true });
+        return ratePrompt.answer(action);
+      })()
+        .then((state) => sendResponse({ success: true, visible: isRatePromptVisible(state) }))
+        .catch((error) => {
+          console.error('Rate prompt request failed:', error);
+          sendResponse({ success: false, error: { message: 'LinkShelf could not open the Chrome Web Store.' } });
+        });
       return true;
     }
 
