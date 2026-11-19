@@ -37,6 +37,7 @@ import {
   isRestoreSessionMessage,
   isSearchLinksMessage,
   isUnarchiveLinkMessage,
+  isTrashMessage,
   isUpdateSettingsMessage,
   isPatchSettingsMessage,
   isStorageRecoveryMessage,
@@ -202,6 +203,8 @@ export default defineBackground(() => {
     } catch (error) {
       console.error('Failed to initialize LinkShelf reminders:', error);
     }
+    // Removed links are only kept for 30 days; failing here must never block startup.
+    await operations.reserve(['trash'], () => repository.purgeExpiredRemovedLinks()).catch((error) => console.warn('LinkShelf could not clear expired removed links:', error));
   }
 
   function synchronizeReminderAlarms() {
@@ -725,6 +728,27 @@ export default defineBackground(() => {
           });
         });
 
+      return true;
+    }
+
+    if (isTrashMessage(message)) {
+      const { action, linkId } = message.payload;
+      void operations.reserve(linkId ? ['trash', `link:${linkId}`] : ['trash'], async () => {
+        let affected = 0;
+        if (action === 'restore') { await repository.restoreRemovedLink(linkId!); affected = 1; }
+        else if (action === 'delete') affected = await repository.deleteRemovedLinks([linkId!]);
+        else if (action === 'empty') affected = await repository.deleteRemovedLinks();
+        else affected = await repository.purgeExpiredRemovedLinks();
+        return { affected, links: await repository.getRemovedLinks() };
+      })
+        .then(async (result) => {
+          if (action === 'restore') await synchronizeReminderAlarms().catch(() => undefined);
+          sendResponse({ success: true, links: result.links, affected: result.affected, retentionDays: LinkShelfRepository.TRASH_RETENTION_DAYS });
+        })
+        .catch((error) => {
+          console.error('Trash request failed:', error);
+          sendResponse({ success: false, error: { message: error instanceof Error && /no longer exists|Only removed/.test(error.message) ? 'This link is no longer in the trash. Reload and try again.' : 'LinkShelf could not update the trash.' } });
+        });
       return true;
     }
 

@@ -1377,3 +1377,31 @@ export const setSnapshotsEnabled = (enabled: boolean) =>
 export const deleteSnapshots = () => sendSnapshotMessage<SnapshotListResponse>({ type: 'DELETE_SNAPSHOTS' } satisfies DeleteSnapshotsMessage);
 export const restoreSnapshot = (snapshotId: string) =>
   sendSnapshotMessage<RestoreSnapshotResponse>({ type: 'RESTORE_SNAPSHOT', payload: { snapshotId } } satisfies RestoreSnapshotMessage);
+
+export type TrashAction = 'list' | 'restore' | 'delete' | 'empty';
+export interface TrashMessage { type: 'TRASH'; payload: { action: TrashAction; linkId?: string } }
+export type TrashResponse =
+  | { success: true; links: SavedLink[]; retentionDays: number; affected: number }
+  | { success: false; error: { message: string } };
+
+export function isTrashMessage(message: unknown): message is TrashMessage {
+  const candidate = message as Partial<TrashMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'TRASH') return false;
+  const payload = candidate.payload;
+  if (typeof payload !== 'object' || payload === null) return false;
+  if (!['list', 'restore', 'delete', 'empty'].includes(payload.action as string)) return false;
+  const needsLink = payload.action === 'restore' || payload.action === 'delete';
+  return needsLink ? typeof payload.linkId === 'string' && payload.linkId.length > 0 : payload.linkId === undefined;
+}
+
+async function sendTrashMessage(action: TrashAction, linkId?: string): Promise<TrashResponse> {
+  const message: TrashMessage = { type: 'TRASH', payload: linkId === undefined ? { action } : { action, linkId } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as TrashResponse;
+}
+
+export const getTrash = () => sendTrashMessage('list');
+export const restoreFromTrash = (linkId: string) => sendTrashMessage('restore', linkId);
+export const deleteFromTrash = (linkId: string) => sendTrashMessage('delete', linkId);
+export const emptyTrash = () => sendTrashMessage('empty');

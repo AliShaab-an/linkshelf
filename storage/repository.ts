@@ -969,6 +969,55 @@ export class LinkShelfRepository {
     );
   }
 
+  /** Removed links stay recoverable for this long before they are deleted for good. */
+  static readonly TRASH_RETENTION_DAYS = 30;
+
+  async getRemovedLinks(): Promise<SavedLink[]> {
+    const database = await this.getDatabase();
+    return database.links
+      .filter((link) => link.status === 'removed')
+      .sort((first, second) => (second.removedAt ?? second.updatedAt).localeCompare(first.removedAt ?? first.updatedAt));
+  }
+
+  /** Returns a removed link to the archive when it came from there, otherwise to its project. */
+  async restoreRemovedLink(linkId: string): Promise<SavedLink> {
+    return this.updateLinkState(linkId, ['removed'], (link, timestamp) => {
+      const { removedAt: _removedAt, reminderAt: _reminderAt, reminderNotifiedAt: _notified, ...rest } = link;
+      return { ...rest, status: link.archivedAt ? 'archived' : 'parked', updatedAt: timestamp };
+    }, 'Only removed links can be recovered.');
+  }
+
+  /**
+   * Permanently deletes removed links: the given ids, or every removed link
+   * when none are given. Empty parking sessions are cleaned up with them.
+   */
+  async deleteRemovedLinks(linkIds?: readonly string[]): Promise<number> {
+    return this.deleteRemovedWhere((link) => !linkIds || linkIds.includes(link.id));
+  }
+
+  async purgeExpiredRemovedLinks(at: string = this.now()): Promise<number> {
+    const cutoff = new Date(new Date(at).getTime() - LinkShelfRepository.TRASH_RETENTION_DAYS * 86_400_000).toISOString();
+    return this.deleteRemovedWhere((link) => (link.removedAt ?? link.updatedAt) <= cutoff);
+  }
+
+  private async deleteRemovedWhere(matches: (link: SavedLink) => boolean): Promise<number> {
+    let deleted = 0;
+    await this.mutateDatabase((database) => {
+      const doomed = new Set(database.links.filter((link) => link.status === 'removed' && matches(link)).map((link) => link.id));
+      deleted = doomed.size;
+      if (!deleted) return database;
+      const links = database.links.filter((link) => !doomed.has(link.id));
+      const usedSessions = new Set(links.map((link) => link.sessionId));
+      const emptied = new Set(database.links.filter((link) => doomed.has(link.id)).map((link) => link.sessionId));
+      return {
+        ...database,
+        links,
+        sessions: database.sessions.filter((session) => usedSessions.has(session.id) || !emptied.has(session.id)),
+      };
+    }, { skipIfUnchanged: true });
+    return deleted;
+  }
+
   async undoParkedLink(receipt: { linkId: string; projectId: string; sessionId: string; updatedAt: string; status: 'restored' | 'removed' }): Promise<SavedLink> {
     const stale = 'This link changed after the action. Reload Saved before trying again.';
     return this.updateLinkState(receipt.linkId, [receipt.status], (link, timestamp) => {
