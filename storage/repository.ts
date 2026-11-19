@@ -17,6 +17,7 @@ import {
 } from '@/domain/schemas';
 import { getDomain, normalizeUrl } from '@/domain/url';
 import { parseSearchQuery, parseTags } from '@/domain/tags';
+import { InvalidReminderError } from '@/domain/reminders';
 import type { StorageAdapter } from './storage-adapter';
 import { getIntegrityDiagnostics, structuralDiagnostics, type IntegrityDiagnostic } from '@/domain/integrity';
 import { storedValuesEqual, stringifyRecoveryExport, type RawRecoveryExport, type StorageStatus } from '@/domain/recovery';
@@ -789,6 +790,23 @@ export class LinkShelfRepository {
       },
       'Only parked or archived links can be tagged.',
     );
+  }
+
+  /** Sets, changes (snooze) or clears (null) the reminder of a parked link. */
+  async setLinkReminder(linkId: string, reminderAt: string | null): Promise<SavedLink> {
+    if (reminderAt !== null) {
+      const time = Date.parse(reminderAt);
+      if (typeof reminderAt !== 'string' || Number.isNaN(time) || new Date(time).toISOString() !== reminderAt) {
+        throw new InvalidReminderError('Choose a valid reminder date and time.');
+      }
+      if (time <= Date.parse(this.now())) throw new InvalidReminderError('Reminder must be in the future.');
+      if (time > Date.parse(this.now()) + 10 * 365 * 86_400_000) throw new InvalidReminderError('Choose a reminder within the next 10 years.');
+    }
+    return this.updateLinkState(linkId, ['parked'], (link, timestamp) => {
+      const { reminderAt: _previous, reminderNotifiedAt: _notified, ...rest } = link;
+      if (reminderAt === null && link.reminderAt === undefined) return link;
+      return { ...rest, ...(reminderAt === null ? {} : { reminderAt }), updatedAt: timestamp };
+    }, 'Only parked links can have reminders.');
   }
 
   /** Returns the given URLs that already exist as parked links (compared by normalized URL). */

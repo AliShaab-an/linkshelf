@@ -26,6 +26,7 @@ import {
   isUndoParkedLinkMessage,
   isMoveLinkMessage,
   isSetLinkTagsMessage,
+  isSetLinkReminderMessage,
   isGetParkDuplicatesMessage,
   isGetSnapshotsMessage,
   isSetSnapshotsEnabledMessage,
@@ -63,6 +64,7 @@ import { SnapshotStore } from '@/storage/snapshot-store';
 import { SNAPSHOT_ALARM_NAME, SNAPSHOT_ALARM_PERIOD_MINUTES } from '@/domain/snapshots';
 import { AUTO_BACKUP_ALARM_NAME, AUTO_BACKUP_PERIOD_MINUTES } from '@/domain/auto-backups';
 import { AutoBackupStore } from '@/storage/auto-backup-store';
+import { InvalidReminderError } from '@/domain/reminders';
 import { createAutoBackupService } from '@/features/backups/auto-backup-service';
 import type { SavedLink } from '@/domain/schemas';
 import {
@@ -959,6 +961,35 @@ export default defineBackground(() => {
         sendResponse,
         synchronizeReminderAlarms,
       );
+      return true;
+    }
+
+    if (isSetLinkReminderMessage(message)) {
+      const { linkId, reminderAt } = message.payload;
+      void operations.reserve([`link:${linkId}`], () => repository.setLinkReminder(linkId, reminderAt))
+        .then(async (link) => {
+          const warnings: string[] = [];
+          await synchronizeReminderAlarms().catch((error) => {
+            console.error('Failed to reconcile reminders after a change:', error);
+            warnings.push('The reminder was saved, but Chrome could not schedule it. Reload LinkShelf to retry.');
+          });
+          sendResponse({ success: true, link, ...(warnings.length ? { warnings } : {}) });
+        })
+        .catch((error) => {
+          const known: Array<[new (...args: never[]) => Error, string]> = [
+            [OperationInProgressError, 'OPERATION_IN_PROGRESS'],
+            [LinkNotFoundError, 'LINK_NOT_FOUND'],
+            [InvalidLinkStateError, 'INVALID_STATE'],
+            [InvalidReminderError, 'INVALID_REMINDER'],
+          ];
+          const match = known.find(([type]) => error instanceof type);
+          if (match) {
+            sendResponse({ success: false, error: { code: match[1], message: error.message } });
+            return;
+          }
+          console.error('Failed to update link reminder:', error);
+          sendResponse({ success: false, error: { code: 'UNEXPECTED_ERROR', message: 'LinkShelf could not update the reminder.' } });
+        });
       return true;
     }
 

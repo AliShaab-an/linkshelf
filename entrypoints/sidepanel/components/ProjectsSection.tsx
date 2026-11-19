@@ -27,6 +27,7 @@ import {
 import { formatLinkDate, LinkFavicon, NotePreview, SavedLinkCard } from './SavedLinkCard';
 import { MoveLinkDialog } from './MoveLinkDialog';
 import { TagLinkDialog } from './TagLinkDialog';
+import { ReminderLinkDialog } from './ReminderLinkDialog';
 import { TagFilterBar } from './ui/TagFilterBar';
 import { hasActiveModal } from './ui/Modal';
 import { RemoveLinkDialog } from './RemoveLinkDialog';
@@ -98,6 +99,7 @@ export function ProjectsSection({ savedSession, onPark }: {
   const [removeCandidate, setRemoveCandidate] = useState<SavedLink | null>(null);
   const [moveCandidate, setMoveCandidate] = useState<SavedLink | null>(null);
   const [tagCandidate, setTagCandidate] = useState<SavedLink | null>(null);
+  const [reminderCandidate, setReminderCandidate] = useState<SavedLink | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [moveDestination, setMoveDestination] = useState('');
   const [filter, setFilter] = useState('');
@@ -606,6 +608,24 @@ export function ProjectsSection({ savedSession, onPark }: {
     setTagCandidate(link);
   }
 
+  function startReminding(link: SavedLink) {
+    setMessage(null);
+    setError(null);
+    setWarnings([]);
+    setPartialRestore(false);
+    setReminderCandidate(link);
+  }
+
+  function finishReminding(updated: SavedLink, change: 'set' | 'cleared', savedWarnings: string[]) {
+    setGroups((current) => current.map((group) => ({
+      ...group,
+      links: group.links.map((link) => link.id === updated.id ? updated : link),
+    })));
+    setReminderCandidate(null);
+    setWarnings(savedWarnings);
+    setMessage(change === 'cleared' ? `Cleared the reminder for “${updated.title}”.` : `Reminder set for “${updated.title}”.`);
+  }
+
   function finishTagging(updated: SavedLink) {
     setGroups((current) => current.map((group) => ({
       ...group,
@@ -857,6 +877,11 @@ export function ProjectsSection({ savedSession, onPark }: {
           returnFocus={(invoker) => invoker ?? projectFilter.current ?? sectionHeading.current}
           onSaved={finishTagging} onCancel={() => setTagCandidate(null)} />
       )}
+      {reminderCandidate && (
+        <ReminderLinkDialog link={reminderCandidate} snooze={false}
+          returnFocus={(invoker) => invoker ?? projectFilter.current ?? sectionHeading.current}
+          onSaved={finishReminding} onCancel={() => setReminderCandidate(null)} />
+      )}
       {moveCandidate && (
         <MoveLinkDialog link={moveCandidate} projects={moveProjects} selectedProjectId={moveDestination}
           feedback={<OperationFeedback {...feedback} pending={dialogPending ? 'Moving link…' : undefined} />}
@@ -934,6 +959,7 @@ export function ProjectsSection({ savedSession, onPark }: {
                   onRestoreAndRemove={() => void handleRestore(link, 'restore-and-remove')}
                   onArchive={() => void handleArchive(link)}
                   onEditTags={() => startTagging(link)}
+                  onRemind={() => startReminding(link)}
                   onMove={projects.length > 1 ? () => startMoving(link) : undefined}
                   onRemove={() => startRemoving(link)}
                 />)}

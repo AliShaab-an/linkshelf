@@ -466,6 +466,23 @@ export type SetLinkTagsResponse =
       };
     };
 
+export interface SetLinkReminderMessage {
+  type: 'SET_LINK_REMINDER';
+  /** null clears the reminder. */
+  payload: { linkId: string; reminderAt: string | null };
+}
+
+export type SetLinkReminderResponse = OperationWarnings & (
+  | { success: true; link: SavedLink }
+  | {
+      success: false;
+      error: {
+        code: 'LINK_NOT_FOUND' | 'INVALID_STATE' | 'INVALID_REMINDER' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR';
+        message: string;
+      };
+    }
+);
+
 export interface GetTagsMessage {
   type: 'GET_TAGS';
 }
@@ -946,6 +963,14 @@ export function isSetLinkTagsMessage(message: unknown): message is SetLinkTagsMe
     Array.isArray(candidate.payload.tags);
 }
 
+export function isSetLinkReminderMessage(message: unknown): message is SetLinkReminderMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<SetLinkReminderMessage>;
+  return candidate.type === 'SET_LINK_REMINDER' &&
+    typeof candidate.payload?.linkId === 'string' && candidate.payload.linkId.length > 0 &&
+    (candidate.payload.reminderAt === null || typeof candidate.payload.reminderAt === 'string');
+}
+
 export function isGetTagsMessage(message: unknown): message is GetTagsMessage {
   return typeof message === 'object' && message !== null && (message as Partial<GetTagsMessage>).type === 'GET_TAGS';
 }
@@ -1281,6 +1306,15 @@ export async function moveLink(linkId: string, projectId: string): Promise<LinkL
   } satisfies MoveLinkMessage)) as unknown;
   assertResponse(response);
   return response as LinkLifecycleResponse;
+}
+
+export async function setLinkReminder(linkId: string, reminderAt: string | null): Promise<SetLinkReminderResponse> {
+  const response = (await browser.runtime.sendMessage({
+    type: 'SET_LINK_REMINDER',
+    payload: { linkId, reminderAt },
+  } satisfies SetLinkReminderMessage)) as unknown;
+  assertResponse(response);
+  return response as SetLinkReminderResponse;
 }
 
 export async function setLinkTags(linkId: string, tags: string[]): Promise<SetLinkTagsResponse> {

@@ -25,16 +25,17 @@ interface SavedLinkCardProps {
   onBookmark?: () => void;
   onMove?: () => void;
   onEditTags?: () => void;
+  onRemind?: () => void;
   onRemove?: () => void;
 }
 
-export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', inSession = false, showParkedDate = true, isRestoring, onRestore, onRestoreAndRemove, onArchive, onUnarchive, onBookmark, onMove, onEditTags, onRemove }: SavedLinkCardProps) {
+export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', inSession = false, showParkedDate = true, isRestoring, onRestore, onRestoreAndRemove, onArchive, onUnarchive, onBookmark, onMove, onEditTags, onRemind, onRemove }: SavedLinkCardProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [opensDown, setOpensDown] = useState(false);
   const actionsButton = useRef<HTMLButtonElement>(null);
   const actionsPanel = useRef<HTMLDivElement>(null);
   const actionsId = useId();
-  const secondaryActions = Boolean(onMove || onEditTags || onArchive || onUnarchive || onRemove || onRestoreAndRemove);
+  const secondaryActions = Boolean(onMove || onEditTags || onRemind || onArchive || onUnarchive || onRemove || onRestoreAndRemove);
   // Without a primary action the menu button sits in the header instead of taking a row of its own.
   const menuInHeader = secondaryActions && !onRestore && !onBookmark;
 
@@ -123,6 +124,7 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
         {onMove && <ActionButton onClick={() => action(onMove)}>Move to project</ActionButton>}
         {onArchive && <ActionButton onClick={() => action(onArchive)}>Archive</ActionButton>}
         {onEditTags && <ActionButton onClick={() => action(onEditTags)}>{link.tags?.length ? 'Edit tags' : 'Add tags'}</ActionButton>}
+        {onRemind && <ActionButton onClick={() => action(onRemind)}>{isDue ? 'Snooze…' : link.reminderAt ? 'Change reminder' : 'Remind me…'}</ActionButton>}
         {onRestoreAndRemove && <ActionButton onClick={() => action(onRestoreAndRemove)}>Restore and remove from list</ActionButton>}
         {onUnarchive && <ActionButton onClick={() => action(onUnarchive)}>Return to project</ActionButton>}
         {onRemove && <ActionButton danger onClick={() => action(onRemove)}>Remove</ActionButton>}

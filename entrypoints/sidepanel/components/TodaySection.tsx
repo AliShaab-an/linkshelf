@@ -8,6 +8,7 @@ import {
   restoreLink,
 } from '@/messaging/contracts';
 import { SavedLinkCard } from './SavedLinkCard';
+import { ReminderLinkDialog } from './ReminderLinkDialog';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 
 export function TodaySection() {
@@ -18,6 +19,7 @@ export function TodaySection() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [snoozeCandidate, setSnoozeCandidate] = useState<SavedLink | null>(null);
 
   useEffect(() => {
     void Promise.all([getDueReminderLinks(), getProjects()])
@@ -63,11 +65,19 @@ export function TodaySection() {
     }
   }
 
+  function finishSnooze(updated: SavedLink, change: 'set' | 'cleared', savedWarnings: string[]) {
+    setLinks((current) => current.filter((link) => link.id !== updated.id));
+    setSnoozeCandidate(null);
+    setWarnings(savedWarnings);
+    setMessage(change === 'cleared' ? `Dismissed the reminder for “${updated.title}”.` : `Snoozed “${updated.title}” until ${new Date(updated.reminderAt!).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`);
+  }
+
   const feedback = <OperationFeedback pending={restoringId ? 'Restoring link…' : undefined} message={message} error={error} warnings={warnings} />;
 
   return (
     <>
-      {feedback}
+      {!snoozeCandidate && feedback}
+      {snoozeCandidate && <ReminderLinkDialog link={snoozeCandidate} snooze returnFocus={(invoker) => invoker} onSaved={finishSnooze} onCancel={() => setSnoozeCandidate(null)} />}
       <div className="mb-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Due and overdue</p>
         <h2 className="mt-1 text-lg font-bold">Today</h2>
@@ -86,6 +96,7 @@ export function TodaySection() {
             isDue
             isRestoring={restoringId === link.id}
             onRestore={() => void handleRestore(link.id)}
+            onRemind={() => { setMessage(null); setError(null); setWarnings([]); setSnoozeCandidate(link); }}
           />
         ))}
       </div>
