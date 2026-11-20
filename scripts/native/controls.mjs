@@ -114,6 +114,9 @@ try {
 
   // Inside a dialog the list is not clipped and Escape keeps the dialog open.
   await page.getByRole('button', { name: 'More link actions' }).first().click();
+  // Restore already removes the link in this mode, so the menu does not repeat it.
+  await page.getByRole('button', { name: 'Move to project' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Restore and remove from list' }).count(), 0);
   await page.getByRole('button', { name: 'Move to project' }).click();
   const dialog = page.getByRole('dialog');
   const destination = dialog.getByRole('combobox', { name: 'Destination project' });

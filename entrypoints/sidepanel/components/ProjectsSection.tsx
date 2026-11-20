@@ -914,19 +914,25 @@ export function ProjectsSection({ savedSession, onPark }: {
             const first = group.links[0];
             const previewNote = first.note ?? group.session.note;
             const isTarget = group.session.id === target?.sessionId;
+            const linkCount = `${sessionCount !== group.links.length ? `${group.links.length} of ` : ''}${sessionCount} links`;
             return <section key={group.session.id} className={density === 'compact' ? 'py-1.5' : 'py-2.5'}>
               {!single && <div className="flex items-start gap-1">
                 <button ref={isTarget ? targetButton : undefined} type="button" data-saved-row
                   className="flex min-h-11 min-w-0 flex-1 items-start gap-2 rounded-lg p-1.5 text-left hover:bg-slate-100"
                   aria-expanded={expanded} onClick={() => toggleSession(group.session.id)}>
-                  <LinkFavicon link={first} />
+                  {expanded
+                    ? <span aria-hidden="true" className="grid size-6 shrink-0 place-items-center rounded border border-slate-300 bg-white text-slate-600"><Icon name="park" className="size-4" /></span>
+                    : <LinkFavicon link={first} />}
                   <span className="min-w-0 flex-1">
-                    <span className="sr-only">Parking session </span>
-                    <span className="flex min-w-0 items-baseline gap-1.5">
-                      <span className="truncate text-sm font-semibold" title={first.title} dir="auto">{first.title}</span>
-                      {group.links.length > 1 && <span className="shrink-0 text-xs font-medium text-slate-700">+{group.links.length - 1} more</span>}
-                    </span>
-                    <span className="block text-xs text-slate-700">{formatLinkDate(group.session.createdAt)} · {sessionCount !== group.links.length ? `${group.links.length} of ` : ''}{sessionCount} links</span>
+                    {/* Expanded, the cards below show every title, so the header only names the session. */}
+                    {expanded
+                      ? <span className="block text-sm font-semibold">Parking session · {linkCount}</span>
+                      : <span className="flex min-w-0 items-baseline gap-1.5">
+                        <span className="sr-only">Parking session </span>
+                        <span className="truncate text-sm font-semibold" title={first.title} dir="auto">{first.title}</span>
+                        {group.links.length > 1 && <span className="shrink-0 text-xs font-medium text-slate-700">+{group.links.length - 1} more</span>}
+                      </span>}
+                    <span className="block text-xs text-slate-700">{formatLinkDate(group.session.createdAt)}{expanded ? '' : ` · ${linkCount}`}</span>
                     {group.session.reminderAt && <span className="mt-1 block text-xs font-semibold text-amber-700">Reminder {formatLinkDate(group.session.reminderAt)}</span>}
                     {!expanded && previewNote && <span className="block truncate text-xs text-slate-600" title={previewNote}>{previewNote}</span>}
                   </span>
@@ -952,9 +958,10 @@ export function ProjectsSection({ savedSession, onPark }: {
                   note={single ? link.note ?? group.session.note : link.note === group.session.note ? null : link.note}
                   density={density}
                   inSession
+                  showParkedDate={single}
                   isRestoring={restoringId === link.id || restoringSessionId === group.session.id || isRestoringProject || lifecycleWorkingId === link.id || isUndoing}
                   onRestore={() => void handleRestore(link)}
-                  onRestoreAndRemove={() => void handleRestore(link, 'restore-and-remove')}
+                  onRestoreAndRemove={restoreBehavior === 'open-copy' ? () => void handleRestore(link, 'restore-and-remove') : undefined}
                   onArchive={() => void handleArchive(link)}
                   onEditTags={() => startTagging(link)}
                   onRemind={() => startReminding(link)}

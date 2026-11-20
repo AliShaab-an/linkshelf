@@ -68,7 +68,7 @@ try {
   assert.equal(await actions.getAttribute('aria-disabled'), 'true');
   assert.equal(await button('New project').getAttribute('title'), 'New project');
   await choose(picker, 'restore-probe');
-  const preview = button(/^Parking session Alpha computer/);
+  const preview = button(/^Parking session/);
   const single = page.getByRole('article', { name: 'Zulu computer' });
   await preview.waitFor();
   assert.equal(await inboxHelp.count(), 0);
@@ -77,7 +77,13 @@ try {
   await page.getByRole('heading', { name: 'Yesterday', exact: true }).waitFor();
   assert.equal(await button('Restore session').count(), 1);
   assert.equal(await single.getByRole('button', { name: 'Restore link' }).count(), 1);
-  assert.match(await preview.textContent(), /\+1 more/);
+  // Expanded, the header names the session; the cards show the titles.
+  assert.equal(await preview.getAttribute('aria-expanded'), 'true');
+  assert.match(await preview.textContent(), /^Parking session · 2 links/);
+  assert.doesNotMatch(await preview.textContent(), /Alpha computer|more/);
+  await preview.click();
+  assert.match(await preview.textContent(), /Alpha computer\+1 more/);
+  await preview.click();
   assert.match(await single.textContent(), /Parked/);
   await button('View options').click();
   assert.deepEqual(await optionLabels(page.getByLabel('Session order')), ['Newest first', 'Oldest first', 'Link title A–Z within each day']);
