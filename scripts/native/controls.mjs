@@ -128,6 +128,25 @@ try {
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   checks.push('Inside a dialog the list fits on screen and Escape closes only the list');
 
+  // In a short window the list never slides under the sticky sidebar header.
+  // Little room below the picker and more above it, but most of that is header.
+  await page.setViewportSize({ width: 360, height: 330 });
+  await page.evaluate(() => scrollTo(0, 0));
+  await project.click();
+  await list.waitFor();
+  const overlap = await list.evaluate(element => {
+    const header = document.querySelector('.sidebar-shell').getBoundingClientRect().bottom;
+    return { top: element.getBoundingClientRect().top, header };
+  });
+  assert.ok(overlap.top >= overlap.header, JSON.stringify(overlap));
+  await page.screenshot({ path: `${h.output}/dropdown-short-window.png` });
+  await list.getByRole('option', { name: 'Alpha research' }).click();
+  await poll(() => chosenValue(project), value => value === 'p0', 'Alpha research chosen in a short window');
+  await page.getByRole('heading', { name: 'Synthetic link in Alpha research' }).waitFor();
+  await poll(() => project.isEnabled(), enabled => enabled, 'project picker enabled after loading');
+  await page.setViewportSize({ width: 360, height: 800 });
+  checks.push('In a short window the list stays below the sidebar header and stays clickable');
+
   // Dark theme.
   await page.emulateMedia({ colorScheme: 'dark' });
   await poll(() => page.evaluate(() => document.documentElement.dataset.colorScheme), value => value === 'dark', 'system dark');

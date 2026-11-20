@@ -59,8 +59,11 @@ export function Dropdown<T extends string>({
     const element = trigger.current;
     if (!element) return;
     const rect = element.getBoundingClientRect();
+    // Outside a dialog, the sidebar's sticky header stacks above the list, so never place it there.
+    const header = element.closest('dialog') ? 0
+      : Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-shell-height')) || 0;
     const below = window.innerHeight - rect.bottom - 8;
-    const above = rect.top - 8;
+    const above = rect.top - header - 8;
     const width = Math.min(Math.max(rect.width, 176), window.innerWidth - 16);
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
     const flip = below < 160 && above > below;
