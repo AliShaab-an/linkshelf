@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHarness, navigateSidebar } from './harness.mjs';
+import { createHarness, navigateSidebar, choose } from './harness.mjs';
 
 const h = await createHarness();
 const { page } = h;
@@ -34,7 +34,7 @@ try {
   await tabBox('dup-existing?utm_source=newsletter').check();
   await tabBox('dup-fresh').check();
   await button('Review selection').click();
-  await dialog.getByLabel('Save to project').selectOption(project.id);
+  await choose(dialog.getByLabel('Save to project'), project.id);
   await dialog.getByText('1 of 2 selected tabs are already saved').waitFor();
   assert.equal(await dialog.getByRole('radio', { name: 'Don’t save them again, but close the tabs' }).isChecked(), true);
   assert.equal(await checkWidth(), true);
@@ -56,7 +56,7 @@ try {
   await page.getByRole('button', { name: 'Refresh' }).click();
   await tabBox('dup-fresh').check();
   await button('Review selection').click();
-  await dialog.getByLabel('Save to project').selectOption(project.id);
+  await choose(dialog.getByLabel('Save to project'), project.id);
   await dialog.getByText('1 of 1 selected tab is already saved').waitFor();
   await dialog.getByRole('button', { name: 'Close 1' }).waitFor();
   await dialog.getByRole('radio', { name: 'Save them again', exact: true }).check();
@@ -72,7 +72,7 @@ try {
   await page.getByRole('button', { name: 'Refresh' }).click();
   await tabBox('dup-fresh').check();
   await button('Review selection').click();
-  await dialog.getByLabel('Save to project').selectOption(project.id);
+  await choose(dialog.getByLabel('Save to project'), project.id);
   await dialog.getByRole('button', { name: 'Close 1' }).click();
   await page.getByRole('heading', { name: 'Nothing new to save' }).waitFor();
   assert.equal((await database()).sessions.length, sessionsBefore, 'No empty session is created');
@@ -107,10 +107,10 @@ try {
   await page.reload();
   await navigateSidebar(page, 'Settings');
   const exportSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Export to read or share' }) });
-  await exportSection.getByLabel('Project', { exact: true }).selectOption({ label: 'Duplicate project' });
+  await choose(exportSection.getByLabel('Project', { exact: true }), { label: 'Duplicate project' });
 
   async function download(format, extension) {
-    await exportSection.getByLabel('Format', { exact: true }).selectOption(format);
+    await choose(exportSection.getByLabel('Format', { exact: true }), format);
     const [file] = await Promise.all([page.waitForEvent('download'), exportSection.getByRole('button', { name: 'Download export' }).click()]);
     assert.match(file.suggestedFilename(), new RegExp(`^linkshelf-export-\\d{4}-\\d{2}-\\d{2}\\.${extension}$`));
     const saved = path.join(h.output, file.suggestedFilename());

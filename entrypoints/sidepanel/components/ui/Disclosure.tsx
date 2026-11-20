@@ -1,12 +1,14 @@
 import type { ReactNode, Ref } from 'react';
 import { useDisclosure } from '../useDisclosure';
 
-export function Disclosure({ label, triggerContent, disabled, unavailable, triggerRef, children }: {
+export function Disclosure({ label, triggerContent, disabled, unavailable, triggerRef, panelWidth = 'w-52', children }: {
   label: string;
   triggerContent: ReactNode;
   disabled?: boolean;
   unavailable?: { reason: string; descriptionId: string };
   triggerRef?: Ref<HTMLButtonElement>;
+  /** Tailwind width class for the panel. */
+  panelWidth?: string;
   children(close: () => void): ReactNode;
 }) {
   const disclosure = useDisclosure();
@@ -28,7 +30,7 @@ export function Disclosure({ label, triggerContent, disabled, unavailable, trigg
       {triggerContent}
     </button>
     {disclosure.open && <div id={disclosure.id} role="group" aria-label={label}
-      className="dropdown-panel absolute top-full right-0 z-30 mt-1 grid w-52 max-w-full gap-1">
+      className={`dropdown-panel absolute top-full right-0 z-30 mt-1 grid ${panelWidth} max-w-[calc(100vw-2rem)] gap-1`}>
       {children(disclosure.closeAndFocus)}
     </div>}
   </div>;

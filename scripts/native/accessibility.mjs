@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { build } from 'vite';
-import { navigateSidebar, createHarness, poll } from './harness.mjs';
+import { navigateSidebar, createHarness, poll, choose, chosenValue } from './harness.mjs';
 import { backup } from './fixtures.mjs';
 import { dataset } from '../performance/fixtures.mjs';
 
@@ -103,7 +103,7 @@ try {
 
   await page.setViewportSize({ width: 400, height: 760 });
   await navigateSidebar(page, 'Projects');
-  await page.getByLabel('Project', { exact: true }).selectOption('restore-probe');
+  await choose(page.getByLabel('Project', { exact: true }), 'restore-probe');
   await button('View options').click();
   await button('Expand all').click();
   const first = card(longTitle);
@@ -298,7 +298,7 @@ try {
     await openAction(moving, 'Move to project');
     const destination = dialog.getByLabel('Destination project');
     await active(destination);
-    await destination.selectOption('inbox');
+    await choose(destination, 'inbox');
     await dialog.getByRole('button', { name: 'Move link' }).click();
     await waitClosed();
     await active(more(moving));
@@ -328,7 +328,7 @@ try {
 
   await scenario('Inline project confirmations focus their headings and return on cancel and delete', async () => {
     await navigateSidebar(page, 'Projects');
-    await page.getByLabel('Project', { exact: true }).selectOption('restore-probe');
+    await choose(page.getByLabel('Project', { exact: true }), 'restore-probe');
     const restoreAll = page.getByRole('button', { name: /^Restore all \(\d+\)$/ });
     await restoreAll.click();
     const restore = page.getByRole('region', { name: /^Restore all/ });
@@ -426,7 +426,7 @@ try {
     const quickSwitch = panel.getByRole('switch', { name: 'Desktop reminders' });
     await quickSwitch.waitFor();
     assert.equal(await quickSwitch.isChecked(), true);
-    assert.equal(await panel.getByRole('combobox', { name: 'Saved link spacing' }).inputValue(), 'comfortable');
+    assert.equal(await chosenValue(panel.getByRole('radiogroup', { name: 'Saved link spacing' })), 'comfortable');
     await quickSwitch.click();
     await poll(h.raw, value => !value.settings.notificationsEnabled, 'quick settings persisted');
     await page.keyboard.press('Escape');

@@ -1,4 +1,5 @@
 import { describeLinkRestore } from '../restore-feedback';
+import { SectionHeader } from './ui/SectionHeader';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { useEffect, useRef, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
@@ -228,10 +229,8 @@ export function ReviewSection() {
   return (
     <>
       <OperationFeedback {...(!(removeCandidate || moveCandidate || bookmarkCandidate || tagCandidate) ? feedback : {})} />
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 ref={sectionHeading} tabIndex={-1} className="text-lg font-bold">Review</h2>
-        {!isLoading && <p className="text-sm text-slate-600">{links.length} {links.length === 1 ? 'link' : 'links'} to review</p>}
-      </div>
+      <SectionHeader headingRef={sectionHeading} title="Review"
+        description={isLoading ? undefined : `${links.length} ${links.length === 1 ? 'link' : 'links'} to review`} />
       {bookmarkCandidate ? <div className="mb-4"><BookmarkLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={bookmarkCandidate} folders={folders} selectedFolderId={selectedFolderId} duplicate={duplicate} isLoadingFolders={isLoadingFolders} isSaving={dialogPending} onSelectFolder={setSelectedFolderId} onCancel={closeBookmark} onConfirm={() => void confirmBookmark()} onOpenDuplicate={() => void openDuplicate()} /></div> : moveCandidate ? <div className="mb-4"><MoveLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={moveCandidate} projects={projects.filter((project) => project.id !== moveCandidate.projectId)} selectedProjectId={moveProjectId} isMoving={dialogPending} onSelect={setMoveProjectId} onCancel={() => setMoveCandidate(null)} onConfirm={() => void confirmMove()} /></div> : removeCandidate ? <div className="mb-4"><RemoveLinkDialog feedback={dialogFeedback} returnFocus={(invoker) => invoker ?? sectionHeading.current} link={removeCandidate} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} /></div> : null}
       {tagCandidate && <TagLinkDialog link={tagCandidate} suggestions={[...new Set(links.flatMap((link) => link.tags ?? []))]} returnFocus={(invoker) => invoker ?? sectionHeading.current} onSaved={finishTagging} onCancel={() => setTagCandidate(null)} />}
       {isLoading && <SkeletonCards />}

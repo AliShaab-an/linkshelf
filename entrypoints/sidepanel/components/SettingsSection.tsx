@@ -1,4 +1,6 @@
 import { InlineConfirmation } from './ui/InlineConfirmation';
+import { buttonClass } from './ui/styles';
+import { SectionHeader } from './ui/SectionHeader';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { SettingsPreferences } from './SettingsPreferences';
 import { useSettingsPreferences } from './useSettingsPreferences';
@@ -6,7 +8,7 @@ import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useRef, useState } from 'react';
 import type { LinkShelfBackup } from '@/domain/schemas';
 import { buildExport, type ExportFormat } from '@/domain/export';
-import { Select } from './ui/Select';
+import { Dropdown } from './ui/Dropdown';
 import { SnapshotsPanel } from './SnapshotsPanel';
 import { AutoBackupsPanel } from './AutoBackupsPanel';
 import { BACKUP_SIZE_LIMIT_LABEL } from '@/domain/constants';
@@ -152,40 +154,32 @@ export function SettingsSection() {
 
   return (
     <>
-      <div className="mb-4">
-        <h2 className="text-lg font-bold">Settings</h2>
-        <p className="mt-1 text-sm text-slate-500">LinkShelf stores its own data locally and does not send your links, notes, or bookmarks to a server.</p>
-      </div>
+      <SectionHeader title="Settings" description="LinkShelf stores its own data locally and does not send your links, notes, or bookmarks to a server." />
       <SettingsPreferences preferences={preferences} disabled={isPreviewing || isImporting || importPreview !== null} />
       <div className="mt-4 space-y-4">
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-semibold">Backup</h3>
+          <h3 className="font-semibold text-slate-900">Backup</h3>
           {feedback}
           <p className="mt-2 text-sm text-slate-600">Export projects, sessions, links, reminders, and settings as readable JSON. Chrome bookmarks are not included.</p>
           <p className="mt-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">Backups can contain sensitive URLs and notes. Store the file securely.</p>
-          <button type="button" className="mt-4 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-50" disabled={isExporting} onClick={() => void downloadBackup()}>{isExporting ? 'Preparing backup...' : 'Download backup'}</button>
+          <button type="button" className={buttonClass('secondary', 'mt-4 w-full')} disabled={isExporting} onClick={() => void downloadBackup()}>{isExporting ? 'Preparing backup...' : 'Download backup'}</button>
 
           <div className="my-4 border-t border-slate-200" />
-          <h4 className="text-sm font-semibold">Export to read or share</h4>
+          <h4 className="text-sm font-semibold text-slate-900">Export to read or share</h4>
           <p className="mt-1 text-xs text-slate-500">Create a Markdown or HTML list of saved and archived links with notes and tags. It is read-only and cannot be imported back. Use Download backup above for a restorable JSON copy.</p>
           <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="readable-project">Project</label>
-          <Select id="readable-project" className="mt-1 w-full" value={readableProject} disabled={isExporting}
-            onChange={(event) => setReadableProject(event.target.value)}>
-            <option value="">All projects</option>
-            {readableProjects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </Select>
+          <Dropdown id="readable-project" className="mt-1 w-full" value={readableProject} disabled={isExporting} onChange={setReadableProject}
+            options={[{ value: '', label: 'All projects' }, ...readableProjects.map(project => ({ value: project.id, label: project.name }))]} />
           <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="readable-format">Format</label>
-          <Select id="readable-format" className="mt-1 w-full" value={readableFormat} disabled={isExporting} onChange={(event) => setReadableFormat(event.target.value as ExportFormat)}>
-            <option value="markdown">Markdown (.md)</option>
-            <option value="html">HTML (.html)</option>
-          </Select>
-          <button type="button" className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-50" disabled={isExporting} onClick={() => void downloadReadable()}>{isExporting ? 'Preparing export...' : 'Download export'}</button>
+          <Dropdown<ExportFormat> id="readable-format" className="mt-1 w-full" value={readableFormat} disabled={isExporting} onChange={setReadableFormat}
+            options={[{ value: 'markdown', label: 'Markdown (.md)' }, { value: 'html', label: 'HTML (.html)' }] satisfies { value: ExportFormat; label: string }[]} />
+          <button type="button" className={buttonClass('secondary', 'mt-3 w-full')} disabled={isExporting} onClick={() => void downloadReadable()}>{isExporting ? 'Preparing export...' : 'Download export'}</button>
 
           <div className="my-4 border-t border-slate-200" />
           <AutoBackupsPanel disabled={isPreviewing || isImporting || preferences.saving || importPreview !== null} onChoose={chooseAutoBackup} />
 
           <div className="my-4 border-t border-slate-200" />
-          <h4 className="text-sm font-semibold">Import backup or another tool’s export</h4>
+          <h4 className="text-sm font-semibold text-slate-900">Import backup or another tool’s export</h4>
           <p className="mt-1 text-xs text-slate-500">Accepts LinkShelf JSON backups, and exports from OneTab (text), Session Buddy (JSON), Toby (JSON), Pocket (HTML) and browser bookmarks (HTML), up to {BACKUP_SIZE_LIMIT_LABEL}. Files from other tools are added as a new project; nothing is replaced. Imports must also fit the available Chrome storage space.</p>
           <label className="mt-3 block cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-center text-sm font-semibold text-slate-700 hover:bg-slate-100">
             Choose backup file
@@ -199,28 +193,28 @@ export function SettingsSection() {
             <dl className="mt-2 grid grid-cols-2 gap-2 text-center"><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Notes</dt><dd className="font-bold">{importBackup.database.sessions.filter((session) => !!session.note?.trim()).length + importBackup.database.links.filter((link) => !!link.note?.trim()).length}</dd></div><div className="rounded bg-white p-2"><dt className="text-xs text-slate-500">Reminders</dt><dd className="font-bold">{importBackup.database.links.filter((link) => link.reminderAt !== undefined).length}</dd></div></dl>
             <p className="mt-2 text-xs text-blue-800">{importBackup.database.links.filter((link) => link.status === 'parked').length} parked · {importBackup.database.links.filter((link) => link.status === 'archived').length} archived · {importBackup.database.links.filter((link) => link.status === 'restored' || link.status === 'removed').length} history</p>
             <p className="mt-3 text-xs">{importFile?.external ? 'Import adds these links as a new project and keeps your current settings.' : 'Merge adds missing records and keeps current settings. Replace all uses the backup as your library and applies its settings.'}</p>
-            <div className="mt-3 flex gap-2"><button type="button" className="flex-1 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={isPreviewing || isImporting || preferences.saving} onClick={(event) => { importTrigger.current = event.currentTarget; void chooseImportMode('merge'); }}>{isPreviewing ? 'Checking...' : importFile?.external ? 'Import' : 'Merge'}</button>{!importFile?.external && <button type="button" className="flex-1 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={isPreviewing || isImporting || preferences.saving} onClick={(event) => { importTrigger.current = event.currentTarget; void chooseImportMode('replace'); }}>Replace all</button>}</div>
+            <div className="mt-3 flex gap-2"><button type="button" className={buttonClass('primary', 'flex-1')} disabled={isPreviewing || isImporting || preferences.saving} onClick={(event) => { importTrigger.current = event.currentTarget; void chooseImportMode('merge'); }}>{isPreviewing ? 'Checking...' : importFile?.external ? 'Import' : 'Merge'}</button>{!importFile?.external && <button type="button" className={buttonClass('danger-outline', 'flex-1')} disabled={isPreviewing || isImporting || preferences.saving} onClick={(event) => { importTrigger.current = event.currentTarget; void chooseImportMode('replace'); }}>Replace all</button>}</div>
           </div>}
 
           {importBackup && importPreview && <InlineConfirmation className={`mt-3 rounded-lg border p-3 ${importPreview.mode === 'replace' ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50'}`} titleId="confirm-import-title" title={<>Confirm {importPreview.mode} import</>}
             returnFocus={() => importTrigger.current?.isConnected ? importTrigger.current : backupInput.current}>
             <p className="mt-1 text-sm text-slate-700">{importPreview.mode === 'replace' ? `This will replace ${importPreview.current.projects} current projects, ${importPreview.current.sessions} sessions, and ${importPreview.current.links} links, including current settings.` : `This will add ${importPreview.projectsAdded} projects, ${importPreview.sessionsAdded} sessions, and ${importPreview.linksAdded} links. ${importPreview.recordsSkipped} matching records will be skipped and current settings will stay unchanged.`}</p>
             {importPreview.conflicts > 0 && <p className="mt-2 rounded bg-red-100 p-2 text-sm font-semibold text-red-800">{importPreview.conflicts} conflicting record relationship{importPreview.conflicts === 1 ? '' : 's'} must be resolved before this backup can be merged. Nothing will be changed.</p>}
-            <div className="mt-3 flex gap-2"><button type="button" className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${importPreview.mode === 'replace' ? 'bg-red-700' : 'bg-slate-900'}`} disabled={isImporting || importPreview.conflicts > 0} onClick={() => void confirmImport()}>{isImporting ? 'Importing...' : importPreview.mode === 'replace' ? 'Replace LinkShelf data' : 'Confirm merge'}</button><button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={isImporting} onClick={() => setImportPreview(null)}>Cancel</button></div>
+            <div className="mt-3 flex gap-2"><button type="button" className={buttonClass(importPreview.mode === 'replace' ? 'danger' : 'primary', 'flex-1')} disabled={isImporting || importPreview.conflicts > 0} onClick={() => void confirmImport()}>{isImporting ? 'Importing...' : importPreview.mode === 'replace' ? 'Replace LinkShelf data' : 'Confirm merge'}</button><button type="button" className={buttonClass('ghost')} disabled={isImporting} onClick={() => setImportPreview(null)}>Cancel</button></div>
           </InlineConfirmation>}
         </section>
 
         <SnapshotsPanel />
 
         <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="font-semibold">Keyboard shortcuts</h3>
+          <h3 className="font-semibold text-slate-900">Keyboard shortcuts</h3>
           <div className="mt-3 space-y-2">{[
             ['park-current-tab', 'Park current tab'],
             ['toggle-side-panel', 'Open or close LinkShelf'],
             ['open-search', 'Open Search'],
             ['open-today', 'Open Today'],
           ].map(([name, label]) => <div key={name} className="flex items-center justify-between gap-3"><span className="text-sm font-semibold">{label}</span><kbd className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold shadow-inner">{shortcuts[name] ?? 'Loading...'}</kbd></div>)}</div>
-          <button type="button" className="mt-4 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={() => void browser.tabs.create({ url: 'chrome://extensions/shortcuts', active: true })}>Manage keyboard shortcuts</button>
+          <button type="button" className={buttonClass('secondary', 'mt-4 w-full')} onClick={() => void browser.tabs.create({ url: 'chrome://extensions/shortcuts', active: true })}>Manage keyboard shortcuts</button>
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
@@ -231,7 +225,7 @@ export function SettingsSection() {
         <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
           <h3 className="font-semibold text-slate-900">Help shape LinkShelf</h3>
           <p className="mt-2">Found a bug or have an idea? Early feedback directly guides the next release.</p>
-          <div className="mt-3 flex gap-2"><a className="flex-1 rounded-lg bg-blue-700 px-3 py-2 text-center font-semibold text-white" href="mailto:ali.shaaban2002@gmail.com?subject=LinkShelf%20feedback">Send feedback</a><a className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-center font-semibold text-slate-800" href="https://github.com/AliShaab-an/linkshelf/issues" target="_blank" rel="noreferrer">Report issue</a></div>
+          <div className="mt-3 flex gap-2"><a className={buttonClass('primary', 'flex-1')} href="mailto:ali.shaaban2002@gmail.com?subject=LinkShelf%20feedback">Send feedback</a><a className={buttonClass('secondary', 'flex-1')} href="https://github.com/AliShaab-an/linkshelf/issues" target="_blank" rel="noreferrer">Report issue</a></div>
         </section>
       </div>
     </>

@@ -1,4 +1,5 @@
 import { describeLinkRestore } from '../restore-feedback';
+import { SectionHeader } from './ui/SectionHeader';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { useEffect, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
@@ -78,11 +79,7 @@ export function TodaySection() {
     <>
       {!snoozeCandidate && feedback}
       {snoozeCandidate && <ReminderLinkDialog link={snoozeCandidate} snooze returnFocus={(invoker) => invoker} onSaved={finishSnooze} onCancel={() => setSnoozeCandidate(null)} />}
-      <div className="mb-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Due and overdue</p>
-        <h2 className="mt-1 text-lg font-bold">Today</h2>
-        <p className="mt-1 text-sm text-slate-500">Reminders stay here until you restore or organize their links.</p>
-      </div>
+      <SectionHeader title="Today" description="Reminders that are due or overdue stay here until you restore or organize their links." />
       {isLoading && <SkeletonCards count={2} />}
       {!isLoading && !error && links.length === 0 && (
         <EmptyState title="Nothing due">Set a reminder when parking tabs to see them here when they’re due.</EmptyState>

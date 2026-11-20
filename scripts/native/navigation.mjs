@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHarness, navigateSidebar, poll } from './harness.mjs';
+import { createHarness, navigateSidebar, poll, chosenValue } from './harness.mjs';
 import { backup } from './fixtures.mjs';
 import { dataset } from '../performance/fixtures.mjs';
 
@@ -138,10 +138,10 @@ try {
     await set({ lastSection: 'projects', selectedProjectId: 'restore-probe', sessionOrder: 'oldest', expandedSessionIds: ['restore-session'] });
     await page.reload();
     const project = page.getByLabel('Project', { exact: true });
-    await poll(() => project.inputValue(), value => value === 'restore-probe', 'persisted project');
+    await poll(() => chosenValue(project), value => value === 'restore-probe', 'persisted project');
     const view = page.getByRole('button', { name: 'View options' });
     await view.click();
-    assert.equal(await page.getByLabel('Session order').inputValue(), 'oldest');
+    assert.equal(await chosenValue(page.getByRole('combobox', { name: 'Session order' })), 'oldest');
     await page.keyboard.press('Escape');
     await page.getByRole('heading', { name: 'Navigation probe updated' }).waitFor();
     await page.evaluate(() => window.scrollTo(0, 280));
@@ -152,13 +152,13 @@ try {
     }), Boolean, 'Projects toolbar stays below the sticky navigation');
     await set({ lastSection: 'projects', selectedProjectId: 'missing-project', sessionOrder: 'oldest', expandedSessionIds: [] });
     await page.reload();
-    await poll(() => project.inputValue(), value => value === 'inbox', 'removed project falls back to Inbox');
+    await poll(() => chosenValue(project), value => value === 'inbox', 'removed project falls back to Inbox');
     await set({ lastSection: 'saved' });
     await page.reload();
     await destination(page, 'Saved').waitFor();
     assert.equal(await destination(page, 'Saved').getAttribute('aria-current'), 'page');
     await view.click();
-    assert.equal(await page.getByLabel('Session order').inputValue(), 'newest');
+    assert.equal(await chosenValue(page.getByRole('combobox', { name: 'Session order' })), 'newest');
   });
 
   await check('Two real windows consume only their own intents, repeated Search refocuses and duplicates stay ignored', async () => {

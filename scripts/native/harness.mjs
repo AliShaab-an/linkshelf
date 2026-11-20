@@ -18,6 +18,42 @@ export async function navigateSidebar(page, name) {
   await (await sectionButton(page, name)).click();
 }
 
+/**
+ * Chooses a value in a LinkShelf Dropdown (combobox) or SegmentedControl (radiogroup),
+ * the way a user would: by clicking. `choice` is an option value, or `{ label }`.
+ */
+export async function choose(control, choice) {
+  const match = typeof choice === 'object'
+    ? item => item.filter({ hasText: new RegExp(`^${choice.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) })
+    : item => item.and(control.page().locator(`[data-value="${String(choice).replace(/"/g, '\\"')}"]`));
+  if (await control.getAttribute('role') === 'radiogroup') {
+    await match(control.getByRole('radio')).click();
+    return;
+  }
+  // While open, the listbox shares the label, so pin the combobox itself.
+  const box = control.and(control.page().getByRole('combobox'));
+  const list = control.page().locator(`[id="${await box.getAttribute('aria-controls')}"]`);
+  await box.click();
+  await match(list.getByRole('option')).click();
+  await list.waitFor({ state: 'detached' });
+}
+
+/** The value currently chosen in a Dropdown or SegmentedControl. */
+export const chosenValue = control => control.getAttribute('data-value');
+
+/** The option labels a Dropdown or SegmentedControl offers. */
+export async function optionLabels(control) {
+  if (await control.getAttribute('role') === 'radiogroup') return control.getByRole('radio').allTextContents();
+  // While open, the listbox shares the label, so pin the combobox itself.
+  const box = control.and(control.page().getByRole('combobox'));
+  const list = control.page().locator(`[id="${await box.getAttribute('aria-controls')}"]`);
+  await box.click();
+  const labels = await list.getByRole('option').allTextContents();
+  await box.press('Escape');
+  await list.waitFor({ state: 'detached' });
+  return labels;
+}
+
 export async function poll(read, matches, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
   let value;

@@ -1,4 +1,6 @@
 import { InlineConfirmation } from './ui/InlineConfirmation';
+import { buttonClass } from './ui/styles';
+import { sectionTitle } from './ui/styles';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
@@ -34,7 +36,8 @@ import { RemoveLinkDialog } from './RemoveLinkDialog';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 import { Disclosure } from './ui/Disclosure';
 import { Icon } from './ui/Icon';
-import { Select } from './ui/Select';
+import { Dropdown } from './ui/Dropdown';
+import { SegmentedControl } from './ui/SegmentedControl';
 import {
   collectTagCounts,
   filterAndSortProjectGroups,
@@ -63,7 +66,7 @@ export function ProjectsSection({ savedSession, onPark }: {
   const target = useRef(savedSession).current;
   const targetButton = useRef<HTMLButtonElement>(null);
   const sectionHeading = useRef<HTMLHeadingElement>(null);
-  const projectSelector = useRef<HTMLSelectElement>(null);
+  const projectSelector = useRef<HTMLButtonElement>(null);
   const projectFilter = useRef<HTMLInputElement>(null);
   const toolbar = useRef<HTMLDivElement>(null);
   const sessions = useRef<HTMLDivElement>(null);
@@ -688,15 +691,13 @@ export function ProjectsSection({ savedSession, onPark }: {
   return (
     <>
       <OperationFeedback {...(!(removeCandidate || moveCandidate) ? feedback : {})} />
-      <h2 ref={sectionHeading} tabIndex={-1} className="mb-2 text-lg font-bold">Saved</h2>
+      <h2 ref={sectionHeading} tabIndex={-1} className={`mb-2 ${sectionTitle}`}>Saved</h2>
       <div ref={toolbar} className={`projects-toolbar relative z-20 mb-3 grid grid-cols-1 gap-2 ${isAddingProject || isConfirmingRestoreProject || isRenaming || isConfirmingDelete ? '' : 'projects-toolbar-sticky'}`}>
         <div className="relative flex items-center gap-2">
           <label className="sr-only" htmlFor="project-selector">Project</label>
-          <Select ref={projectSelector} id="project-selector" className="w-0 flex-1"
+          <Dropdown ref={projectSelector} id="project-selector" className="w-0 flex-1"
             title={selectedProject?.name} disabled={managingProject || restoring || isCreating || isLoading}
-            value={selectedId} onChange={(event) => void selectProject(event.target.value)}>
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </Select>
+            value={selectedId} options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={projectId => void selectProject(projectId)} />
           <button ref={createTrigger} type="button" aria-label="New project" title="New project"
             aria-expanded={isAddingProject} aria-controls={isAddingProject ? 'create-project' : undefined}
             disabled={managingProject || restoring || isCreating || isLoading}
@@ -748,9 +749,9 @@ export function ProjectsSection({ savedSession, onPark }: {
             <label className="sr-only" htmlFor="new-project">New project name</label>
             <input ref={createInput} id="new-project" className="min-w-0 rounded-lg border border-slate-300 px-2.5 text-sm"
               placeholder="Project name" value={newName} onChange={(event) => setNewName(event.target.value)} />
-            <button className={`${toolbarButton} bg-blue-700 text-white hover:bg-blue-800`}
+            <button className={buttonClass('primary', 'whitespace-nowrap')}
               disabled={!newName.trim() || isCreating || restoring || managingProject}>{isCreating ? 'Creating…' : 'Create project'}</button>
-            <button type="button" className={`${toolbarButton} col-span-2 justify-self-end text-slate-700 hover:bg-slate-100`}
+            <button type="button" className={buttonClass('ghost', 'col-span-2 justify-self-end whitespace-nowrap')}
               disabled={isCreating} onClick={() => setIsAddingProject(false)}>Cancel</button>
           </form>
         </InlineConfirmation>}
@@ -760,32 +761,29 @@ export function ProjectsSection({ savedSession, onPark }: {
           <input ref={projectFilter} id="project-filter" type="search" aria-keyshortcuts="/" title="Press / to focus the project filter"
             className="saved-project-filter min-h-10 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
             placeholder="Filter this project" value={filter} onChange={(event) => changeFilter(event.target.value)} />
-          <Disclosure label="View options" triggerContent={<>View <span aria-hidden="true">▾</span></>}>
+          <Disclosure label="View options" panelWidth="w-64" triggerContent={<>View <span aria-hidden="true">▾</span></>}>
             {close => <>
-              <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
-                Session order
-                <Select value={sessionOrder} onChange={(event) => setOrder(event.target.value as SessionOrder)}>
-                  <option value="newest">Newest first</option>
-                  <option value="oldest">Oldest first</option>
-                  <option value="title">Link title A–Z{groupByDay ? ' within each day' : ''}</option>
-                </Select>
-              </label>
-              <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
-                Group sessions
-                <Select value={groupByDay ? 'day' : 'none'} onChange={event => {
-                  const byDay = event.target.value === 'day';
+              <div className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
+                <span id="view-session-order-label">Session order</span>
+                <Dropdown aria-labelledby="view-session-order-label" value={sessionOrder} onChange={setOrder} options={[
+                  { value: 'newest', label: 'Newest first' },
+                  { value: 'oldest', label: 'Oldest first' },
+                  { value: 'title', label: `Link title A–Z${groupByDay ? ' within each day' : ''}` },
+                ] satisfies { value: SessionOrder; label: string }[]} />
+              </div>
+              <div className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
+                <span id="view-group-label">Group sessions</span>
+                <SegmentedControl aria-labelledby="view-group-label" value={groupByDay ? 'day' : 'none'} onChange={grouping => {
+                  const byDay = grouping === 'day';
                   setGroupByDay(byDay);
                   rememberView({ groupSessionsByDay: byDay });
-                }}>
-                  <option value="day">By day</option><option value="none">No grouping</option>
-                </Select>
-              </label>
-              <label className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
-                Saved link spacing
-                <Select value={density} onChange={(event) => void changeDensity(event.target.value as DisplayDensity)}>
-                  <option value="comfortable">Comfortable</option><option value="compact">Compact</option>
-                </Select>
-              </label>
+                }} options={[{ value: 'day', label: 'By day' }, { value: 'none', label: 'No grouping' }]} />
+              </div>
+              <div className="grid gap-1 px-1 py-1 text-xs font-semibold text-slate-700">
+                <span id="view-density-label">Saved link spacing</span>
+                <SegmentedControl aria-labelledby="view-density-label" value={density} onChange={(value: DisplayDensity) => void changeDensity(value)}
+                  options={[{ value: 'comfortable', label: 'Comfortable' }, { value: 'compact', label: 'Compact' }]} />
+              </div>
               {visibleGroups.length > 0 && <div className="border-t border-slate-200 pt-1">
                 <button type="button" className="dropdown-action" onClick={() => { setAllSessions(true); close(); }}>Expand all</button>
                 <button type="button" className="dropdown-action" onClick={() => { setAllSessions(false); close(); }}>Collapse all</button>
@@ -802,7 +800,7 @@ export function ProjectsSection({ savedSession, onPark }: {
           </p>
           <button ref={restoreTrigger} type="button" aria-describedby="project-restore-scope"
             disabled={managingProject || restoring || isLoading || isCreating}
-            className={`${toolbarButton} bg-blue-700 text-white hover:bg-blue-800`}
+            className={buttonClass('primary', 'whitespace-nowrap')}
             onClick={() => {
               setChosenRestoreMode(undefined);
               setIsConfirmingRestoreProject(true);
@@ -826,15 +824,15 @@ export function ProjectsSection({ savedSession, onPark }: {
               This is a large project and will open many tabs at once.
             </p>
           )}
-          <label className="mt-3 block text-sm font-medium text-blue-950" htmlFor="restore-load-mode">When to load tabs</label>
-          <Select id="restore-load-mode" className="mt-1 w-full" value={chosenRestoreMode ?? defaultRestoreMode} disabled={isRestoringProject}
-            onChange={event => setChosenRestoreMode(event.target.value as RestoreMode)}>
-            <option value="normal">Immediately{defaultRestoreMode === 'normal' ? ' · Default' : ''}</option>
-            <option value="unloaded">When selected{defaultRestoreMode === 'unloaded' ? ' · Default' : ''}</option>
-          </Select>
+          <span id="restore-load-mode-label" className="mt-3 block text-sm font-medium text-blue-950">When to load tabs</span>
+          <SegmentedControl<RestoreMode> className="mt-1" aria-labelledby="restore-load-mode-label" value={chosenRestoreMode ?? defaultRestoreMode} disabled={isRestoringProject}
+            onChange={setChosenRestoreMode} options={[
+              { value: 'normal', label: `Immediately${defaultRestoreMode === 'normal' ? ' · Default' : ''}` },
+              { value: 'unloaded', label: `When selected${defaultRestoreMode === 'unloaded' ? ' · Default' : ''}` },
+            ] satisfies { value: RestoreMode; label: string }[]} />
           <div className="mt-3 flex flex-wrap justify-end gap-2">
-            <button type="button" className={`${toolbarButton} border border-blue-300 bg-white`} disabled={isRestoringProject} onClick={() => setIsConfirmingRestoreProject(false)}>Cancel</button>
-            <button type="button" className={`${toolbarButton} bg-blue-700 text-white hover:bg-blue-800`} disabled={isRestoringProject}
+            <button type="button" className={buttonClass('ghost', 'whitespace-nowrap')} disabled={isRestoringProject} onClick={() => setIsConfirmingRestoreProject(false)}>Cancel</button>
+            <button type="button" className={buttonClass('primary', 'whitespace-nowrap')} disabled={isRestoringProject}
               onClick={() => void handleRestoreProject(chosenRestoreMode ?? defaultRestoreMode)}>
               {isRestoringProject ? 'Restoring…' : `Restore ${parkedLinkCount} ${parkedLinkCount === 1 ? 'tab' : 'tabs'}`}
             </button>
@@ -848,7 +846,7 @@ export function ProjectsSection({ savedSession, onPark }: {
           <form onSubmit={saveRename}>
           <label className="sr-only" htmlFor="rename-project">Project name</label>
           <input id="rename-project" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={renameName} onChange={(event) => setRenameName(event.target.value)} />
-          <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-lg border px-3 py-2 text-sm" disabled={isSavingRename} onClick={() => setIsRenaming(false)}>Cancel</button><button className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white" disabled={isSavingRename}>{isSavingRename ? 'Saving...' : 'Save name'}</button></div>
+          <div className="mt-3 flex justify-end gap-2"><button type="button" className={buttonClass('ghost')} disabled={isSavingRename} onClick={() => setIsRenaming(false)}>Cancel</button><button className={buttonClass('primary')} disabled={isSavingRename}>{isSavingRename ? 'Saving...' : 'Save name'}</button></div>
         </form>
         </InlineConfirmation>
       )}
@@ -858,7 +856,7 @@ export function ProjectsSection({ savedSession, onPark }: {
           className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3.5 wrap-anywhere" titleClassName="font-semibold text-red-900"
           returnFocus={() => projectActionsTrigger.current?.matches(':disabled, [aria-disabled="true"]') ? sectionHeading.current : projectActionsTrigger.current}>
           <p className="mt-1 text-sm text-red-800">Its links and sessions will move to Inbox. Nothing is permanently deleted.</p>
-          <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-lg border bg-white px-3 py-2 text-sm" disabled={isDeleting} onClick={() => setIsConfirmingDelete(false)}>Cancel</button><button type="button" className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white" disabled={isDeleting} onClick={() => void removeProject()}>{isDeleting ? 'Moving...' : 'Move to Inbox and delete'}</button></div>
+          <div className="mt-3 flex justify-end gap-2"><button type="button" className={buttonClass('ghost')} disabled={isDeleting} onClick={() => setIsConfirmingDelete(false)}>Cancel</button><button type="button" className={buttonClass('danger')} disabled={isDeleting} onClick={() => void removeProject()}>{isDeleting ? 'Moving...' : 'Move to Inbox and delete'}</button></div>
         </InlineConfirmation>
       )}
 
@@ -895,10 +893,10 @@ export function ProjectsSection({ savedSession, onPark }: {
       {isLoading && <SkeletonCards count={2} />}
       {!isLoading && !error && groups.length === 0 && selectedProject && <EmptyState title="Nothing saved yet">
         <p>Park a tab to get started.</p>
-        <button type="button" className={`${toolbarButton} mt-2 bg-blue-700 text-white hover:bg-blue-800`} onClick={() => onPark(selectedProject.id)}>Park tabs</button>
+        <button type="button" className={buttonClass('primary', 'mt-2')} onClick={() => onPark(selectedProject.id)}>Park tabs</button>
       </EmptyState>}
       {!isLoading && !error && groups.length > 0 && visibleGroups.length === 0 && <EmptyState title="No matching tabs">
-        <button type="button" className={`${toolbarButton} text-blue-700 hover:bg-blue-50`} onClick={() => { changeFilter(''); setTagFilter(null); projectFilter.current?.focus(); }}>Clear filter</button>
+        <button type="button" className={buttonClass('quiet', 'whitespace-nowrap')} onClick={() => { changeFilter(''); setTagFilter(null); projectFilter.current?.focus(); }}>Clear filter</button>
       </EmptyState>}
       {visibleGroups.length > 0 && <>
         <h3 className="sr-only">Sessions</h3>
@@ -916,19 +914,25 @@ export function ProjectsSection({ savedSession, onPark }: {
             const first = group.links[0];
             const previewNote = first.note ?? group.session.note;
             const isTarget = group.session.id === target?.sessionId;
+            const linkCount = `${sessionCount !== group.links.length ? `${group.links.length} of ` : ''}${sessionCount} links`;
             return <section key={group.session.id} className={density === 'compact' ? 'py-1.5' : 'py-2.5'}>
               {!single && <div className="flex items-start gap-1">
                 <button ref={isTarget ? targetButton : undefined} type="button" data-saved-row
                   className="flex min-h-11 min-w-0 flex-1 items-start gap-2 rounded-lg p-1.5 text-left hover:bg-slate-100"
                   aria-expanded={expanded} onClick={() => toggleSession(group.session.id)}>
-                  <LinkFavicon link={first} />
+                  {expanded
+                    ? <span aria-hidden="true" className="grid size-6 shrink-0 place-items-center rounded border border-slate-300 bg-white text-slate-600"><Icon name="park" className="size-4" /></span>
+                    : <LinkFavicon link={first} />}
                   <span className="min-w-0 flex-1">
-                    <span className="sr-only">Parking session </span>
-                    <span className="flex min-w-0 items-baseline gap-1.5">
-                      <span className="truncate text-sm font-semibold" title={first.title} dir="auto">{first.title}</span>
-                      {group.links.length > 1 && <span className="shrink-0 text-xs font-medium text-slate-700">+{group.links.length - 1} more</span>}
-                    </span>
-                    <span className="block text-xs text-slate-700">{formatLinkDate(group.session.createdAt)} · {sessionCount !== group.links.length ? `${group.links.length} of ` : ''}{sessionCount} links</span>
+                    {/* Expanded, the cards below show every title, so the header only names the session. */}
+                    {expanded
+                      ? <span className="block text-sm font-semibold">Parking session · {linkCount}</span>
+                      : <span className="flex min-w-0 items-baseline gap-1.5">
+                        <span className="sr-only">Parking session </span>
+                        <span className="truncate text-sm font-semibold" title={first.title} dir="auto">{first.title}</span>
+                        {group.links.length > 1 && <span className="shrink-0 text-xs font-medium text-slate-700">+{group.links.length - 1} more</span>}
+                      </span>}
+                    <span className="block text-xs text-slate-700">{formatLinkDate(group.session.createdAt)}{expanded ? '' : ` · ${linkCount}`}</span>
                     {group.session.reminderAt && <span className="mt-1 block text-xs font-semibold text-amber-700">Reminder {formatLinkDate(group.session.reminderAt)}</span>}
                     {!expanded && previewNote && <span className="block truncate text-xs text-slate-600" title={previewNote}>{previewNote}</span>}
                   </span>
@@ -954,9 +958,10 @@ export function ProjectsSection({ savedSession, onPark }: {
                   note={single ? link.note ?? group.session.note : link.note === group.session.note ? null : link.note}
                   density={density}
                   inSession
+                  showParkedDate={single}
                   isRestoring={restoringId === link.id || restoringSessionId === group.session.id || isRestoringProject || lifecycleWorkingId === link.id || isUndoing}
                   onRestore={() => void handleRestore(link)}
-                  onRestoreAndRemove={() => void handleRestore(link, 'restore-and-remove')}
+                  onRestoreAndRemove={restoreBehavior === 'open-copy' ? () => void handleRestore(link, 'restore-and-remove') : undefined}
                   onArchive={() => void handleArchive(link)}
                   onEditTags={() => startTagging(link)}
                   onRemind={() => startReminding(link)}
@@ -964,9 +969,9 @@ export function ProjectsSection({ savedSession, onPark }: {
                   onRemove={() => startRemoving(link)}
                 />)}
                 {shownLinks.length < group.links.length && <div className="flex gap-2 pt-1">
-                  <button type="button" className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-blue-700"
+                  <button type="button" className={buttonClass('secondary', 'flex-1')}
                     onClick={() => setSessionLimits(current => ({ ...current, [group.session.id]: limit + PROJECT_LINK_BATCH_SIZE }))}>Show {Math.min(PROJECT_LINK_BATCH_SIZE, group.links.length - shownLinks.length)} more</button>
-                  <button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600"
+                  <button type="button" className={buttonClass('ghost')}
                     onClick={() => setSessionLimits(current => ({ ...current, [group.session.id]: group.links.length }))}>Show all</button>
                 </div>}
               </div>}
@@ -976,9 +981,9 @@ export function ProjectsSection({ savedSession, onPark }: {
       </div>
       {undo && <aside className="sticky bottom-2 z-30 mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-300 bg-white p-2.5 shadow-lg">
         <p role="status" className="min-w-32 flex-1 text-sm text-slate-800">{undo.status === 'restored' ? 'Tab opened. Undo returns the link to Saved.' : 'Link removed from Saved.'}</p>
-        <button type="button" className={`${toolbarButton} text-blue-700 hover:bg-blue-50`} disabled={isUndoing || restoring || !!lifecycleWorkingId}
+        <button type="button" className={buttonClass('quiet', 'whitespace-nowrap')} disabled={isUndoing || restoring || !!lifecycleWorkingId}
           onClick={() => void handleUndo()}>{isUndoing ? 'Undoing…' : 'Undo'}</button>
-        <button type="button" className={`${toolbarButton} text-slate-700 hover:bg-slate-100`} disabled={isUndoing}
+        <button type="button" className={buttonClass('ghost', 'whitespace-nowrap')} disabled={isUndoing}
           onClick={() => { projectFilter.current?.focus(); setUndo(undefined); }}>Dismiss</button>
       </aside>}
     </>

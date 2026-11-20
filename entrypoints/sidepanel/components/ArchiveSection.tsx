@@ -1,4 +1,5 @@
 import { OperationFeedback } from './ui/OperationFeedback';
+import { SectionHeader } from './ui/SectionHeader';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Project, SavedLink } from '@/domain/schemas';
 import {
@@ -156,7 +157,7 @@ export function ArchiveSection() {
   return (
     <>
       <OperationFeedback {...(!(removeCandidate || tagCandidate) ? feedback : {})} />
-      <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inactive links</p><h2 ref={heading} tabIndex={-1} className="mt-1 text-lg font-bold">Archive</h2><p className="mt-1 text-sm text-slate-500">Archived links stay searchable. Use Return to project to park a link in its original project again.</p></div>
+      <SectionHeader headingRef={heading} title="Archive" description="Archived links stay searchable. Use Return to project to park a link in its original project again." />
       {removeCandidate && <RemoveLinkDialog link={removeCandidate} feedback={<OperationFeedback {...feedback} pending={dialogPending ? 'Updating link…' : undefined} />} returnFocus={(invoker) => invoker ?? heading.current} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} />}
       {tagCandidate && <TagLinkDialog link={tagCandidate} suggestions={[...new Set(links.flatMap((link) => link.tags ?? []))]} returnFocus={(invoker) => invoker ?? heading.current} onSaved={finishTagging} onCancel={() => setTagCandidate(null)} />}
       {isLoading && <SkeletonCards count={2} />}

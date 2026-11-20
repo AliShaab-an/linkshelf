@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { buttonClass } from '@/entrypoints/sidepanel/components/ui/styles';
 import { getDomain, isEligibleUrl } from '@/domain/url';
 import { ActiveTabCard } from './components/ActiveTabCard';
 import { ParkCurrentTabForm } from './components/ParkCurrentTabForm';
@@ -92,7 +93,7 @@ function App() {
         </>
       )}
       {windowId !== undefined && <>
-        <button type="button" className="mt-2 min-h-10 w-full rounded-lg px-3 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+        <button type="button" className={buttonClass('quiet', 'mt-2 w-full')}
           disabled={openingSidebar} onClick={() => void openSidePanel()}>
           {openingSidebar ? 'Opening sidebar…' : 'Open sidebar'}
         </button>

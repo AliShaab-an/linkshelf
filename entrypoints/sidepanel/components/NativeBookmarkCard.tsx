@@ -1,4 +1,5 @@
 import type { NativeBookmarkResult } from '@/messaging/contracts';
+import { buttonClass } from './ui/styles';
 
 interface NativeBookmarkCardProps {
   cardId?: string;
@@ -31,7 +32,7 @@ export function NativeBookmarkCard({
       <p className="mt-1 truncate text-sm text-slate-500">{domain}</p>
       <button
         type="button"
-        className="mt-3 w-full rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        className={buttonClass('primary', 'mt-3 w-full')}
         disabled={isOpening}
         onClick={onOpen}
       >

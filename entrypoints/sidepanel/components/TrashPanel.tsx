@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { buttonClass } from './ui/styles';
 import type { SavedLink } from '@/domain/schemas';
 import { deleteFromTrash, emptyTrash, getTrash, restoreFromTrash, type TrashResponse } from '@/messaging/contracts';
 import { OperationFeedback } from './ui/OperationFeedback';
@@ -59,7 +60,7 @@ export function TrashPanel() {
   const shown = links.slice(0, VISIBLE);
 
   return <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="trash-title">
-    <h3 id="trash-title" className="font-semibold">Recently removed</h3>
+    <h3 id="trash-title" className="font-semibold text-slate-900">Recently removed</h3>
     <p className="mt-1 text-sm text-slate-600">Removed links stay here for {retentionDays} days, then are deleted for good. Recover one to put it back where it was.</p>
     <OperationFeedback message={message} error={error} />
     {loaded && links.length === 0 && <p className="mt-2 text-sm text-slate-600">Nothing removed recently.</p>}
@@ -71,15 +72,15 @@ export function TrashPanel() {
           ? <div className="mt-2" role="group" aria-label={`Delete ${link.title} permanently`}>
             <p className="text-sm">Delete this link permanently? This cannot be undone.</p>
             <div className="mt-2 flex gap-2">
-              <button type="button" className="flex-1 rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy}
+              <button type="button" className={buttonClass('danger', 'flex-1')} disabled={busy}
                 onClick={() => void run(async () => { apply(await deleteFromTrash(link.id)); setMessage('Link deleted permanently.'); })}>Delete permanently</button>
-              <button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={busy} onClick={() => setConfirming(undefined)}>Cancel</button>
+              <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={() => setConfirming(undefined)}>Cancel</button>
             </div>
           </div>
           : <div className="mt-2 flex gap-2">
-            <button type="button" className="min-h-10 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold disabled:opacity-50" disabled={busy} aria-label={`Recover ${link.title}`}
+            <button type="button" className={buttonClass('secondary', 'flex-1')} disabled={busy} aria-label={`Recover ${link.title}`}
               onClick={() => void run(async () => { apply(await restoreFromTrash(link.id)); setMessage(`Recovered “${link.title}”.`); })}>Recover</button>
-            <button type="button" className="min-h-10 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={busy} aria-label={`Delete ${link.title} permanently`}
+            <button type="button" className={buttonClass('danger-outline')} disabled={busy} aria-label={`Delete ${link.title} permanently`}
               onClick={() => setConfirming(link.id)}>Delete</button>
           </div>}
       </li>)}
@@ -89,11 +90,11 @@ export function TrashPanel() {
       ? <div className="mt-3" role="group" aria-label="Empty trash">
         <p className="text-sm">Permanently delete {plural(links.length, 'removed link')}? This cannot be undone.</p>
         <div className="mt-2 flex gap-2">
-          <button type="button" className="flex-1 rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy}
+          <button type="button" className={buttonClass('danger', 'flex-1')} disabled={busy}
             onClick={() => void run(async () => { const response = await emptyTrash(); apply(response); setMessage(`Deleted ${plural(response.success ? response.affected : 0, 'link')} permanently.`); })}>Empty trash</button>
-          <button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={busy} onClick={() => setConfirming(undefined)}>Cancel</button>
+          <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={() => setConfirming(undefined)}>Cancel</button>
         </div>
       </div>
-      : <button type="button" className="mt-3 w-full rounded-lg border border-red-200 bg-white px-3 py-2.5 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={busy} onClick={() => setConfirming('*')}>Empty trash</button>)}
+      : <button type="button" className={buttonClass('danger-outline', 'mt-3 w-full')} disabled={busy} onClick={() => setConfirming('*')}>Empty trash</button>)}
   </section>;
 }

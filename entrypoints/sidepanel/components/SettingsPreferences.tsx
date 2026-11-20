@@ -1,6 +1,7 @@
 import { useId, useState, type ReactNode } from 'react';
 import type { DisplayDensity, RestoreMode, SettingsPatch } from '@/domain/schemas';
-import { Select } from './ui/Select';
+import { Dropdown } from './ui/Dropdown';
+import { SegmentedControl } from './ui/SegmentedControl';
 import { OperationWarnings } from './ui/OperationWarnings';
 import type { useSettingsPreferences } from './useSettingsPreferences';
 
@@ -8,6 +9,16 @@ const densities = [
   ['comfortable', 'Comfortable', 'More space between saved links.'],
   ['compact', 'Compact', 'Fit more saved links on screen.'],
 ] as const;
+
+const restoreModes: { value: RestoreMode; label: string }[] = [
+  { value: 'normal', label: 'Load immediately' },
+  { value: 'unloaded', label: 'Load when selected' },
+];
+
+const restoreBehaviors: { value: 'restore-and-remove' | 'open-copy'; label: string }[] = [
+  { value: 'restore-and-remove', label: 'Remove from list' },
+  { value: 'open-copy', label: 'Keep a copy' },
+];
 
 export function SettingsPreferences({ preferences, compact = false, disabled = false }: {
   preferences: ReturnType<typeof useSettingsPreferences>;
@@ -38,16 +49,13 @@ export function SettingsPreferences({ preferences, compact = false, disabled = f
   if (loading) return <p role="status" className="text-sm text-slate-600">Loading preferences…</p>;
   if (!settings) return <p role="alert" className="text-sm text-red-800">{error}</p>;
 
-  const restoreMode = <label className="block text-sm font-medium">
+  const restoreMode = <div className="text-sm font-medium">
     <span id={`${prefix}-restore-mode-label`}>When restoring a whole project</span>
     {!compact && <span id={`${prefix}-restore-mode`} className="mt-0.5 block text-xs font-normal text-slate-600">Choose which option Restore all marks as the default.</span>}
-    <Select className="mt-1 w-full" value={settings.defaultRestoreMode} aria-disabled={locked} aria-labelledby={`${prefix}-restore-mode-label`}
+    <SegmentedControl className="mt-1" value={settings.defaultRestoreMode} aria-disabled={locked} aria-labelledby={`${prefix}-restore-mode-label`}
       aria-describedby={compact ? undefined : `${prefix}-restore-mode`}
-      onChange={event => savePreference('restoring', { defaultRestoreMode: event.target.value as RestoreMode })}>
-      <option value="normal">Load tabs immediately</option>
-      <option value="unloaded">Load tabs when selected</option>
-    </Select>
-  </label>;
+      options={restoreModes} onChange={mode => savePreference('restoring', { defaultRestoreMode: mode })} />
+  </div>;
 
   return <div className={compact ? 'space-y-2' : 'space-y-3'}>
     <PreferenceGroup title="Reminders" compact={compact}>
@@ -68,37 +76,28 @@ export function SettingsPreferences({ preferences, compact = false, disabled = f
       {feedback('reminders')}
     </PreferenceGroup>
     <PreferenceGroup title="Parking" compact={compact}>
-      <label className="block text-sm font-medium">
-        Save new parked tabs to
-        <Select className="mt-1 w-full" value={settings.defaultProjectId} aria-disabled={locked}
-          onChange={event => savePreference('parking', { defaultProjectId: event.target.value })}>
-          {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-        </Select>
-      </label>
+      <div className="text-sm font-medium">
+        <span id={`${prefix}-default-project-label`}>Save new parked tabs to</span>
+        <Dropdown className="mt-1 w-full" value={settings.defaultProjectId} aria-disabled={locked} aria-labelledby={`${prefix}-default-project-label`}
+          options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={projectId => savePreference('parking', { defaultProjectId: projectId })} />
+      </div>
       {feedback('parking')}
     </PreferenceGroup>
     <PreferenceGroup title="Restoring tabs" compact={compact}>
-      {!compact && <label className="mb-3 block text-sm font-medium">
-        After opening a parked link
-        <Select className="mt-1 w-full" value={settings.defaultRestoreBehavior} aria-disabled={locked}
-          onChange={event => {
-            savePreference('restoring', { defaultRestoreBehavior: event.target.value === 'open-copy' ? 'open-copy' : 'restore-and-remove' });
-          }}>
-          <option value="restore-and-remove">Remove from the parked list</option>
-          <option value="open-copy">Keep a parked copy</option>
-        </Select>
-      </label>}
+      {!compact && <div className="mb-3 text-sm font-medium">
+        <span id={`${prefix}-restore-behavior-label`}>After opening a parked link</span>
+        <SegmentedControl className="mt-1" value={settings.defaultRestoreBehavior} aria-disabled={locked} aria-labelledby={`${prefix}-restore-behavior-label`}
+          options={restoreBehaviors} onChange={behavior => savePreference('restoring', { defaultRestoreBehavior: behavior })} />
+      </div>}
       {restoreMode}
       {feedback('restoring')}
     </PreferenceGroup>
     <PreferenceGroup title="Appearance" compact={compact}>
-      {compact ? <label className="block text-sm font-medium">
-        Saved link spacing
-        <Select className="mt-1 w-full" value={settings.displayDensity} aria-disabled={locked}
-          onChange={event => savePreference('appearance', { displayDensity: event.target.value as DisplayDensity })}>
-          {densities.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </Select>
-      </label> : <fieldset className="min-w-0">
+      {compact ? <div className="text-sm font-medium">
+        <span id={`${prefix}-density-label`}>Saved link spacing</span>
+        <SegmentedControl className="mt-1" value={settings.displayDensity} aria-disabled={locked} aria-labelledby={`${prefix}-density-label`}
+          options={densities.map(([value, label]) => ({ value, label }))} onChange={(density: DisplayDensity) => savePreference('appearance', { displayDensity: density })} />
+      </div> : <fieldset className="min-w-0">
         <legend className="mb-1 text-sm font-medium">Saved link spacing</legend>
         <div className="grid grid-cols-2 gap-2">
           {densities.map(([value, label, description]) => <label key={value}
@@ -122,7 +121,7 @@ export function SettingsPreferences({ preferences, compact = false, disabled = f
 function PreferenceGroup({ title, compact, children }: { title: string; compact: boolean; children: ReactNode }) {
   if (compact) return <div className="border-t border-slate-200 pt-2">{children}</div>;
   return <section className="rounded-xl border border-slate-200 bg-white p-3">
-    <h3 className="mb-2 font-semibold">{title}</h3>
+    <h3 className="mb-2 font-semibold text-slate-900">{title}</h3>
     {children}
   </section>;
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createHarness, navigateSidebar, poll } from './harness.mjs';
+import { createHarness, navigateSidebar, poll, choose, optionLabels } from './harness.mjs';
 import { dataset } from '../performance/fixtures.mjs';
 
 const h = await createHarness();
@@ -67,8 +67,8 @@ try {
   assert.equal(await actions.getAttribute('aria-describedby'), await inboxHelp.getAttribute('id'));
   assert.equal(await actions.getAttribute('aria-disabled'), 'true');
   assert.equal(await button('New project').getAttribute('title'), 'New project');
-  await picker.selectOption('restore-probe');
-  const preview = button(/^Parking session Alpha computer/);
+  await choose(picker, 'restore-probe');
+  const preview = button(/^Parking session/);
   const single = page.getByRole('article', { name: 'Zulu computer' });
   await preview.waitFor();
   assert.equal(await inboxHelp.count(), 0);
@@ -77,12 +77,18 @@ try {
   await page.getByRole('heading', { name: 'Yesterday', exact: true }).waitFor();
   assert.equal(await button('Restore session').count(), 1);
   assert.equal(await single.getByRole('button', { name: 'Restore link' }).count(), 1);
-  assert.match(await preview.textContent(), /\+1 more/);
+  // Expanded, the header names the session; the cards show the titles.
+  assert.equal(await preview.getAttribute('aria-expanded'), 'true');
+  assert.match(await preview.textContent(), /^Parking session · 2 links/);
+  assert.doesNotMatch(await preview.textContent(), /Alpha computer|more/);
+  await preview.click();
+  assert.match(await preview.textContent(), /Alpha computer\+1 more/);
+  await preview.click();
   assert.match(await single.textContent(), /Parked/);
   await button('View options').click();
-  assert.deepEqual(await page.getByLabel('Session order').locator('option').allTextContents(), ['Newest first', 'Oldest first', 'Link title A–Z within each day']);
-  assert.deepEqual(await page.getByLabel('Group sessions').locator('option').allTextContents(), ['By day', 'No grouping']);
-  await page.getByLabel('Session order').selectOption('title');
+  assert.deepEqual(await optionLabels(page.getByLabel('Session order')), ['Newest first', 'Oldest first', 'Link title A–Z within each day']);
+  assert.deepEqual(await optionLabels(page.getByLabel('Group sessions')), ['By day', 'No grouping']);
+  await choose(page.getByLabel('Session order'), 'title');
   await page.keyboard.press('Escape');
   if (await preview.getAttribute('aria-expanded') === 'false') await preview.click();
   await preview.click();
@@ -97,15 +103,15 @@ try {
   await filter.clear();
 
   await button('View options').click();
-  await page.getByLabel('Group sessions').selectOption('none');
-  await page.getByLabel('Session order').selectOption('title');
+  await choose(page.getByLabel('Group sessions'), 'none');
+  await choose(page.getByLabel('Session order'), 'title');
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('heading', { name: 'Yesterday', exact: true }).count(), 0);
   const names = await page.locator('[data-saved-row]').evaluateAll(rows => rows.map(row => row.getAttribute('aria-label') ?? row.textContent));
   assert.match(names[0], /Alpha computer/);
   assert.equal(names.at(-1), 'Zulu computer');
   await button('View options').click();
-  await page.getByLabel('Group sessions').selectOption('day');
+  await choose(page.getByLabel('Group sessions'), 'day');
   await page.keyboard.press('Escape');
   checks.push('Content previews and single rows distinguish equal timestamps; calendar grouping, title order, and keyboard focus work');
 
@@ -138,8 +144,8 @@ try {
 
   const quick = button('Quick settings');
   await quick.click();
-  const theme = page.getByRole('combobox', { name: 'Theme', exact: true });
-  await theme.selectOption('dark');
+  const theme = page.getByRole('radiogroup', { name: 'Theme', exact: true });
+  await choose(theme, 'dark');
   await page.keyboard.press('Escape');
   await poll(() => page.evaluate(() => document.documentElement.dataset.colorScheme), value => value === 'dark', 'dark theme applied');
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -148,7 +154,7 @@ try {
   await preview.waitFor();
   await page.screenshot({ path: path.join(h.output, 'saved-dark-320.png') });
   await quick.click();
-  await theme.selectOption('system');
+  await choose(theme, 'system');
   await page.keyboard.press('Escape');
   await page.emulateMedia({ colorScheme: 'dark' });
   await poll(() => page.evaluate(() => document.documentElement.dataset.colorScheme), value => value === 'dark', 'system dark');

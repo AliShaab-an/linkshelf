@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createHarness, navigateSidebar, poll } from './harness.mjs';
+import { createHarness, navigateSidebar, poll, choose, chosenValue } from './harness.mjs';
 import { dataset } from '../performance/fixtures.mjs';
 
 const h = await createHarness();
@@ -27,7 +27,7 @@ try {
   await page.setViewportSize({ width: 320, height: 760 });
   await page.reload();
   await navigateSidebar(page, 'Projects');
-  await selector.selectOption('restore-probe');
+  await choose(selector, 'restore-probe');
   await button('Restore link').first().waitFor();
   assert.equal(await checkWidth(), true);
   await page.screenshot({ path: path.join(h.output, 'saved-compact-320.png') });
@@ -58,8 +58,8 @@ try {
   await button('Restore all (3)').click();
   const confirm = page.getByRole('region', { name: /^Restore all 3 links/ });
   await confirm.getByText(/includes 2 links hidden by the filter/).waitFor();
-  const mode = confirm.getByRole('combobox', { name: 'When to load tabs' });
-  assert.equal(await mode.inputValue(), 'unloaded');
+  const mode = confirm.getByRole('radiogroup', { name: 'When to load tabs' });
+  assert.equal(await chosenValue(mode), 'unloaded');
   const unloaded = confirm.getByRole('button', { name: 'Restore 3 tabs' });
   await unloaded.focus();
   await poll(() => unloaded.evaluate(element => {
@@ -90,7 +90,7 @@ try {
     globalThis.undoSavedProbe = () => { chrome.tabs.create = original; };
   });
   await button('Restore all (3)').click();
-  assert.equal(await mode.inputValue(), 'normal');
+  assert.equal(await chosenValue(mode), 'normal');
   await button('Restore 3 tabs').click();
   await status(/Opened 2 of 3 tabs.*2 marked restored.*could not confirm opening 1 tab/).waitFor();
   await page.getByText(/Some browser opens were not confirmed/).waitFor();
@@ -108,7 +108,7 @@ try {
   await page.getByLabel('New project name').fill('Synthetic new project');
   await button('Create project').click();
   await heading('Nothing saved yet').waitFor();
-  assert.equal(await selector.locator('option:checked').textContent(), 'Synthetic new project');
+  assert.equal(await selector.locator('span').first().textContent(), 'Synthetic new project');
   await actions.focus();
   await page.keyboard.press('Enter');
   await page.keyboard.press('Tab');
@@ -119,8 +119,8 @@ try {
   await button('Rename').click();
   await page.getByLabel('Project name', { exact: true }).fill('Synthetic renamed project');
   await button('Save name').click();
-  await poll(() => selector.locator('option:checked').textContent(), value => value === 'Synthetic renamed project', 'renamed project selected');
-  const destinationId = await selector.inputValue();
+  await poll(() => selector.locator('span').first().textContent(), value => value === 'Synthetic renamed project', 'renamed project selected');
+  const destinationId = await chosenValue(selector);
   await h.tab('saved-empty-shortcut');
   await page.bringToFront();
   await button('Park tabs').click();
@@ -128,22 +128,22 @@ try {
   await page.getByRole('checkbox', { name: 'Select Synthetic /saved-empty-shortcut' }).check();
   await button('Review selection').click();
   const parkReview = page.getByRole('dialog');
-  assert.equal(await parkReview.getByLabel('Save to project').inputValue(), destinationId);
+  assert.equal(await chosenValue(parkReview.getByLabel('Save to project')), destinationId);
   await parkReview.getByRole('button', { name: 'Back' }).click();
   await navigateSidebar(page, 'Saved');
   await selector.waitFor();
-  await selector.selectOption('restore-probe');
+  await choose(selector, 'restore-probe');
   await actions.click();
   await button('Delete').click();
   await button('Move to Inbox and delete').click();
-  await poll(() => selector.inputValue(), value => value === 'inbox', 'Inbox selected');
+  await poll(() => chosenValue(selector), value => value === 'inbox', 'Inbox selected');
   await poll(h.raw, value => value.links.filter(link => probe.some(record => record.id === link.id)).every(link => link.projectId === 'inbox'), 'all three records moved to Inbox');
   assert.equal(await checkWidth(), true);
   assert.equal(await actions.isDisabled(), true);
   assert.equal(await button('Rename').count(), 0);
   checks.push('Create, rename, and delete through management controls; Inbox retains the parked and restored records');
 
-  await selector.selectOption('project-0');
+  await choose(selector, 'project-0');
   await button('Restore session').first().waitFor();
   assert.equal(await page.locator('article').count(), 25);
   const sessions = page.getByRole('button', { name: /^Parking session/ });
@@ -152,16 +152,16 @@ try {
   await page.keyboard.press('Enter');
   await page.keyboard.press('Tab');
   assert.equal(await page.getByLabel('Session order').evaluate(el => document.activeElement === el), true);
-  await page.getByLabel('Session order').selectOption('oldest');
+  await choose(page.getByLabel('Session order'), 'oldest');
   assert.notEqual(await sessions.first().textContent(), newestSession);
-  await page.getByLabel('Saved link spacing').selectOption('comfortable');
+  await choose(page.getByLabel('Saved link spacing'), 'comfortable');
   await poll(h.raw, value => value.settings.displayDensity === 'comfortable', 'comfortable density persisted');
-  await page.getByLabel('Saved link spacing').selectOption('compact');
+  await choose(page.getByLabel('Saved link spacing'), 'compact');
   await poll(h.raw, value => value.settings.displayDensity === 'compact', 'compact density persisted');
   await page.keyboard.press('Escape');
   assert.equal(await view.evaluate(el => document.activeElement === el), true);
   await view.click();
-  await page.getByLabel('Session order').selectOption('newest');
+  await choose(page.getByLabel('Session order'), 'newest');
   await page.getByLabel('Filter this project').focus();
   assert.equal(await view.getAttribute('aria-expanded'), 'false');
   await button(/^Show \d+ more$/).first().click();
@@ -191,11 +191,11 @@ try {
   assert.equal(await moreActions.evaluate(el => el === document.activeElement), true);
   await moreActions.click();
   await button('Move to project').click();
-  await move.getByLabel('Destination project').selectOption(destinationId);
+  await choose(move.getByLabel('Destination project'), destinationId);
   await move.getByRole('button', { name: 'Move link' }).click();
   await status(/Moved .* to Synthetic renamed project/).waitFor();
   await matchingCard.waitFor({ state: 'hidden' });
-  await selector.selectOption(destinationId);
+  await choose(selector, destinationId);
   await matchingCard.waitFor();
   await matchingCard.getByText(/^Parked /).waitFor();
   assert.equal(await checkWidth(), true);

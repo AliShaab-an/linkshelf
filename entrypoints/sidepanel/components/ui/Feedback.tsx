@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
-  return <div className="rounded-2xl border border-dashed border-slate-300 bg-white/70 px-5 py-8 text-center"><div className="mx-auto flex size-11 items-center justify-center rounded-2xl bg-blue-50 text-xl">✓</div><h3 className="mt-3 font-bold text-slate-800">{title}</h3>{children && <div className="mt-1 text-sm leading-6 text-slate-500">{children}</div>}</div>;
+  return <div className="rounded-2xl border border-dashed border-slate-300 bg-white/70 px-5 py-8 text-center"><div className="mx-auto flex size-11 items-center justify-center rounded-2xl bg-blue-50 text-xl">✓</div><h3 className="mt-3 font-semibold text-slate-900">{title}</h3>{children && <div className="mt-1 text-sm leading-6 text-slate-500">{children}</div>}</div>;
 }
 
 export function SkeletonCards({ count = 3 }: { count?: number }) {
