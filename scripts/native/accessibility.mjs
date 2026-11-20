@@ -420,6 +420,8 @@ try {
     await spacing.focus();
     await page.keyboard.press('Space');
     await poll(h.raw, value => value.settings.displayDensity === 'comfortable', 'comfortable spacing saved');
+    // Quick settings lives in the sidebar; full Settings on the Manager page.
+    await navigateSidebar(page, 'Projects');
     const quick = button('Quick settings');
     await quick.click();
     const panel = page.getByRole('group', { name: 'Quick settings', exact: true });
@@ -431,11 +433,12 @@ try {
     await poll(h.raw, value => !value.settings.notificationsEnabled, 'quick settings persisted');
     await page.keyboard.press('Escape');
     await active(quick);
+    await navigateSidebar(page, 'Settings');
     await poll(() => desktop.isChecked(), checked => !checked, 'full Settings reflects Quick Settings change');
   });
 
   await scenario('200% Chrome zoom, disappearing Search result, and section navigation after dismissal', async () => {
-    await button('Search').click();
+    await navigateSidebar(page, 'Search');
     await page.getByRole('searchbox').fill(fixture.links[4].title);
     const searchCard = card(fixture.links[4].title);
     await openAction(searchCard, 'Remove');
