@@ -4,11 +4,14 @@ import type {
   ParkSelectedTabsResponse,
 } from '@/messaging/contracts';
 import type { ParkTabsInput, ParkTabsResult } from '@/storage/repository';
-import type { BrowserTabSnapshot } from './park-current-tab';
+import type { OriginalTabGroup } from '@/domain/tab-groups';
+import { describeGroup, type BrowserTabSnapshot } from './park-current-tab';
 import { closeSavedTab, type SafeTabCloseDependencies } from './safe-tab-close';
 
 export interface ParkSelectedTabsDependencies extends SafeTabCloseDependencies {
   persistTabs(input: ParkTabsInput): Promise<ParkTabsResult>;
+  /** Describes a tab's group so it can be restored. Optional: unavailable without the tabGroups permission. */
+  describeGroup?(groupId: number): Promise<OriginalTabGroup | undefined>;
   /** Returns the URLs that already exist as parked links. */
   findParkedDuplicateUrls(urls: string[]): Promise<string[]>;
 }
@@ -78,12 +81,22 @@ export async function executeParkSelectedTabs(
       toPark = tabs.filter((tab) => !duplicateUrls.has(tab.url!));
     }
 
+    // One lookup per group, not per tab.
+    const groups = new Map<number, Promise<OriginalTabGroup | undefined>>();
+    const groupOf = (tab: BrowserTabSnapshot) => {
+      if (tab.groupId === undefined || tab.groupId < 0) return Promise.resolve(undefined);
+      if (!groups.has(tab.groupId)) groups.set(tab.groupId, describeGroup(dependencies, tab.groupId));
+      return groups.get(tab.groupId)!;
+    };
+    const originalGroups = await Promise.all(toPark.map(groupOf));
+
     if (toPark.length > 0) parkedRecords = await dependencies.persistTabs({
       projectId: message.payload.projectId,
       note: message.payload.note,
       reminderAt: message.payload.reminderAt,
       sourceWindowId: tabs[0].windowId,
-      tabs: toPark.map((tab) => ({
+      tabs: toPark.map((tab, index) => ({
+        ...(originalGroups[index] ? { originalGroup: originalGroups[index] } : {}),
         title: tab.title || 'Untitled tab',
         url: tab.url!,
         faviconUrl: tab.favIconUrl,

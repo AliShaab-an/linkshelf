@@ -16,6 +16,7 @@ import {
   type SettingsPatch,
 } from '@/domain/schemas';
 import { getDomain, normalizeUrl } from '@/domain/url';
+import type { OriginalTabGroup } from '@/domain/tab-groups';
 import { parseSearchQuery, parseTags } from '@/domain/tags';
 import { InvalidReminderError } from '@/domain/reminders';
 import type { StorageAdapter } from './storage-adapter';
@@ -97,6 +98,7 @@ export interface ParkTabInput {
   sourceWindowId?: number;
   pinnedBeforeParking: boolean;
   originalIndex?: number;
+  originalGroup?: OriginalTabGroup;
 }
 
 export interface ParkTabResult {
@@ -115,6 +117,7 @@ export interface ParkTabsInput {
     faviconUrl?: string;
     pinnedBeforeParking: boolean;
     originalIndex?: number;
+    originalGroup?: OriginalTabGroup;
   }>;
 }
 
@@ -397,6 +400,7 @@ export class LinkShelfRepository {
           faviconUrl: input.faviconUrl,
           pinnedBeforeParking: input.pinnedBeforeParking,
           originalIndex: input.originalIndex,
+          originalGroup: input.originalGroup,
         },
       ],
     });
@@ -450,6 +454,7 @@ export class LinkShelfRepository {
         status: 'parked',
         pinnedBeforeParking: tab.pinnedBeforeParking,
         originalIndex: tab.originalIndex,
+        ...(tab.originalGroup ? { originalGroup: tab.originalGroup } : {}),
         reminderAt: input.reminderAt,
         createdAt: timestamp,
         updatedAt: timestamp,

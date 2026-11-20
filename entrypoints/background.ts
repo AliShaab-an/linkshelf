@@ -83,6 +83,8 @@ import { ChromeStorageAdapter } from '@/storage/storage-adapter';
 import { RatePromptStore } from '@/storage/rate-prompt-store';
 import { RATE_PROMPT_REVIEW_URL, isRatePromptVisible } from '@/domain/rate-prompt';
 import { MANAGER_PAGE_PATH, type ManagerSection } from '@/domain/manager';
+import { TAB_GROUPS_PERMISSION } from '@/domain/tab-groups';
+import { createTabGroups } from '@/features/tab-groups/tab-groups';
 import {
   DuplicateProjectNameError,
   InvalidLinkStateError,
@@ -164,7 +166,13 @@ export default defineBackground(() => {
       console.warn('LinkShelf could not update the snapshot alarm:', error);
     }
   }
-  const restoration = createRestoreCoordinator(repository, operations, browser.tabs);
+  // chrome.tabGroups exists only while the optional permission is granted, so it is looked up on use.
+  const tabGroups = createTabGroups({
+    granted: () => browser.permissions.contains({ permissions: [TAB_GROUPS_PERMISSION] }),
+    groups: () => browser.tabGroups,
+    tabs: { group: (options) => browser.tabs.group(options as Parameters<typeof browser.tabs.group>[0]) },
+  });
+  const restoration = createRestoreCoordinator(repository, operations, browser.tabs, tabGroups);
   const bookmarking = createBookmarkCoordinator(operations, {
     getLink: (id) => repository.getLink(id),
     getTrackingParams: async () => (await repository.getSettings()).trackingParamsToRemove,
@@ -254,14 +262,14 @@ export default defineBackground(() => {
 
   function parkCurrent(message: ParkCurrentTabMessage) {
     return operations.reserve([`tab:${message.payload.tabId}`], () => watchTabSnapshots(browser.tabs, [message.payload.tabId], (hasTabChanged) => executeParkCurrentTab(message, {
-      getTab: (id) => browser.tabs.get(id), persistTab: async (input) => { const result = await repository.parkTab(input); countParked(1); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
+      getTab: (id) => browser.tabs.get(id), describeGroup: (id) => tabGroups.describe(id), persistTab: async (input) => { const result = await repository.parkTab(input); countParked(1); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
       closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
     })));
   }
 
   function parkSelected(message: ParkSelectedTabsMessage) {
     return operations.reserve(message.payload.tabIds.map((id) => `tab:${id}`), () => watchTabSnapshots(browser.tabs, message.payload.tabIds, (hasTabChanged) => executeParkSelectedTabs(message, {
-      getTab: (id) => browser.tabs.get(id), persistTabs: async (input) => { const result = await repository.parkTabs(input); countParked(result.links.length); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
+      getTab: (id) => browser.tabs.get(id), describeGroup: (id) => tabGroups.describe(id), persistTabs: async (input) => { const result = await repository.parkTabs(input); countParked(result.links.length); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
       closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
     })));
   }

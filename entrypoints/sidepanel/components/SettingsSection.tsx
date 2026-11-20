@@ -7,6 +7,7 @@ import { useSettingsPreferences } from './useSettingsPreferences';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SegmentedControl } from './ui/SegmentedControl';
+import { TabGroupsSetting } from './TabGroupsSetting';
 import { RATE_PROMPT_REVIEW_URL } from '@/domain/rate-prompt';
 import type { InterfaceTheme } from '../use-interface-theme';
 import type { LinkShelfBackup } from '@/domain/schemas';
@@ -175,6 +176,7 @@ export function SettingsSection({ appearance }: { appearance?: { theme: Interfac
 
       <SettingsGroup {...groups[0]}>
         <SettingsPreferences preferences={preferences} disabled={isPreviewing || isImporting || importPreview !== null} />
+        <TabGroupsSetting />
         {appearance && <SettingsCard id="settings-theme" title="Theme">
           <SegmentedControl className="mt-2" aria-labelledby="settings-theme-title" value={appearance.theme} onChange={appearance.changeTheme}
             options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] satisfies { value: InterfaceTheme; label: string }[]} />
@@ -248,7 +250,7 @@ export function SettingsSection({ appearance }: { appearance?: { theme: Interfac
         </SettingsCard>
 
         <SettingsCard id="settings-permissions" title="Why these permissions?">
-          <ul className="mt-2 space-y-2 text-sm text-slate-600"><li><strong>Tabs:</strong> save, close, and restore tabs you choose.</li><li><strong>Bookmarks:</strong> search and create native Chrome bookmarks.</li><li><strong>Alarms and notifications:</strong> deliver reminders.</li><li><strong>Storage:</strong> keep LinkShelf data on this device.</li></ul>
+          <ul className="mt-2 space-y-2 text-sm text-slate-600"><li><strong>Tabs:</strong> save, close, and restore tabs you choose.</li><li><strong>Bookmarks:</strong> search and create native Chrome bookmarks.</li><li><strong>Alarms and notifications:</strong> deliver reminders.</li><li><strong>Storage:</strong> keep LinkShelf data on this device.</li><li><strong>Tab groups (optional):</strong> only if you turn on Keep tab groups, to remember and recreate groups.</li></ul>
         </SettingsCard>
 
         <SettingsCard id="settings-feedback" title="Help shape LinkShelf">

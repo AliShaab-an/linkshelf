@@ -1,4 +1,5 @@
 import { isEligibleUrl } from '@/domain/url';
+import type { OriginalTabGroup } from '@/domain/tab-groups';
 import type {
   ParkCurrentTabMessage,
   ParkCurrentTabResponse,
@@ -16,12 +17,25 @@ export interface BrowserTabSnapshot {
   windowId: number;
   index: number;
   pinned: boolean;
+  /** Chrome's tab group id; -1 or absent when the tab is not in a group. */
+  groupId?: number;
 }
 
 export interface ParkCurrentTabDependencies extends SafeTabCloseDependencies {
   persistTab(input: ParkTabInput): Promise<ParkTabResult>;
+  /** Describes a tab's group so it can be restored. Optional: unavailable without the tabGroups permission. */
+  describeGroup?(groupId: number): Promise<OriginalTabGroup | undefined>;
   /** Returns the URLs that already exist as parked links. */
   findParkedDuplicateUrls(urls: string[]): Promise<string[]>;
+}
+
+/** A group that cannot be read is simply not saved; it must never block parking. */
+export async function describeGroup(
+  dependencies: { describeGroup?(groupId: number): Promise<OriginalTabGroup | undefined> },
+  groupId: number | undefined,
+): Promise<OriginalTabGroup | undefined> {
+  if (groupId === undefined || groupId < 0 || !dependencies.describeGroup) return undefined;
+  try { return await dependencies.describeGroup(groupId); } catch { return undefined; }
 }
 
 export async function executeParkCurrentTab(
@@ -75,6 +89,7 @@ export async function executeParkCurrentTab(
     skippedDuplicate = message.payload.duplicates === 'skip' &&
       (await dependencies.findParkedDuplicateUrls([tab.url])).length > 0;
     if (!skippedDuplicate) parkedRecords = await dependencies.persistTab({
+      originalGroup: await describeGroup(dependencies, tab.groupId),
       projectId: message.payload.projectId,
       note: message.payload.note,
       reminderAt: message.payload.reminderAt,
