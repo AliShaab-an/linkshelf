@@ -1,4 +1,6 @@
 import { describeLinkRestore } from '../restore-feedback';
+import { buttonClass } from './ui/styles';
+import { SectionHeader } from './ui/SectionHeader';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { useEffect, useRef, useState } from 'react';
 import type { SavedLink } from '@/domain/schemas';
@@ -350,11 +352,7 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
   return (
     <>
       <OperationFeedback {...(!(removeCandidate || bookmarkCandidate || tagCandidate) ? feedback : {})} />
-      <div className="mb-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Local search</p>
-        <h2 className="mt-1 text-lg font-bold">Search your shelf and bookmarks</h2>
-        <p className="mt-1 text-sm text-slate-500">Search LinkShelf links by title, URL, note, or project. Chrome bookmark matches appear separately.</p>
-      </div>
+      <SectionHeader title="Search" description="Search LinkShelf links by title, URL, note, or project. Chrome bookmark matches appear separately." />
       <label className="sr-only" htmlFor="link-search">Search saved links</label>
       <input ref={searchInputRef} id="link-search" type="search" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="React docs, client project, example.com..." value={query} onChange={(event) => changeQuery(event.target.value)} />
       {tagCounts.length > 0 && <div className="mt-3"><TagFilterBar tags={tagCounts} selected={parseSearchQuery(query).tags} onToggle={(tag) => changeQuery(toggleTagInQuery(query, tag))} /></div>}
@@ -362,11 +360,11 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
 
       {tagCandidate && <TagLinkDialog link={tagCandidate} suggestions={tagCounts.map(({ tag }) => tag)} returnFocus={dialogReturnFocus} onSaved={finishTagging} onCancel={() => setTagCandidate(null)} />}
       {bookmarkCandidate ? <div className="mt-4"><BookmarkLinkDialog feedback={dialogFeedback} returnFocus={dialogReturnFocus} link={bookmarkCandidate} folders={bookmarkFolders} selectedFolderId={selectedFolderId} duplicate={duplicate} isLoadingFolders={isLoadingFolders} isSaving={dialogPending} onSelectFolder={setSelectedFolderId} onCancel={closeBookmark} onConfirm={() => void confirmBookmark()} onOpenDuplicate={() => duplicate && void handleOpen(duplicate, true)} /></div> : removeCandidate ? <div className="mt-4"><RemoveLinkDialog feedback={dialogFeedback} returnFocus={dialogReturnFocus} link={removeCandidate} isRemoving={dialogPending} onCancel={() => setRemoveCandidate(null)} onConfirm={() => void confirmRemove()} /></div> : null}
-      {!isSearching && query.trim() && !error && !pageError && resultCount === 0 && <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center"><h3 className="font-semibold">No matching links</h3><p className="mt-1 text-sm text-slate-500">Try a title, domain, note, or project name.</p></div>}
+      {!isSearching && query.trim() && !error && !pageError && resultCount === 0 && <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center"><h3 className="font-semibold text-slate-900">No matching links</h3><p className="mt-1 text-sm text-slate-500">Try a title, domain, note, or project name.</p></div>}
 
       {results.length > 0 && <h3 ref={savedHeading} tabIndex={-1} className="mt-5 text-xs font-bold uppercase tracking-wide text-slate-500">LinkShelf · {results.length} of {page?.totalResults ?? results.length}</h3>}
       <ListNavigation label="LinkShelf result pages" range={savedRange} count={results.length} onPage={setSavedPage}>
-        {page?.nextResults !== undefined && <button type="button" data-search-more className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold aria-disabled:opacity-60" aria-disabled={isSearching || !!loadingMore} onClick={() => void loadMore('results')}>{loadingMore === 'results' ? 'Loading links…' : 'Load more LinkShelf links'}</button>}
+        {page?.nextResults !== undefined && <button type="button" data-search-more className={buttonClass('secondary')} aria-disabled={isSearching || !!loadingMore} onClick={() => void loadMore('results')}>{loadingMore === 'results' ? 'Loading links…' : 'Load more LinkShelf links'}</button>}
       </ListNavigation>
       <div className="mt-2 space-y-3">
         {results.slice(savedRange.start, savedRange.end).map(({ link, projectName }) => <SavedLinkCard key={link.id} cardId={`search-link-${link.id}`} link={link} projectName={projectName} isRestoring={workingId === link.id} onRestore={link.status === 'parked' ? () => void handleRestore(link) : undefined} onArchive={link.status === 'parked' ? () => void runAction(link, () => archiveLink(link.id), `Archived “${link.title}”.`) : undefined} onUnarchive={link.status === 'archived' ? () => void runAction(link, () => unarchiveLink(link.id), `Returned “${link.title}” to its project.`) : undefined} onBookmark={link.status === 'parked' ? () => void startBookmarking(link) : undefined} onEditTags={() => startTagging(link)} onRemove={() => startRemoving(link)} />)}
@@ -374,7 +372,7 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
 
       {bookmarks.length > 0 && <h3 ref={bookmarkHeading} tabIndex={-1} className="mt-5 text-xs font-bold uppercase tracking-wide text-slate-500">Chrome bookmarks · {bookmarks.length} of {page?.totalBookmarks ?? bookmarks.length}</h3>}
       <ListNavigation label="Chrome bookmark pages" range={bookmarkRange} count={bookmarks.length} onPage={setBookmarkPage}>
-        {page?.nextBookmarks !== undefined && <button type="button" data-search-more className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold aria-disabled:opacity-60" aria-disabled={isSearching || !!loadingMore} onClick={() => void loadMore('bookmarks')}>{loadingMore === 'bookmarks' ? 'Loading bookmarks…' : 'Load more Chrome bookmarks'}</button>}
+        {page?.nextBookmarks !== undefined && <button type="button" data-search-more className={buttonClass('secondary')} aria-disabled={isSearching || !!loadingMore} onClick={() => void loadMore('bookmarks')}>{loadingMore === 'bookmarks' ? 'Loading bookmarks…' : 'Load more Chrome bookmarks'}</button>}
       </ListNavigation>
       <div className="mt-2 space-y-3">
         {bookmarks.slice(bookmarkRange.start, bookmarkRange.end).map((bookmark) => <NativeBookmarkCard key={bookmark.id} cardId={`search-bookmark-${bookmark.id}`} bookmark={bookmark} isOpening={workingId === `bookmark:${bookmark.id}`} onOpen={() => void handleOpen(bookmark)} />)}

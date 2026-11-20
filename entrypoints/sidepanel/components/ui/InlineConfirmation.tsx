@@ -11,7 +11,7 @@ interface InlineConfirmationProps {
 }
 
 export function InlineConfirmation({
-  title, titleId, className, titleClassName = 'font-semibold', initialFocus, returnFocus, children,
+  title, titleId, className, titleClassName = 'font-semibold text-slate-900', initialFocus, returnFocus, children,
 }: InlineConfirmationProps) {
   const region = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);

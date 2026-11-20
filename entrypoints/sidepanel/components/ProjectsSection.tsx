@@ -1,4 +1,6 @@
 import { InlineConfirmation } from './ui/InlineConfirmation';
+import { buttonClass } from './ui/styles';
+import { sectionTitle } from './ui/styles';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
@@ -689,7 +691,7 @@ export function ProjectsSection({ savedSession, onPark }: {
   return (
     <>
       <OperationFeedback {...(!(removeCandidate || moveCandidate) ? feedback : {})} />
-      <h2 ref={sectionHeading} tabIndex={-1} className="mb-2 text-lg font-bold">Saved</h2>
+      <h2 ref={sectionHeading} tabIndex={-1} className={`mb-2 ${sectionTitle}`}>Saved</h2>
       <div ref={toolbar} className={`projects-toolbar relative z-20 mb-3 grid grid-cols-1 gap-2 ${isAddingProject || isConfirmingRestoreProject || isRenaming || isConfirmingDelete ? '' : 'projects-toolbar-sticky'}`}>
         <div className="relative flex items-center gap-2">
           <label className="sr-only" htmlFor="project-selector">Project</label>
@@ -747,9 +749,9 @@ export function ProjectsSection({ savedSession, onPark }: {
             <label className="sr-only" htmlFor="new-project">New project name</label>
             <input ref={createInput} id="new-project" className="min-w-0 rounded-lg border border-slate-300 px-2.5 text-sm"
               placeholder="Project name" value={newName} onChange={(event) => setNewName(event.target.value)} />
-            <button className={`${toolbarButton} bg-blue-700 text-white hover:bg-blue-800`}
+            <button className={buttonClass('primary', 'whitespace-nowrap')}
               disabled={!newName.trim() || isCreating || restoring || managingProject}>{isCreating ? 'Creating…' : 'Create project'}</button>
-            <button type="button" className={`${toolbarButton} col-span-2 justify-self-end text-slate-700 hover:bg-slate-100`}
+            <button type="button" className={buttonClass('ghost', 'col-span-2 justify-self-end whitespace-nowrap')}
               disabled={isCreating} onClick={() => setIsAddingProject(false)}>Cancel</button>
           </form>
         </InlineConfirmation>}
@@ -798,7 +800,7 @@ export function ProjectsSection({ savedSession, onPark }: {
           </p>
           <button ref={restoreTrigger} type="button" aria-describedby="project-restore-scope"
             disabled={managingProject || restoring || isLoading || isCreating}
-            className={`${toolbarButton} bg-blue-700 text-white hover:bg-blue-800`}
+            className={buttonClass('primary', 'whitespace-nowrap')}
             onClick={() => {
               setChosenRestoreMode(undefined);
               setIsConfirmingRestoreProject(true);
@@ -829,8 +831,8 @@ export function ProjectsSection({ savedSession, onPark }: {
               { value: 'unloaded', label: `When selected${defaultRestoreMode === 'unloaded' ? ' · Default' : ''}` },
             ] satisfies { value: RestoreMode; label: string }[]} />
           <div className="mt-3 flex flex-wrap justify-end gap-2">
-            <button type="button" className={`${toolbarButton} border border-blue-300 bg-white`} disabled={isRestoringProject} onClick={() => setIsConfirmingRestoreProject(false)}>Cancel</button>
-            <button type="button" className={`${toolbarButton} bg-blue-700 text-white hover:bg-blue-800`} disabled={isRestoringProject}
+            <button type="button" className={buttonClass('ghost', 'whitespace-nowrap')} disabled={isRestoringProject} onClick={() => setIsConfirmingRestoreProject(false)}>Cancel</button>
+            <button type="button" className={buttonClass('primary', 'whitespace-nowrap')} disabled={isRestoringProject}
               onClick={() => void handleRestoreProject(chosenRestoreMode ?? defaultRestoreMode)}>
               {isRestoringProject ? 'Restoring…' : `Restore ${parkedLinkCount} ${parkedLinkCount === 1 ? 'tab' : 'tabs'}`}
             </button>
@@ -844,7 +846,7 @@ export function ProjectsSection({ savedSession, onPark }: {
           <form onSubmit={saveRename}>
           <label className="sr-only" htmlFor="rename-project">Project name</label>
           <input id="rename-project" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={renameName} onChange={(event) => setRenameName(event.target.value)} />
-          <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-lg border px-3 py-2 text-sm" disabled={isSavingRename} onClick={() => setIsRenaming(false)}>Cancel</button><button className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white" disabled={isSavingRename}>{isSavingRename ? 'Saving...' : 'Save name'}</button></div>
+          <div className="mt-3 flex justify-end gap-2"><button type="button" className={buttonClass('ghost')} disabled={isSavingRename} onClick={() => setIsRenaming(false)}>Cancel</button><button className={buttonClass('primary')} disabled={isSavingRename}>{isSavingRename ? 'Saving...' : 'Save name'}</button></div>
         </form>
         </InlineConfirmation>
       )}
@@ -854,7 +856,7 @@ export function ProjectsSection({ savedSession, onPark }: {
           className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3.5 wrap-anywhere" titleClassName="font-semibold text-red-900"
           returnFocus={() => projectActionsTrigger.current?.matches(':disabled, [aria-disabled="true"]') ? sectionHeading.current : projectActionsTrigger.current}>
           <p className="mt-1 text-sm text-red-800">Its links and sessions will move to Inbox. Nothing is permanently deleted.</p>
-          <div className="mt-3 flex justify-end gap-2"><button type="button" className="rounded-lg border bg-white px-3 py-2 text-sm" disabled={isDeleting} onClick={() => setIsConfirmingDelete(false)}>Cancel</button><button type="button" className="rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white" disabled={isDeleting} onClick={() => void removeProject()}>{isDeleting ? 'Moving...' : 'Move to Inbox and delete'}</button></div>
+          <div className="mt-3 flex justify-end gap-2"><button type="button" className={buttonClass('ghost')} disabled={isDeleting} onClick={() => setIsConfirmingDelete(false)}>Cancel</button><button type="button" className={buttonClass('danger')} disabled={isDeleting} onClick={() => void removeProject()}>{isDeleting ? 'Moving...' : 'Move to Inbox and delete'}</button></div>
         </InlineConfirmation>
       )}
 
@@ -891,10 +893,10 @@ export function ProjectsSection({ savedSession, onPark }: {
       {isLoading && <SkeletonCards count={2} />}
       {!isLoading && !error && groups.length === 0 && selectedProject && <EmptyState title="Nothing saved yet">
         <p>Park a tab to get started.</p>
-        <button type="button" className={`${toolbarButton} mt-2 bg-blue-700 text-white hover:bg-blue-800`} onClick={() => onPark(selectedProject.id)}>Park tabs</button>
+        <button type="button" className={buttonClass('primary', 'mt-2')} onClick={() => onPark(selectedProject.id)}>Park tabs</button>
       </EmptyState>}
       {!isLoading && !error && groups.length > 0 && visibleGroups.length === 0 && <EmptyState title="No matching tabs">
-        <button type="button" className={`${toolbarButton} text-blue-700 hover:bg-blue-50`} onClick={() => { changeFilter(''); setTagFilter(null); projectFilter.current?.focus(); }}>Clear filter</button>
+        <button type="button" className={buttonClass('quiet', 'whitespace-nowrap')} onClick={() => { changeFilter(''); setTagFilter(null); projectFilter.current?.focus(); }}>Clear filter</button>
       </EmptyState>}
       {visibleGroups.length > 0 && <>
         <h3 className="sr-only">Sessions</h3>
@@ -960,9 +962,9 @@ export function ProjectsSection({ savedSession, onPark }: {
                   onRemove={() => startRemoving(link)}
                 />)}
                 {shownLinks.length < group.links.length && <div className="flex gap-2 pt-1">
-                  <button type="button" className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-blue-700"
+                  <button type="button" className={buttonClass('secondary', 'flex-1')}
                     onClick={() => setSessionLimits(current => ({ ...current, [group.session.id]: limit + PROJECT_LINK_BATCH_SIZE }))}>Show {Math.min(PROJECT_LINK_BATCH_SIZE, group.links.length - shownLinks.length)} more</button>
-                  <button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600"
+                  <button type="button" className={buttonClass('ghost')}
                     onClick={() => setSessionLimits(current => ({ ...current, [group.session.id]: group.links.length }))}>Show all</button>
                 </div>}
               </div>}
@@ -972,9 +974,9 @@ export function ProjectsSection({ savedSession, onPark }: {
       </div>
       {undo && <aside className="sticky bottom-2 z-30 mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-300 bg-white p-2.5 shadow-lg">
         <p role="status" className="min-w-32 flex-1 text-sm text-slate-800">{undo.status === 'restored' ? 'Tab opened. Undo returns the link to Saved.' : 'Link removed from Saved.'}</p>
-        <button type="button" className={`${toolbarButton} text-blue-700 hover:bg-blue-50`} disabled={isUndoing || restoring || !!lifecycleWorkingId}
+        <button type="button" className={buttonClass('quiet', 'whitespace-nowrap')} disabled={isUndoing || restoring || !!lifecycleWorkingId}
           onClick={() => void handleUndo()}>{isUndoing ? 'Undoing…' : 'Undo'}</button>
-        <button type="button" className={`${toolbarButton} text-slate-700 hover:bg-slate-100`} disabled={isUndoing}
+        <button type="button" className={buttonClass('ghost', 'whitespace-nowrap')} disabled={isUndoing}
           onClick={() => { projectFilter.current?.focus(); setUndo(undefined); }}>Dismiss</button>
       </aside>}
     </>

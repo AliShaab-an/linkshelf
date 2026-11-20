@@ -19,7 +19,7 @@ export function QuickSettings({ theme, changeTheme }: { theme: InterfaceTheme; c
       aria-expanded={disclosure.open} aria-controls={disclosure.open ? disclosure.id : undefined}
       onClick={disclosure.toggle}><Icon name="settings" /></button>
     {disclosure.open && <div id={disclosure.id} role="group" aria-label="Quick settings" className="sidebar-disclosure dropdown-panel">
-      <h2 className="mb-2 font-bold">Quick settings</h2>
+      <h2 className="mb-2 font-semibold text-slate-900">Quick settings</h2>
       <SettingsPreferences preferences={preferences} compact />
       <div className="mt-2 border-t border-slate-200 pt-2 text-sm font-medium">
         <span id="quick-theme-label">Theme</span>

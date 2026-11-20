@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { buttonClass } from './ui/styles';
 import type { SnapshotSummary } from '@/domain/snapshots';
 import { deleteSnapshots, getSnapshots, restoreSnapshot, setSnapshotsEnabled, type SnapshotListResponse } from '@/messaging/contracts';
 import { OperationFeedback } from './ui/OperationFeedback';
@@ -41,7 +42,7 @@ export function SnapshotsPanel() {
   }, []);
 
   return <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="snapshots-title">
-    <h3 id="snapshots-title" className="font-semibold">Recent window snapshots</h3>
+    <h3 id="snapshots-title" className="font-semibold text-slate-900">Recent window snapshots</h3>
     <p className="mt-2 text-sm text-slate-600">Keep the last 3 snapshots of your open tabs so you can bring back a window you closed by accident. Off by default.</p>
     <p className="mt-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">When on, LinkShelf stores the web addresses and titles of all your open tabs on this device, including pages you haven’t saved. Addresses may contain private parts. Nothing leaves your device, snapshots are not part of backups, and turning this off deletes them.</p>
     <label className="mt-3 flex min-h-10 items-start gap-3 text-sm font-semibold">
@@ -66,7 +67,7 @@ export function SnapshotsPanel() {
             ? <div className="mt-2" role="group" aria-label={`Restore ${label(snapshot)}`}>
               <p className="text-sm">Open {plural(snapshot.tabCount, 'tab')} in this window?</p>
               <div className="mt-2 flex gap-2">
-                <button type="button" className="flex-1 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy}
+                <button type="button" className={buttonClass('primary', 'flex-1')} disabled={busy}
                   onClick={() => void run(async () => {
                     const response = await restoreSnapshot(snapshot.id);
                     setConfirming(undefined);
@@ -74,14 +75,14 @@ export function SnapshotsPanel() {
                     setWarning(response.failed > 0);
                     setMessage(response.failed > 0 ? `Opened ${response.opened} of ${response.total} tabs. ${plural(response.failed, 'tab')} could not be opened.` : `Opened ${plural(response.opened, 'tab')}.`);
                   })}>{busy ? 'Opening…' : 'Open tabs'}</button>
-                <button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={busy} onClick={() => setConfirming(undefined)}>Cancel</button>
+                <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={() => setConfirming(undefined)}>Cancel</button>
               </div>
             </div>
-            : <button type="button" className="mt-2 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold disabled:opacity-50" disabled={busy}
+            : <button type="button" className={buttonClass('secondary', 'mt-2 w-full')} disabled={busy}
               aria-label={`Restore ${label(snapshot)} from ${dateFormatter.format(new Date(snapshot.capturedAt))}`} onClick={() => setConfirming(snapshot.id)}>Restore</button>}
         </li>)}
       </ul>)}
-    {enabled && snapshots.length > 0 && <button type="button" className="mt-3 w-full rounded-lg border border-red-200 bg-white px-3 py-2.5 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={busy}
+    {enabled && snapshots.length > 0 && <button type="button" className={buttonClass('danger-outline', 'mt-3 w-full')} disabled={busy}
       onClick={() => void run(async () => { apply(await deleteSnapshots()); setMessage('Snapshots deleted. Snapshots stay on.'); })}>Delete all snapshots</button>}
   </section>;
 }

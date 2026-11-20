@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { SectionHeader } from './ui/SectionHeader';
 import { localReminderToUtc, toLocalDateTimeInputValue } from '@/domain/reminders';
 import type { Project } from '@/domain/schemas';
 import { getCurrentWindowTabs, getParkDuplicates, getSettings, parkSelectedTabs, type WindowTabCandidate } from '@/messaging/contracts';
@@ -162,19 +163,14 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
   }
 
   return <>
-    <div className="mb-4 flex items-start justify-between gap-2">
-      <div>
-        <h2 ref={sectionHeading} tabIndex={-1} className="text-lg font-bold">Park tabs</h2>
-        <p className="mt-1 text-sm text-slate-600">Choose tabs in this window to save together.</p>
-      </div>
-      <Button ref={refreshButton} type="button" disabled={loading || pending} onClick={() => {
+    <SectionHeader headingRef={sectionHeading} title="Park tabs" description="Choose tabs in this window to save together."
+      action={<Button ref={refreshButton} type="button" disabled={loading || pending} onClick={() => {
         setSelectedNotice('');
         void loadTabs();
-      }}>Refresh</Button>
-    </div>
+      }}>Refresh</Button>} />
 
     {result && <section aria-labelledby="parking-result-title" className={`mb-4 rounded-xl border p-4 ${result.unconfirmed ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
-      <h3 ref={resultHeading} tabIndex={-1} id="parking-result-title" className="font-bold">{result.target ? 'Parking session saved' : 'Nothing new to save'}</h3>
+      <h3 ref={resultHeading} tabIndex={-1} id="parking-result-title" className="font-semibold text-slate-900">{result.target ? 'Parking session saved' : 'Nothing new to save'}</h3>
       <p className="mt-1 wrap-anywhere text-sm">Saved {result.saved} {result.saved === 1 ? 'tab' : 'tabs'}{result.target && project ? ` to ${project.name}` : ''}.{result.skipped > 0 ? ` Skipped ${result.skipped} already saved ${result.skipped === 1 ? 'tab' : 'tabs'}.` : ''} {result.unconfirmed ? `Closed ${result.closed} of ${result.saved + result.skipped}.` : result.skipped > 0 ? 'All handled tabs closed.' : 'All saved tabs closed.'}</p>
       {result.unconfirmed > 0 && <p className="mt-2 text-sm">Chrome could not confirm closing {result.unconfirmed} {result.unconfirmed === 1 ? 'tab' : 'tabs'}. Check your open tabs before parking again.</p>}
       {result.target && <Button type="button" variant="primary" className="mt-3" onClick={() => onViewSession(result.target!)}>View saved session</Button>}

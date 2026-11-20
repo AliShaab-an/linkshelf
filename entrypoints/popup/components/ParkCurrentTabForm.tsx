@@ -1,4 +1,5 @@
 import { OperationWarnings } from '@/entrypoints/sidepanel/components/ui/OperationWarnings';
+import { buttonClass } from '@/entrypoints/sidepanel/components/ui/styles';
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Dropdown } from '@/entrypoints/sidepanel/components/ui/Dropdown';
 import {
@@ -143,7 +144,7 @@ export function ParkCurrentTabForm({ tabId }: { tabId: number }) {
           </div>
         </details>
 
-        <button type="submit" className="mt-2 min-h-11 w-full rounded-lg bg-blue-700 px-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50" disabled={!project || isLoadingProjects || Boolean(projectError) || status === 'parking'}>
+        <button type="submit" className={buttonClass('primary', 'mt-2 min-h-11 w-full')} disabled={!project || isLoadingProjects || Boolean(projectError) || status === 'parking'}>
           {status === 'parking' ? 'Parking tab…' : isDuplicate && duplicateMode === 'skip' ? 'Close tab' : 'Park and close'}
         </button>
       </fieldset>}

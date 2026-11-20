@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { buttonClass } from './ui/styles';
 import { readBackupFile } from '@/domain/backup';
 import { stringifyRecoveryExport, type StorageStatus } from '@/domain/recovery';
 import type { LinkShelfBackup } from '@/domain/schemas';
@@ -113,22 +114,22 @@ function StorageRecoveryPanel({ status, onBusy, onRecheck, onRecovered }: {
     {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {message && <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">{message}</p>}
     <div className="border-t border-slate-200 pt-4">
-      <h3 className="font-semibold">1. Preserve the original data</h3>
+      <h3 className="font-semibold text-slate-900">1. Preserve the original data</h3>
       <p className="mt-1 text-sm text-slate-600">The raw recovery file may contain private URLs, titles, and notes. Keep it secure. It is not a verified LinkShelf backup and cannot be imported normally.</p>
-      <button type="button" className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working} onClick={() => void downloadRaw()}>Export raw recovery data</button>
+      <button type="button" className={buttonClass('secondary', 'mt-3 w-full')} disabled={working} onClick={() => void downloadRaw()}>Export raw recovery data</button>
       {rawToken && <label className="mt-3 flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" disabled={working} checked={savedRaw} onChange={(event) => { setSavedRaw(event.target.checked); setPreview(null); }} />I saved the raw recovery file securely.</label>}
     </div>
     <div className="border-t border-slate-200 pt-4">
-      <h3 className="font-semibold">2. Choose a trusted backup</h3>
+      <h3 className="font-semibold text-slate-900">2. Choose a trusted backup</h3>
       <p className="mt-1 text-sm text-slate-600">Choose a valid version-1 or version-2 LinkShelf backup, up to 32 MiB. Recovery replaces stored data; it does not merge or guess how to fix broken records.</p>
       <label className="mt-3 block text-sm font-medium">Recovery backup file<input type="file" accept="application/json,.json" className="mt-2 block w-full text-xs" disabled={working || !savedRaw} onChange={(event) => void selectFile(event.target.files?.[0])} /></label>
-      <button ref={reviewTrigger} type="button" className="mt-3 w-full rounded-lg bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || !backup || !savedRaw} onClick={() => void review()}>Review recovery backup</button>
+      <button ref={reviewTrigger} type="button" className={buttonClass('primary', 'mt-3 w-full')} disabled={working || !backup || !savedRaw} onClick={() => void review()}>Review recovery backup</button>
     </div>
     {preview && <InlineConfirmation titleId="confirm-recovery-title" title="3. Confirm recovery replacement"
       className="rounded-lg border border-red-300 bg-red-50 p-3" returnFocus={() => reviewTrigger.current}>
       <p className="mt-2 text-sm">This will replace the currently stored value with {preview.source.projects} projects, {preview.source.sessions} sessions, and {preview.source.links} links, including backup settings. Your raw recovery file is the independent copy of the original data.</p>
-      <div className="mt-3 flex gap-2"><button type="button" className="flex-1 rounded-lg bg-red-700 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={working || !savedRaw} onClick={() => void restore()}>{working ? 'Restoring...' : 'Replace stored data from backup'}</button><button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold" disabled={working} onClick={() => setPreview(null)}>Cancel</button></div>
+      <div className="mt-3 flex gap-2"><button type="button" className={buttonClass('danger', 'flex-1')} disabled={working || !savedRaw} onClick={() => void restore()}>{working ? 'Restoring...' : 'Replace stored data from backup'}</button><button type="button" className={buttonClass('ghost')} disabled={working} onClick={() => setPreview(null)}>Cancel</button></div>
     </InlineConfirmation>}
-    <button type="button" className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-semibold disabled:opacity-50" disabled={working} onClick={() => void act(onRecheck)}>Check stored data again</button>
+    <button type="button" className={buttonClass('secondary', 'w-full')} disabled={working} onClick={() => void act(onRecheck)}>Check stored data again</button>
   </section>;
 }

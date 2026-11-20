@@ -1,7 +1,8 @@
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { buttonClass } from './styles';
 import type { listRange } from '../../list-range';
 
-const buttonStyle = 'rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-semibold aria-disabled:opacity-50';
+const buttonStyle = buttonClass('secondary', 'px-2.5');
 
 export function ListNavigation({ label, range, count, onPage, children }: {
   label: string;
