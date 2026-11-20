@@ -112,6 +112,12 @@ try {
     await poll(() => new URL(manager.url()).hash, hash => hash === '#settings', 'Manager tab moved to Settings');
     await manager.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
     assert.equal(managerTabs().length, 1);
+    // Settings is grouped into General, Your data and About, each reachable from a jump button.
+    const groupTitles = manager.getByRole('region').locator('h3');
+    assert.deepEqual(await groupTitles.allTextContents(), ['General', 'Your data', 'About']);
+    await manager.getByRole('navigation', { name: 'Settings groups' }).getByRole('button', { name: 'About' }).click();
+    await poll(() => manager.evaluate(() => document.activeElement?.textContent), text => text === 'About', 'About heading focused');
+    await manager.getByRole('region', { name: 'Why these permissions?' }).waitFor();
     await page.screenshot({ path: path.join(h.output, 'navigation-manage-320.png') });
     await manager.setViewportSize({ width: 1024, height: 760 });
     await manager.screenshot({ path: path.join(h.output, 'manager-settings-1024.png') });

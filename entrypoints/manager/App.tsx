@@ -16,7 +16,7 @@ const sections: { id: ManagerSection; label: string; icon: IconName }[] = [
 
 /** The full-tab Manager page: the less frequent work that does not need to sit in the sidebar. */
 function App() {
-  useInterfaceTheme();
+  const appearance = useInterfaceTheme();
   const [section, setSection] = useState<ManagerSection>(() => managerSectionFromHash(location.hash));
 
   useEffect(() => {
@@ -66,7 +66,7 @@ function App() {
       <section className="mx-auto max-w-3xl px-4 pt-6 pb-10">
         {section === 'review' && <ReviewSection />}
         {section === 'archive' && <ArchiveSection />}
-        {section === 'settings' && <SettingsSection />}
+        {section === 'settings' && <SettingsSection appearance={appearance} />}
       </section>
     </StorageRecoveryGate>
   </main>;

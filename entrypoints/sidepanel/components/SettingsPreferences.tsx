@@ -121,7 +121,7 @@ export function SettingsPreferences({ preferences, compact = false, disabled = f
 function PreferenceGroup({ title, compact, children }: { title: string; compact: boolean; children: ReactNode }) {
   if (compact) return <div className="border-t border-slate-200 pt-2">{children}</div>;
   return <section className="rounded-xl border border-slate-200 bg-white p-3">
-    <h3 className="mb-2 font-semibold text-slate-900">{title}</h3>
+    <h4 className="mb-2 font-semibold text-slate-900">{title}</h4>
     {children}
   </section>;
 }

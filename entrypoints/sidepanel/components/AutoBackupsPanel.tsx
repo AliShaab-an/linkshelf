@@ -54,7 +54,7 @@ export function AutoBackupsPanel({ disabled, onChoose }: {
   }, []);
 
   return <section aria-labelledby="auto-backups-title">
-    <h4 id="auto-backups-title" className="text-sm font-semibold text-slate-900">Automatic backups</h4>
+    <h4 id="auto-backups-title" className="font-semibold text-slate-900">Automatic backups</h4>
     <p className="mt-1 text-xs text-slate-500">LinkShelf keeps up to 5 recent copies of your library inside the extension: one a day, plus one before you replace everything with an import. They stay on this device and are not a substitute for Download backup, because removing the extension deletes them.</p>
     <label className="mt-3 flex min-h-10 items-start gap-3 text-sm font-semibold">
       <input type="checkbox" className="mt-1 size-4 shrink-0 accent-blue-700" checked={state.enabled} disabled={busy || !loaded || disabled}

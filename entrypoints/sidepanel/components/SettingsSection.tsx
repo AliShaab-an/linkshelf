@@ -5,7 +5,10 @@ import { OperationFeedback } from './ui/OperationFeedback';
 import { SettingsPreferences } from './SettingsPreferences';
 import { useSettingsPreferences } from './useSettingsPreferences';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { SegmentedControl } from './ui/SegmentedControl';
+import { RATE_PROMPT_REVIEW_URL } from '@/domain/rate-prompt';
+import type { InterfaceTheme } from '../use-interface-theme';
 import type { LinkShelfBackup } from '@/domain/schemas';
 import { buildExport, type ExportFormat } from '@/domain/export';
 import { Dropdown } from './ui/Dropdown';
@@ -22,7 +25,13 @@ import {
   previewImportData,
 } from '@/messaging/contracts';
 
-export function SettingsSection() {
+const groups = [
+  { id: 'settings-general', title: 'General', description: 'How LinkShelf parks, restores, reminds, and looks.' },
+  { id: 'settings-data', title: 'Your data', description: 'Back up, import, and export your library. Everything stays on this device.' },
+  { id: 'settings-about', title: 'About', description: 'Privacy, permissions, and how to get help.' },
+] as const;
+
+export function SettingsSection({ appearance }: { appearance?: { theme: InterfaceTheme; changeTheme(value: InterfaceTheme): void } } = {}) {
   const backupInput = useRef<HTMLInputElement>(null);
   const importTrigger = useRef<HTMLButtonElement>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -154,32 +163,46 @@ export function SettingsSection() {
 
   return (
     <>
-      <SectionHeader title="Settings" description="LinkShelf stores its own data locally and does not send your links, notes, or bookmarks to a server." />
-      <SettingsPreferences preferences={preferences} disabled={isPreviewing || isImporting || importPreview !== null} />
-      <div className="mt-4 space-y-4">
-        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-semibold text-slate-900">Backup</h3>
-          {feedback}
+      <SectionHeader title="Settings" description="Change how LinkShelf works, keep your data safe, and find help." />
+      <nav aria-label="Settings groups" className="-mt-1 mb-2 flex flex-wrap gap-2">
+        {groups.map(group => <button key={group.id} type="button" className={buttonClass('secondary', 'min-h-9 px-3')}
+          onClick={() => {
+            const heading = document.getElementById(`${group.id}-title`);
+            heading?.scrollIntoView({ block: 'start' });
+            heading?.focus({ preventScroll: true });
+          }}>{group.title}</button>)}
+      </nav>
+
+      <SettingsGroup {...groups[0]}>
+        <SettingsPreferences preferences={preferences} disabled={isPreviewing || isImporting || importPreview !== null} />
+        {appearance && <SettingsCard id="settings-theme" title="Theme">
+          <SegmentedControl className="mt-2" aria-labelledby="settings-theme-title" value={appearance.theme} onChange={appearance.changeTheme}
+            options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] satisfies { value: InterfaceTheme; label: string }[]} />
+        </SettingsCard>}
+        <SettingsCard id="settings-shortcuts" title="Keyboard shortcuts">
+          <div className="mt-3 space-y-2">{[
+            ['park-current-tab', 'Park current tab'],
+            ['toggle-side-panel', 'Open or close LinkShelf'],
+            ['open-search', 'Open Search'],
+            ['open-today', 'Open Today'],
+          ].map(([name, label]) => <div key={name} className="flex items-center justify-between gap-3"><span className="text-sm font-semibold">{label}</span><kbd className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold shadow-inner">{shortcuts[name] ?? 'Loading...'}</kbd></div>)}</div>
+          <button type="button" className={buttonClass('secondary', 'mt-4 w-full')} onClick={() => void browser.tabs.create({ url: 'chrome://extensions/shortcuts', active: true })}>Manage keyboard shortcuts</button>
+        </SettingsCard>
+      </SettingsGroup>
+
+      <SettingsGroup {...groups[1]}>
+        {feedback}
+        <SettingsCard id="settings-backup" title="Backup">
           <p className="mt-2 text-sm text-slate-600">Export projects, sessions, links, reminders, and settings as readable JSON. Chrome bookmarks are not included.</p>
           <p className="mt-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">Backups can contain sensitive URLs and notes. Store the file securely.</p>
           <button type="button" className={buttonClass('secondary', 'mt-4 w-full')} disabled={isExporting} onClick={() => void downloadBackup()}>{isExporting ? 'Preparing backup...' : 'Download backup'}</button>
+        </SettingsCard>
 
-          <div className="my-4 border-t border-slate-200" />
-          <h4 className="text-sm font-semibold text-slate-900">Export to read or share</h4>
-          <p className="mt-1 text-xs text-slate-500">Create a Markdown or HTML list of saved and archived links with notes and tags. It is read-only and cannot be imported back. Use Download backup above for a restorable JSON copy.</p>
-          <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="readable-project">Project</label>
-          <Dropdown id="readable-project" className="mt-1 w-full" value={readableProject} disabled={isExporting} onChange={setReadableProject}
-            options={[{ value: '', label: 'All projects' }, ...readableProjects.map(project => ({ value: project.id, label: project.name }))]} />
-          <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="readable-format">Format</label>
-          <Dropdown<ExportFormat> id="readable-format" className="mt-1 w-full" value={readableFormat} disabled={isExporting} onChange={setReadableFormat}
-            options={[{ value: 'markdown', label: 'Markdown (.md)' }, { value: 'html', label: 'HTML (.html)' }] satisfies { value: ExportFormat; label: string }[]} />
-          <button type="button" className={buttonClass('secondary', 'mt-3 w-full')} disabled={isExporting} onClick={() => void downloadReadable()}>{isExporting ? 'Preparing export...' : 'Download export'}</button>
-
-          <div className="my-4 border-t border-slate-200" />
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
           <AutoBackupsPanel disabled={isPreviewing || isImporting || preferences.saving || importPreview !== null} onChoose={chooseAutoBackup} />
+        </section>
 
-          <div className="my-4 border-t border-slate-200" />
-          <h4 className="text-sm font-semibold text-slate-900">Import backup or another tool’s export</h4>
+        <SettingsCard id="settings-import" title="Import backup or another tool’s export">
           <p className="mt-1 text-xs text-slate-500">Accepts LinkShelf JSON backups, and exports from OneTab (text), Session Buddy (JSON), Toby (JSON), Pocket (HTML) and browser bookmarks (HTML), up to {BACKUP_SIZE_LIMIT_LABEL}. Files from other tools are added as a new project; nothing is replaced. Imports must also fit the available Chrome storage space.</p>
           <label className="mt-3 block cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-center text-sm font-semibold text-slate-700 hover:bg-slate-100">
             Choose backup file
@@ -202,34 +225,55 @@ export function SettingsSection() {
             {importPreview.conflicts > 0 && <p className="mt-2 rounded bg-red-100 p-2 text-sm font-semibold text-red-800">{importPreview.conflicts} conflicting record relationship{importPreview.conflicts === 1 ? '' : 's'} must be resolved before this backup can be merged. Nothing will be changed.</p>}
             <div className="mt-3 flex gap-2"><button type="button" className={buttonClass(importPreview.mode === 'replace' ? 'danger' : 'primary', 'flex-1')} disabled={isImporting || importPreview.conflicts > 0} onClick={() => void confirmImport()}>{isImporting ? 'Importing...' : importPreview.mode === 'replace' ? 'Replace LinkShelf data' : 'Confirm merge'}</button><button type="button" className={buttonClass('ghost')} disabled={isImporting} onClick={() => setImportPreview(null)}>Cancel</button></div>
           </InlineConfirmation>}
-        </section>
+        </SettingsCard>
+
+        <SettingsCard id="settings-readable-export" title="Export to read or share">
+          <p className="mt-1 text-xs text-slate-500">Create a Markdown or HTML list of saved and archived links with notes and tags. It is read-only and cannot be imported back. Use Download backup above for a restorable JSON copy.</p>
+          <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="readable-project">Project</label>
+          <Dropdown id="readable-project" className="mt-1 w-full" value={readableProject} disabled={isExporting} onChange={setReadableProject}
+            options={[{ value: '', label: 'All projects' }, ...readableProjects.map(project => ({ value: project.id, label: project.name }))]} />
+          <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="readable-format">Format</label>
+          <Dropdown<ExportFormat> id="readable-format" className="mt-1 w-full" value={readableFormat} disabled={isExporting} onChange={setReadableFormat}
+            options={[{ value: 'markdown', label: 'Markdown (.md)' }, { value: 'html', label: 'HTML (.html)' }] satisfies { value: ExportFormat; label: string }[]} />
+          <button type="button" className={buttonClass('secondary', 'mt-3 w-full')} disabled={isExporting} onClick={() => void downloadReadable()}>{isExporting ? 'Preparing export...' : 'Download export'}</button>
+        </SettingsCard>
 
         <SnapshotsPanel />
+      </SettingsGroup>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="font-semibold text-slate-900">Keyboard shortcuts</h3>
-          <div className="mt-3 space-y-2">{[
-            ['park-current-tab', 'Park current tab'],
-            ['toggle-side-panel', 'Open or close LinkShelf'],
-            ['open-search', 'Open Search'],
-            ['open-today', 'Open Today'],
-          ].map(([name, label]) => <div key={name} className="flex items-center justify-between gap-3"><span className="text-sm font-semibold">{label}</span><kbd className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold shadow-inner">{shortcuts[name] ?? 'Loading...'}</kbd></div>)}</div>
-          <button type="button" className={buttonClass('secondary', 'mt-4 w-full')} onClick={() => void browser.tabs.create({ url: 'chrome://extensions/shortcuts', active: true })}>Manage keyboard shortcuts</button>
-        </section>
+      <SettingsGroup {...groups[2]}>
+        <SettingsCard id="settings-privacy" title="Privacy">
+          <p className="mt-2 text-sm text-slate-600">LinkShelf stores its own data locally and does not send your links, notes, or bookmarks to a server.</p>
+          <p className="mt-2 text-xs text-slate-500">Version {browser.runtime.getManifest().version}</p>
+        </SettingsCard>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-          <h3 className="font-semibold text-slate-900">Why these permissions?</h3>
-          <ul className="mt-2 space-y-2"><li><strong>Tabs:</strong> save, close, and restore tabs you choose.</li><li><strong>Bookmarks:</strong> search and create native Chrome bookmarks.</li><li><strong>Alarms and notifications:</strong> deliver reminders.</li><li><strong>Storage:</strong> keep LinkShelf data on this device.</li></ul>
-        </section>
+        <SettingsCard id="settings-permissions" title="Why these permissions?">
+          <ul className="mt-2 space-y-2 text-sm text-slate-600"><li><strong>Tabs:</strong> save, close, and restore tabs you choose.</li><li><strong>Bookmarks:</strong> search and create native Chrome bookmarks.</li><li><strong>Alarms and notifications:</strong> deliver reminders.</li><li><strong>Storage:</strong> keep LinkShelf data on this device.</li></ul>
+        </SettingsCard>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-          <h3 className="font-semibold text-slate-900">Help shape LinkShelf</h3>
-          <p className="mt-2">Found a bug or have an idea? Early feedback directly guides the next release.</p>
-          <div className="mt-3 flex gap-2"><a className={buttonClass('primary', 'flex-1')} href="mailto:ali.shaaban2002@gmail.com?subject=LinkShelf%20feedback">Send feedback</a><a className={buttonClass('secondary', 'flex-1')} href="https://github.com/AliShaab-an/linkshelf/issues" target="_blank" rel="noreferrer">Report issue</a></div>
-        </section>
-      </div>
+        <SettingsCard id="settings-feedback" title="Help shape LinkShelf">
+          <p className="mt-2 text-sm text-slate-600">Found a bug or have an idea? Early feedback directly guides the next release.</p>
+          <div className="mt-3 flex flex-wrap gap-2"><a className={buttonClass('primary', 'flex-1')} href="mailto:ali.shaaban2002@gmail.com?subject=LinkShelf%20feedback">Send feedback</a><a className={buttonClass('secondary', 'flex-1')} href="https://github.com/AliShaab-an/linkshelf/issues" target="_blank" rel="noreferrer">Report issue</a></div>
+          <a className={buttonClass('quiet', 'mt-2 w-full')} href={RATE_PROMPT_REVIEW_URL} target="_blank" rel="noreferrer">Rate LinkShelf on the Chrome Web Store</a>
+        </SettingsCard>
+      </SettingsGroup>
     </>
   );
+}
+
+function SettingsGroup({ id, title, description, children }: { id: string; title: string; description: string; children: ReactNode }) {
+  return <section aria-labelledby={`${id}-title`} className="mt-8 scroll-mt-4">
+    <h3 id={`${id}-title`} tabIndex={-1} className="text-base font-bold text-slate-900">{title}</h3>
+    <p className="mt-0.5 text-sm text-slate-600">{description}</p>
+    <div className="mt-3 space-y-4">{children}</div>
+  </section>;
+}
+
+function SettingsCard({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return <section aria-labelledby={`${id}-title`} className="rounded-xl border border-slate-200 bg-white p-4">
+    <h4 id={`${id}-title`} className="font-semibold text-slate-900">{title}</h4>
+    {children}
+  </section>;
 }
 
 function toMessage(error: unknown, fallback: string) {
