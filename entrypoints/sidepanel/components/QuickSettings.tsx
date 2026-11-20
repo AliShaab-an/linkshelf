@@ -1,4 +1,7 @@
+import { useState } from 'react';
+import { openManager } from '@/messaging/contracts';
 import { Icon } from './ui/Icon';
+import { buttonClass } from './ui/styles';
 import { SettingsPreferences } from './SettingsPreferences';
 import { useDisclosure } from './useDisclosure';
 import { useSettingsPreferences } from './useSettingsPreferences';
@@ -8,6 +11,15 @@ import type { InterfaceTheme } from '../use-interface-theme';
 export function QuickSettings({ theme, changeTheme }: { theme: InterfaceTheme; changeTheme(value: InterfaceTheme): void }) {
   const disclosure = useDisclosure();
   const preferences = useSettingsPreferences(disclosure.open);
+  const [error, setError] = useState('');
+
+  async function allSettings() {
+    setError('');
+    try {
+      const response = await openManager('settings', (await browser.windows.getCurrent()).id);
+      if (!response.success) setError(response.error.message);
+    } catch { setError('LinkShelf could not open the Manager page.'); }
+  }
 
   return <div ref={disclosure.root} onKeyDown={event => {
     if (event.key !== 'Escape' || !disclosure.open) return;
@@ -26,6 +38,10 @@ export function QuickSettings({ theme, changeTheme }: { theme: InterfaceTheme; c
         <SegmentedControl className="mt-1" aria-labelledby="quick-theme-label" value={theme} onChange={changeTheme}
           options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] satisfies { value: InterfaceTheme; label: string }[]} />
       </div>
+      {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+      <button type="button" className={buttonClass('quiet', 'mt-2 w-full')} onClick={() => void allSettings()}>
+        <Icon name="manage" className="size-4" />All settings
+      </button>
     </div>}
   </div>;
 }

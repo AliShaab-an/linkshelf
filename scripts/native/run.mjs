@@ -226,7 +226,8 @@ try {
       await navigateSidebar(h.page, name);
       const navigation = h.page.getByRole('navigation', { name: 'LinkShelf sections' });
       const label = name === 'Projects' ? 'Saved' : name;
-      assert.equal(await navigation.getByRole('button', { name: label, exact: true }).getAttribute('aria-current'), 'page');
+      // navigateSidebar confirms the Manager page's current section itself.
+      if (!['Review', 'Archive', 'Settings'].includes(name)) assert.equal(await navigation.getByRole('button', { name: label, exact: true }).getAttribute('aria-current'), 'page');
       results.ui.push({ width, section: name, ...await h.page.evaluate(() => ({ viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, headings: [...document.querySelectorAll('h1,h2')].map(el => el.textContent) })) });
     }
     await h.page.screenshot({ path: path.join(h.output, `settings-${width}.png`), fullPage: true });

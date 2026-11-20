@@ -41,6 +41,7 @@ import {
   isTrashMessage,
   isAutoBackupMessage,
   isRatePromptMessage,
+  isOpenManagerMessage,
   isUpdateSettingsMessage,
   isPatchSettingsMessage,
   isStorageRecoveryMessage,
@@ -81,6 +82,7 @@ import { parseSearchQuery } from '@/domain/tags';
 import { ChromeStorageAdapter } from '@/storage/storage-adapter';
 import { RatePromptStore } from '@/storage/rate-prompt-store';
 import { RATE_PROMPT_REVIEW_URL, isRatePromptVisible } from '@/domain/rate-prompt';
+import { MANAGER_PAGE_PATH, type ManagerSection } from '@/domain/manager';
 import {
   DuplicateProjectNameError,
   InvalidLinkStateError,
@@ -791,6 +793,17 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (isOpenManagerMessage(message)) {
+      const { section, windowId } = message.payload;
+      void openManagerTab(section, windowId)
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => {
+          console.error('Opening the Manager page failed:', error);
+          sendResponse({ success: false, error: { message: 'LinkShelf could not open the Manager page.' } });
+        });
+      return true;
+    }
+
     if (isAutoBackupMessage(message)) {
       const { action, id } = message.payload;
       void (async () => {
@@ -1154,3 +1167,17 @@ export default defineBackground(() => {
     return false;
   });
 });
+
+/** Shows the Manager page at a section, reusing an open Manager tab (preferring the caller's window). */
+async function openManagerTab(section: ManagerSection, windowId?: number) {
+  const base = browser.runtime.getURL(MANAGER_PAGE_PATH);
+  const url = `${base}#${section}`;
+  const managers = (await browser.tabs.query({})).filter(tab => tab.id !== undefined && tab.url?.startsWith(base));
+  const existing = managers.find(tab => tab.windowId === windowId) ?? managers[0];
+  if (!existing?.id) {
+    await browser.tabs.create({ url, active: true, ...(windowId === undefined ? {} : { windowId }) });
+    return;
+  }
+  await browser.tabs.update(existing.id, { url, active: true });
+  await browser.windows.update(existing.windowId, { focused: true });
+}

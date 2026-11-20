@@ -2,6 +2,7 @@ import type { OperationWarnings } from '@/features/operations/secondary-result';
 import type { RawRecoveryExport, StorageStatus } from '@/domain/recovery';
 import type { RecoveryBackupPreview } from '@/storage/repository';
 import { SettingsPatchSchema, type SettingsPatch } from '@/domain/schemas';
+import { ManagerSectionSchema, type ManagerSection } from '@/domain/manager';
 import type { SnapshotSummary } from '@/domain/snapshots';
 import type { AutoBackupList } from '@/features/backups/auto-backup-service';
 import type {
@@ -1491,3 +1492,22 @@ async function sendRatePromptMessage(action: RatePromptAction): Promise<RateProm
 
 export const getRatePrompt = () => sendRatePromptMessage('get');
 export const answerRatePrompt = (answer: Exclude<RatePromptAction, 'get'>) => sendRatePromptMessage(answer);
+
+export interface OpenManagerMessage { type: 'OPEN_MANAGER'; payload: { section: ManagerSection; windowId?: number } }
+export type OpenManagerResponse = { success: true } | { success: false; error: { message: string } };
+
+export function isOpenManagerMessage(message: unknown): message is OpenManagerMessage {
+  const candidate = message as Partial<OpenManagerMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'OPEN_MANAGER') return false;
+  const payload = candidate.payload;
+  return typeof payload === 'object' && payload !== null && ManagerSectionSchema.safeParse(payload.section).success &&
+    (payload.windowId === undefined || Number.isInteger(payload.windowId));
+}
+
+/** Opens the Manager page at a section, reusing an open Manager tab. */
+export async function openManager(section: ManagerSection, windowId?: number): Promise<OpenManagerResponse> {
+  const message: OpenManagerMessage = { type: 'OPEN_MANAGER', payload: { section, windowId } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as OpenManagerResponse;
+}

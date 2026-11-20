@@ -41,8 +41,8 @@ export function SnapshotsPanel() {
     return () => { current = false; };
   }, []);
 
-  return <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="snapshots-title">
-    <h3 id="snapshots-title" className="font-semibold text-slate-900">Recent window snapshots</h3>
+  return <section className="rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="snapshots-title">
+    <h4 id="snapshots-title" className="font-semibold text-slate-900">Recent window snapshots</h4>
     <p className="mt-2 text-sm text-slate-600">Keep the last 3 snapshots of your open tabs so you can bring back a window you closed by accident. Off by default.</p>
     <p className="mt-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">When on, LinkShelf stores the web addresses and titles of all your open tabs on this device, including pages you haven’t saved. Addresses may contain private parts. Nothing leaves your device, snapshots are not part of backups, and turning this off deletes them.</p>
     <label className="mt-3 flex min-h-10 items-start gap-3 text-sm font-semibold">

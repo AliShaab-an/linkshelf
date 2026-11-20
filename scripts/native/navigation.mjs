@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHarness, navigateSidebar, poll, chosenValue } from './harness.mjs';
+import { createHarness, navigateSidebar, poll, chosenValue, choose } from './harness.mjs';
 import { backup } from './fixtures.mjs';
 import { dataset } from '../performance/fixtures.mjs';
 
@@ -9,7 +9,9 @@ const h = await createHarness();
 const page = h.page;
 const nav = surface => surface.getByRole('navigation', { name: 'LinkShelf sections' });
 const destination = (surface, name) => nav(surface).getByRole('button', { name, exact: true });
-const sections = ['Park', 'Saved', 'Search', 'Today', 'Review', 'Archive', 'Settings'];
+const sections = ['Park', 'Saved', 'Search', 'Today'];
+const navLabels = [...sections, 'Manage'];
+const managerTabs = () => h.context.pages().filter(surface => new URL(surface.url()).pathname === '/manager.html');
 const active = target => poll(() => target.evaluate(el => document.activeElement === el), Boolean, 'expected focus');
 const state = () => page.evaluate(async () => (await chrome.storage.local.get('linkshelfUiState')).linkshelfUiState);
 const windowId = surface => surface.evaluate(async () => (await chrome.windows.getCurrent()).id);
@@ -32,11 +34,11 @@ async function layout(label) {
     controls: [...el.querySelectorAll('button')].map(button => {
       const { left, right, top, width, height } = button.getBoundingClientRect();
       const label = button.querySelector('span').getBoundingClientRect();
-      return { label: button.textContent.trim(), left, right, top, width, height,
+      return { label: button.querySelector('span').textContent.trim(), left, right, top, width, height,
         fits: label.left >= left && label.right <= right };
     }),
   }));
-  assert.deepEqual(metrics.controls.map(control => control.label), sections);
+  assert.deepEqual(metrics.controls.map(control => control.label), navLabels);
   assert.ok(metrics.documentWidth <= metrics.viewport + 1);
   assert.ok(metrics.controls.every(control => control.left >= 0 && control.right <= metrics.viewport &&
     control.fits && control.width >= 40 && control.height >= 44));
@@ -46,7 +48,7 @@ async function layout(label) {
 }
 
 try {
-  await check('Seven labeled destinations fit one row through 200% Chrome zoom', async () => {
+  await check('Four daily destinations and Manage fit one row through 200% Chrome zoom', async () => {
     await destination(page, 'Saved').waitFor();
     assert.equal(await destination(page, 'Saved').getAttribute('aria-current'), 'page');
     for (const width of [320, 400, 600, 800]) {
@@ -65,24 +67,75 @@ try {
   await page.setViewportSize({ width: 320, height: 760 });
   await check('All destinations support direct navigation, keyboard order, and a single current page', async () => {
     await destination(page, 'Park').focus();
-    for (const label of sections.slice(1)) {
+    for (const label of navLabels.slice(1)) {
       await page.keyboard.press('Tab');
       await active(destination(page, label));
     }
-    const settings = destination(page, 'Settings');
-    assert.notEqual(await settings.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
-    await page.keyboard.press('Space');
-    assert.equal(await settings.getAttribute('aria-current'), 'page');
-    await active(settings);
     await page.keyboard.press('Shift+Tab');
-    await active(destination(page, 'Archive'));
+    const todayButton = destination(page, 'Today');
+    assert.notEqual(await todayButton.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
+    await page.keyboard.press('Space');
+    assert.equal(await todayButton.getAttribute('aria-current'), 'page');
+    await active(todayButton);
+    await page.keyboard.press('Shift+Tab');
+    await active(destination(page, 'Search'));
     for (const name of sections) {
       await navigateSidebar(page, name);
       assert.equal(await destination(page, name).getAttribute('aria-current'), 'page');
       assert.equal(await nav(page).locator('[aria-current="page"]').count(), 1);
     }
+    assert.equal(await destination(page, 'Manage').getAttribute('aria-current'), null);
     await navigateSidebar(page, 'Projects');
     await poll(state, value => value?.lastSection === 'projects', 'persisted Saved ID');
+  });
+
+  await check('Manage opens Review, Archive, and Settings in one reused tab', async () => {
+    assert.equal(managerTabs().length, 0);
+    await destination(page, 'Manage').click();
+    await poll(() => managerTabs().length, count => count === 1, 'Manager tab opened');
+    const manager = managerTabs()[0];
+    await manager.waitForLoadState();
+    assert.equal(new URL(manager.url()).hash, '#review');
+    assert.equal(await windowId(manager), await windowId(page));
+    await manager.getByRole('heading', { name: 'Review', exact: true }).waitFor();
+    assert.deepEqual(await manager.getByRole('navigation', { name: 'Manager sections' }).getByRole('link').allTextContents(), ['Review', 'Archive', 'Settings']);
+    await manager.getByRole('link', { name: 'Archive', exact: true }).click();
+    await manager.getByRole('heading', { name: 'Archive', exact: true }).waitFor();
+    assert.equal(await manager.title(), 'Archive · LinkShelf Manager');
+    await manager.goBack();
+    await manager.getByRole('heading', { name: 'Review', exact: true }).waitFor();
+
+    // Quick settings links to the full Settings page in the same tab.
+    await page.bringToFront();
+    await page.getByRole('button', { name: 'Quick settings' }).click();
+    await page.getByRole('button', { name: 'All settings' }).click();
+    await poll(() => new URL(manager.url()).hash, hash => hash === '#settings', 'Manager tab moved to Settings');
+    await manager.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+    assert.equal(managerTabs().length, 1);
+    // Settings is grouped into General, Your data and About, each reachable from a jump button.
+    const groupTitles = manager.getByRole('region').locator('h3');
+    assert.deepEqual(await groupTitles.allTextContents(), ['General', 'Your data', 'About']);
+    await manager.getByRole('navigation', { name: 'Settings groups' }).getByRole('button', { name: 'About' }).click();
+    await poll(() => manager.evaluate(() => document.activeElement?.textContent), text => text === 'About', 'About heading focused');
+    await manager.getByRole('region', { name: 'Why these permissions?' }).waitFor();
+    await page.screenshot({ path: path.join(h.output, 'navigation-manage-320.png') });
+    await manager.setViewportSize({ width: 1024, height: 760 });
+    await manager.screenshot({ path: path.join(h.output, 'manager-settings-1024.png') });
+    await manager.setViewportSize({ width: 360, height: 760 });
+    await manager.screenshot({ path: path.join(h.output, 'manager-settings-360.png') });
+    assert.ok(await manager.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await manager.close();
+    await page.bringToFront();
+    await page.keyboard.press('Escape');
+
+    // A sidebar last left on a section that moved opens Saved.
+    await page.evaluate(async () => {
+      const { linkshelfUiState } = await chrome.storage.local.get('linkshelfUiState');
+      await chrome.storage.local.set({ linkshelfUiState: { ...linkshelfUiState, lastSection: 'settings' } });
+    });
+    await page.reload();
+    await destination(page, 'Saved').waitFor();
+    assert.equal(await destination(page, 'Saved').getAttribute('aria-current'), 'page');
   });
 
   const data = dataset(100, 'few', h.base);
@@ -186,7 +239,8 @@ try {
   });
 
   await check('Modal blocks navigation and the consumed request cannot replay after Escape', async () => {
-    await navigateSidebar(page, 'Archive');
+    await navigateSidebar(page, 'Projects');
+    await choose(page.getByRole('combobox', { name: 'Project', exact: true }), 'restore-probe');
     const trigger = page.locator('article').first().getByRole('button', { name: 'More link actions' });
     await trigger.click();
     await page.getByRole('group', { name: 'Link actions' }).getByRole('button', { name: 'Remove' }).click();
@@ -200,7 +254,7 @@ try {
     await active(trigger);
     await publish({ [id]: today('blocked') });
     await poll(intents, value => Object.keys(value ?? {}).length === 0, 'blocked replay consumed');
-    await page.getByRole('heading', { name: 'Archive', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Saved', exact: true }).waitFor();
     await navigateSidebar(page, 'Today');
     await page.getByRole('heading', { name: 'Today', exact: true }).waitFor();
   });
