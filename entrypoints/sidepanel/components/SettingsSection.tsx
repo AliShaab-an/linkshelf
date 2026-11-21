@@ -3,6 +3,7 @@ import { buttonClass } from './ui/styles';
 import { SectionHeader } from './ui/SectionHeader';
 import { OperationFeedback } from './ui/OperationFeedback';
 import { SettingsPreferences } from './SettingsPreferences';
+import { SidebarSetting } from './SidebarSetting';
 import { useSettingsPreferences } from './useSettingsPreferences';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -181,6 +182,7 @@ export function SettingsSection({ appearance }: { appearance?: { theme: Interfac
           <SegmentedControl className="mt-2" aria-labelledby="settings-theme-title" value={appearance.theme} onChange={appearance.changeTheme}
             options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] satisfies { value: InterfaceTheme; label: string }[]} />
         </SettingsCard>}
+        <SidebarSetting />
         <SettingsCard id="settings-shortcuts" title="Keyboard shortcuts">
           <div className="mt-3 space-y-2">{[
             ['park-current-tab', 'Park current tab'],
