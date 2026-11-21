@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeWaiting, summarizeDashboard } from './dashboard';
+import { describeAgo, describeWaiting, recentSessions, summarizeDashboard } from './dashboard';
 import type { Project, SavedLink } from './schemas';
 
 const at = '2026-01-01T00:00:00.000Z';
@@ -36,4 +36,31 @@ describe('describeWaiting', () => {
     ['2024-01-01T00:00:00.000Z', '2 years'],
     ['2026-07-01T00:00:00.000Z', 'today'],
   ])('%s is %s', (since, expected) => expect(describeWaiting(since, now)).toBe(expected));
+});
+
+describe('describeAgo', () => {
+  const now = new Date('2026-06-01T12:00:00.000Z');
+  it('reads naturally', () => {
+    expect(describeAgo('2026-06-01T01:00:00.000Z', now)).toBe('today');
+    expect(describeAgo('2026-05-29T01:00:00.000Z', now)).toBe('3 days ago');
+  });
+});
+
+describe('recentSessions', () => {
+  const group = (id: string, projectId: string, createdAt: string, titles: string[]) =>
+    ({ session: { id, projectId, createdAt }, links: titles.map(title => ({ title })) });
+  it('lists the newest sessions that still have links, with project names', () => {
+    const result = recentSessions([
+      group('old', 'p1', '2026-01-01T00:00:00.000Z', ['Old']),
+      group('empty', 'p1', '2026-03-01T00:00:00.000Z', []),
+      group('new', 'p2', '2026-02-01T00:00:00.000Z', ['First', 'Second']),
+      group('lost', 'gone', '2026-01-15T00:00:00.000Z', ['Orphan']),
+    ], [project('p1', 'Reading'), project('p2', 'Trip')], 3);
+    expect(result.map(entry => [entry.id, entry.projectName, entry.linkCount, entry.firstTitle]))
+      .toEqual([['new', 'Trip', 2, 'First'], ['lost', 'Unknown project', 1, 'Orphan'], ['old', 'Reading', 1, 'Old']]);
+  });
+  it('honours the limit', () => {
+    const many = ['a', 'b', 'c', 'd'].map((id, index) => group(id, 'p1', `2026-01-0${index + 1}T00:00:00.000Z`, ['x']));
+    expect(recentSessions(many, [project('p1', 'Reading')], 2).map(entry => entry.id)).toEqual(['d', 'c']);
+  });
 });

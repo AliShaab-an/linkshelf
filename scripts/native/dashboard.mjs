@@ -51,6 +51,14 @@ try {
   assert.deepEqual(rows.map(row => row.replace(/\s+/g, ' ').trim()), ['Reading list 3 links', 'Inbox 1 link']);
   checks.push('Projects are listed by waiting links, and empty projects are left out');
 
+  const recent = page.getByRole('region', { name: 'Recently parked' });
+  assert.equal(await recent.getByRole('listitem').count(), 3);
+  assert.match(await recent.innerText(), /10 days ago/);
+  const backups = page.getByRole('region', { name: 'Backups' });
+  assert.match(await backups.innerText(), /Automatic backups are on/);
+  assert.equal(await backups.getByRole('link', { name: 'Backup settings' }).getAttribute('href'), '#settings');
+  checks.push('Home lists recent sessions and reports automatic backup status');
+
   await page.getByRole('main').screenshot({ path: path.join(h.output, 'home-dashboard.png') });
 
   await tile('To review').click();

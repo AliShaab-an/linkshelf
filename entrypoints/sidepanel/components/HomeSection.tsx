@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { describeWaiting, summarizeDashboard, type DashboardSummary } from '@/domain/dashboard';
-import { getArchivedLinks, getDueReminderLinks, getParkedLinks, getProjects } from '@/messaging/contracts';
+import { describeAgo, describeWaiting, recentSessions, summarizeDashboard, type DashboardSummary, type RecentSession } from '@/domain/dashboard';
+import { getArchivedLinks, getAutoBackups, getDueReminderLinks, getParkedLinks, getParkedSessionGroups, getProjects } from '@/messaging/contracts';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 import { Icon, type IconName } from './ui/Icon';
 import { SectionHeader } from './ui/SectionHeader';
 import { buttonClass } from './ui/styles';
+
+interface BackupStatus { enabled: boolean; lastAt?: string; problem?: 'space' | 'failed' }
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
@@ -26,16 +28,28 @@ function Tile({ icon, label, value, detail, href }: { icon: IconName; label: str
 export function HomeSection() {
   const heading = useRef<HTMLHeadingElement>(null);
   const [summary, setSummary] = useState<DashboardSummary>();
+  const [sessions, setSessions] = useState<RecentSession[]>([]);
+  const [backup, setBackup] = useState<BackupStatus>();
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     try {
-      const [parked, archived, due, projects] = await Promise.all([getParkedLinks(), getArchivedLinks(), getDueReminderLinks(), getProjects()]);
+      const [parked, archived, due, projects, groups, backups] = await Promise.all([
+        getParkedLinks(), getArchivedLinks(), getDueReminderLinks(), getProjects(), getParkedSessionGroups(),
+        // Backup status is extra context: if it can not be read, the rest of the page still works.
+        getAutoBackups().catch(() => undefined),
+      ]);
       if (!parked.success) throw new Error(parked.error.message);
       if (!archived.success) throw new Error(archived.error.message);
       if (!due.success) throw new Error(due.error.message);
       if (!projects.success) throw new Error(projects.error.message);
       setSummary(summarizeDashboard({ parked: parked.links, archived: archived.links, due: due.links, projects: projects.projects }));
+      setSessions(groups.success ? recentSessions(groups.groups, projects.projects) : []);
+      setBackup(backups?.success ? {
+        enabled: backups.enabled,
+        lastAt: backups.backups.map(entry => entry.createdAt).sort().at(-1),
+        ...(backups.problem ? { problem: backups.problem } : {}),
+      } : undefined);
       setError('');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'LinkShelf could not load your overview.');
@@ -75,6 +89,30 @@ export function HomeSection() {
           : <div className="mt-3"><EmptyState title="All caught up">Park some tabs from the sidebar and they will show up here.</EmptyState></div>}
         {summary.toReview > 0 && <a href="#review" className={buttonClass('primary', 'mt-3')}>Start reviewing</a>}
       </section>
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <section aria-labelledby="home-recent" className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 id="home-recent" className="font-semibold text-slate-900">Recently parked</h3>
+          {sessions.length
+            ? <ul className="mt-2 divide-y divide-slate-100">
+              {sessions.map(session => <li key={session.id} className="py-2 text-sm">
+                <span className="block truncate font-medium">{session.firstTitle}{session.linkCount > 1 ? ` + ${session.linkCount - 1} more` : ''}</span>
+                <span className="block text-xs text-slate-600">{session.projectName} · {plural(session.linkCount, 'link', 'links')} · {describeAgo(session.createdAt, new Date())}</span>
+              </li>)}
+            </ul>
+            : <p className="mt-2 text-sm text-slate-600">Nothing parked yet.</p>}
+        </section>
+        {backup && <section aria-labelledby="home-backups" className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 id="home-backups" className="font-semibold text-slate-900">Backups</h3>
+          <p className="mt-2 text-sm text-slate-700">{backupLine(backup)}</p>
+          {backup.problem && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">{backup.problem === 'space' ? 'The last automatic backup did not fit in the space Chrome allows.' : 'The last automatic backup could not be made.'}</p>}
+          <a href="#settings" className={buttonClass('secondary', 'mt-3')}>{backup.enabled ? 'Backup settings' : 'Turn on automatic backups'}</a>
+        </section>}
+      </div>
     </>}
   </div>;
+}
+
+function backupLine(backup: BackupStatus) {
+  if (!backup.enabled) return 'Automatic backups are off. Turn them on so a mistake never costs you your library.';
+  return backup.lastAt ? `Last automatic backup: ${describeAgo(backup.lastAt, new Date())}.` : 'Automatic backups are on, but none has been made yet.';
 }

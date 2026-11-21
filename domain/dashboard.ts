@@ -51,3 +51,37 @@ export function describeWaiting(since: string, now: Date): string {
   const months = Math.floor(days / 30);
   return months < 24 ? `${months} months` : `${Math.floor(months / 12)} years`;
 }
+
+/** "today", "1 day ago", "3 months ago". */
+export function describeAgo(since: string, now: Date): string {
+  const waited = describeWaiting(since, now);
+  return waited === 'today' ? waited : `${waited} ago`;
+}
+
+export interface RecentSession {
+  id: string;
+  projectName: string;
+  linkCount: number;
+  firstTitle: string;
+  createdAt: string;
+}
+
+/** The newest parked sessions that still have links, for quick recognition. */
+export function recentSessions(
+  groups: ReadonlyArray<{ session: { id: string; projectId: string; createdAt: string }; links: ReadonlyArray<{ title: string }> }>,
+  projects: readonly Project[],
+  limit = 3,
+): RecentSession[] {
+  const names = new Map(projects.map(project => [project.id, project.name]));
+  return groups
+    .filter(group => group.links.length > 0)
+    .sort((a, b) => b.session.createdAt.localeCompare(a.session.createdAt))
+    .slice(0, limit)
+    .map(group => ({
+      id: group.session.id,
+      projectName: names.get(group.session.projectId) ?? 'Unknown project',
+      linkCount: group.links.length,
+      firstTitle: group.links[0].title,
+      createdAt: group.session.createdAt,
+    }));
+}
