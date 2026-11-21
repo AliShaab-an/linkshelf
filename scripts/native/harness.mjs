@@ -14,14 +14,14 @@ export async function sectionButton(page, name) {
   return button;
 }
 
-const managerSections = { Review: 'review', Archive: 'archive', Settings: 'settings' };
+const managerSections = { Home: 'home', Review: 'review', Archive: 'archive', Settings: 'settings' };
 
 /** The Manager page's link for a section. */
 export const managerLink = (page, name) => page.getByRole('navigation', { name: 'Manager sections' }).getByRole('link', { name, exact: true });
 
 /**
  * Shows a LinkShelf section in this test page the way it lives in the product:
- * Park, Saved, Search and Today in the sidebar; Review, Archive and Settings on the Manager page.
+ * Park, Saved, Search and Today in the sidebar; Home, Review, Archive and Settings on the Manager page.
  */
 export async function navigateSidebar(page, name) {
   const managerSection = managerSections[name];

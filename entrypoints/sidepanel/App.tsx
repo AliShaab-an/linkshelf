@@ -92,7 +92,7 @@ function App() {
 
   function manage() {
     setManageError('');
-    void openManager('review', windowId.current).then(response => {
+    void openManager('home', windowId.current).then(response => {
       if (!response.success) setManageError(response.error.message);
     }).catch(() => setManageError('LinkShelf could not open the Manager page.'));
   }

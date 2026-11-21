@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export type IconName = 'archive' | 'bookmark' | 'check' | 'clock' | 'folder' | 'manage' | 'more' | 'park' | 'search' | 'settings' | 'today' | 'trash' | 'undo';
+export type IconName = 'archive' | 'bookmark' | 'check' | 'clock' | 'folder' | 'home' | 'manage' | 'more' | 'park' | 'search' | 'settings' | 'today' | 'trash' | 'undo';
 
 export function Icon({ name, className = 'size-4' }: { name: IconName; className?: string }) {
   const paths: Record<IconName, ReactNode> = {
@@ -9,6 +9,7 @@ export function Icon({ name, className = 'size-4' }: { name: IconName; className
     check: <path d="m5 12 4 4L19 6"/>,
     clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
     folder: <path d="M3 6h7l2 2h9v11H3z"/>,
+    home: <><path d="M4 11 12 4l8 7"/><path d="M6 10v10h12V10M10 20v-5h4v5"/></>,
     manage: <><path d="M14 4h6v6M20 4l-8 8"/><path d="M18 14v6H4V6h6"/></>,
     more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>,
     park: <><path d="M6 4v16M18 4v16M6 12h12"/><path d="M3 20h18"/></>,
