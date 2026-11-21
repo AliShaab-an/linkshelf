@@ -231,6 +231,8 @@ export interface ParkSelectedTabsMessage {
   payload: {
     tabIds: number[];
     projectId: string;
+    /** A short name for the session. */
+    name?: string;
     note?: string;
     reminderAt?: string;
     /** What to do with tabs whose URL is already parked. Defaults to `park`. */
@@ -463,6 +465,22 @@ export type SetLinkTagsResponse =
       success: false;
       error: {
         code: 'LINK_NOT_FOUND' | 'INVALID_STATE' | 'INVALID_TAGS' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR';
+        message: string;
+      };
+    };
+
+export interface RenameSessionMessage {
+  type: 'RENAME_SESSION';
+  /** null clears the name. */
+  payload: { sessionId: string; name: string | null };
+}
+
+export type RenameSessionResponse =
+  | { success: true; session: ParkingSession }
+  | {
+      success: false;
+      error: {
+        code: 'SESSION_NOT_FOUND' | 'INVALID_NAME' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR';
         message: string;
       };
     };
@@ -770,6 +788,7 @@ export function isParkSelectedTabsMessage(
     new Set(tabIds).size === tabIds.length &&
     typeof candidate.payload?.projectId === 'string' &&
     candidate.payload.projectId.length > 0 &&
+    (candidate.payload.name === undefined || typeof candidate.payload.name === 'string') &&
     (candidate.payload.note === undefined ||
       typeof candidate.payload.note === 'string') &&
     (candidate.payload.reminderAt === undefined ||
@@ -964,6 +983,14 @@ export function isSetLinkTagsMessage(message: unknown): message is SetLinkTagsMe
     Array.isArray(candidate.payload.tags);
 }
 
+export function isRenameSessionMessage(message: unknown): message is RenameSessionMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<RenameSessionMessage>;
+  return candidate.type === 'RENAME_SESSION' &&
+    typeof candidate.payload?.sessionId === 'string' && candidate.payload.sessionId.length > 0 &&
+    (candidate.payload.name === null || typeof candidate.payload.name === 'string');
+}
+
 export function isSetLinkReminderMessage(message: unknown): message is SetLinkReminderMessage {
   if (typeof message !== 'object' || message === null) return false;
   const candidate = message as Partial<SetLinkReminderMessage>;
@@ -1133,6 +1160,7 @@ export async function parkSelectedTabs(
   tabIds: number[],
   options: {
     projectId: string;
+    name?: string;
     note?: string;
     reminderAt?: string;
     duplicates?: 'park' | 'skip';
@@ -1325,6 +1353,15 @@ export async function setLinkTags(linkId: string, tags: string[]): Promise<SetLi
   } satisfies SetLinkTagsMessage)) as unknown;
   assertResponse(response);
   return response as SetLinkTagsResponse;
+}
+
+export async function renameSession(sessionId: string, name: string | null): Promise<RenameSessionResponse> {
+  const response = (await browser.runtime.sendMessage({
+    type: 'RENAME_SESSION',
+    payload: { sessionId, name },
+  } satisfies RenameSessionMessage)) as unknown;
+  assertResponse(response);
+  return response as RenameSessionResponse;
 }
 
 export async function getParkDuplicates(tabIds: number[]): Promise<GetParkDuplicatesResponse> {

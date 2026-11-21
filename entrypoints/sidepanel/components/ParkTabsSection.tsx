@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { SectionHeader } from './ui/SectionHeader';
 import { localReminderToUtc, toLocalDateTimeInputValue } from '@/domain/reminders';
-import type { Project } from '@/domain/schemas';
+import { SESSION_NAME_MAX_LENGTH, type Project } from '@/domain/schemas';
 import { getCurrentWindowTabs, getParkDuplicates, getSettings, parkSelectedTabs, type WindowTabCandidate } from '@/messaging/contracts';
 import { Modal } from './ui/Modal';
 import { OperationWarnings } from './ui/OperationWarnings';
@@ -18,6 +18,7 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
   const [projectError, setProjectError] = useState<string>();
   const [projectId, setProjectId] = useState('');
   const [note, setNote] = useState('');
+  const [name, setName] = useState('');
   const [reminderLocal, setReminderLocal] = useState('');
   const [extraDetails, setExtraDetails] = useState(false);
   const [reviewing, setReviewing] = useState(false);
@@ -139,7 +140,7 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
     setError(undefined);
     setWarnings([]);
     try {
-      const response = await parkSelectedTabs(selectedIds, { projectId, note: note.trim() || undefined, reminderAt, duplicates: selectedDuplicates.length ? duplicateMode : 'park' });
+      const response = await parkSelectedTabs(selectedIds, { projectId, name: selectedIds.length > 1 ? name.trim() || undefined : undefined, note: note.trim() || undefined, reminderAt, duplicates: selectedDuplicates.length ? duplicateMode : 'park' });
       setWarnings(response.warnings ?? []);
       if (!response.success) {
         setError(response.error.message);
@@ -148,6 +149,7 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
       }
       setSelectedIds([]);
       setNote('');
+      setName('');
       setReminderLocal('');
       setExtraDetails(false);
       setReviewing(false);
@@ -204,6 +206,11 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
           <label className="block text-sm font-semibold" htmlFor="bulk-project">Save to project</label>
           <Dropdown id="bulk-project" className="w-full" value={projectId}
             options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={setProjectId} />
+          {selectedTabs.length > 1 && <div>
+            <label className="block text-sm font-semibold" htmlFor="bulk-name">Session name (optional)</label>
+            <input id="bulk-name" type="text" maxLength={SESSION_NAME_MAX_LENGTH} autoComplete="off" placeholder="For example, Trip planning"
+              className="mt-1 w-full min-w-0 rounded-lg border border-slate-300 p-2 text-sm" value={name} onChange={event => setName(event.target.value)} />
+          </div>}
           <details open={extraDetails} onToggle={event => setExtraDetails(event.currentTarget.open)}>
             <summary className="cursor-pointer rounded py-2 text-sm font-semibold text-blue-800">Add note or reminder</summary>
             <label className="mt-2 block text-sm font-semibold" htmlFor="bulk-note">Shared note (optional)</label>

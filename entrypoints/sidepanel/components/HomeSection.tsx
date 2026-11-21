@@ -95,7 +95,7 @@ export function HomeSection() {
           {sessions.length
             ? <ul className="mt-2 divide-y divide-slate-100">
               {sessions.map(session => <li key={session.id} className="py-2 text-sm">
-                <span className="block truncate font-medium">{session.firstTitle}{session.linkCount > 1 ? ` + ${session.linkCount - 1} more` : ''}</span>
+                <span className="block truncate font-medium">{session.label}{!session.named && session.linkCount > 1 ? ` + ${session.linkCount - 1} more` : ''}</span>
                 <span className="block text-xs text-slate-600">{session.projectName} · {plural(session.linkCount, 'link', 'links')} · {describeAgo(session.createdAt, new Date())}</span>
               </li>)}
             </ul>

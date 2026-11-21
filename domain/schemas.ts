@@ -19,9 +19,13 @@ export const ProjectSchema = z.strictObject({
 
 export type Project = z.infer<typeof ProjectSchema>;
 
+/** The longest name a person can give a parking session. */
+export const SESSION_NAME_MAX_LENGTH = 80;
+
 export const ParkingSessionSchema = z.strictObject({
   id: IdSchema,
   projectId: IdSchema,
+  name: z.string().trim().min(1).max(SESSION_NAME_MAX_LENGTH).optional(),
   note: z.string().optional(),
   reminderAt: IsoUtcDateTimeSchema.optional(),
   sourceWindowId: z.number().int().optional(),

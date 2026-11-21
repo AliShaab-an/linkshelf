@@ -5,7 +5,7 @@ import { OperationFeedback } from './ui/OperationFeedback';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { INBOX_PROJECT_ID } from '@/domain/constants';
-import { SettingsSchema, type DisplayDensity, type Project, type RestoreMode, type SavedLink, type Settings } from '@/domain/schemas';
+import { SettingsSchema, type DisplayDensity, type ParkingSession, type Project, type RestoreMode, type SavedLink, type Settings } from '@/domain/schemas';
 import { browser } from 'wxt/browser';
 import { describeCollectionRestore, describeLinkRestore } from '../restore-feedback';
 import {
@@ -30,6 +30,7 @@ import { formatLinkDate, LinkFavicon, NotePreview, SavedLinkCard } from './Saved
 import { MoveLinkDialog } from './MoveLinkDialog';
 import { TagLinkDialog } from './TagLinkDialog';
 import { ReminderLinkDialog } from './ReminderLinkDialog';
+import { RenameSessionDialog } from './RenameSessionDialog';
 import { TagFilterBar } from './ui/TagFilterBar';
 import { hasActiveModal } from './ui/Modal';
 import { RemoveLinkDialog } from './RemoveLinkDialog';
@@ -103,6 +104,7 @@ export function ProjectsSection({ savedSession, onPark }: {
   const [moveCandidate, setMoveCandidate] = useState<SavedLink | null>(null);
   const [tagCandidate, setTagCandidate] = useState<SavedLink | null>(null);
   const [reminderCandidate, setReminderCandidate] = useState<SavedLink | null>(null);
+  const [renameCandidate, setRenameCandidate] = useState<ParkingSession | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [moveDestination, setMoveDestination] = useState('');
   const [filter, setFilter] = useState('');
@@ -611,6 +613,20 @@ export function ProjectsSection({ savedSession, onPark }: {
     setTagCandidate(link);
   }
 
+  function startRenaming(session: ParkingSession) {
+    setMessage(null);
+    setError(null);
+    setWarnings([]);
+    setPartialRestore(false);
+    setRenameCandidate(session);
+  }
+
+  function finishRenaming(updated: ParkingSession) {
+    setGroups((current) => current.map((group) => group.session.id === updated.id ? { ...group, session: updated } : group));
+    setRenameCandidate(null);
+    setMessage(updated.name ? `Named the session “${updated.name}”.` : 'Removed the session name.');
+  }
+
   function startReminding(link: SavedLink) {
     setMessage(null);
     setError(null);
@@ -880,6 +896,11 @@ export function ProjectsSection({ savedSession, onPark }: {
           returnFocus={(invoker) => invoker ?? projectFilter.current ?? sectionHeading.current}
           onSaved={finishReminding} onCancel={() => setReminderCandidate(null)} />
       )}
+      {renameCandidate && (
+        <RenameSessionDialog session={renameCandidate}
+          returnFocus={(invoker) => invoker ?? projectFilter.current ?? sectionHeading.current}
+          onSaved={finishRenaming} onCancel={() => setRenameCandidate(null)} />
+      )}
       {moveCandidate && (
         <MoveLinkDialog link={moveCandidate} projects={moveProjects} selectedProjectId={moveDestination}
           feedback={<OperationFeedback {...feedback} pending={dialogPending ? 'Moving link…' : undefined} />}
@@ -926,17 +947,28 @@ export function ProjectsSection({ savedSession, onPark }: {
                   <span className="min-w-0 flex-1">
                     {/* Expanded, the cards below show every title, so the header only names the session. */}
                     {expanded
-                      ? <span className="block text-sm font-semibold">Parking session · {linkCount}</span>
-                      : <span className="flex min-w-0 items-baseline gap-1.5">
-                        <span className="sr-only">Parking session </span>
-                        <span className="truncate text-sm font-semibold" title={first.title} dir="auto">{first.title}</span>
-                        {group.links.length > 1 && <span className="shrink-0 text-xs font-medium text-slate-700">+{group.links.length - 1} more</span>}
-                      </span>}
+                      ? <span className="block text-sm font-semibold wrap-anywhere" dir="auto">{group.session.name ?? 'Parking session'} · {linkCount}</span>
+                      : group.session.name
+                        ? <span className="flex min-w-0 items-baseline gap-1.5">
+                          <span className="sr-only">Parking session </span>
+                          <span className="truncate text-sm font-semibold" title={group.session.name} dir="auto">{group.session.name}</span>
+                        </span>
+                        : <span className="flex min-w-0 items-baseline gap-1.5">
+                          <span className="sr-only">Parking session </span>
+                          <span className="truncate text-sm font-semibold" title={first.title} dir="auto">{first.title}</span>
+                          {group.links.length > 1 && <span className="shrink-0 text-xs font-medium text-slate-700">+{group.links.length - 1} more</span>}
+                        </span>}
                     <span className="block text-xs text-slate-700">{formatLinkDate(group.session.createdAt)}{expanded ? '' : ` · ${linkCount}`}</span>
                     {group.session.reminderAt && <span className="mt-1 block text-xs font-semibold text-amber-700">Reminder {formatLinkDate(group.session.reminderAt)}</span>}
                     {!expanded && previewNote && <span className="block truncate text-xs text-slate-600" title={previewNote}>{previewNote}</span>}
                   </span>
                   <span aria-hidden="true" className="shrink-0 text-slate-700">{expanded ? '▾' : '▸'}</span>
+                </button>
+                <button type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                  disabled={restoring || managingProject || isLoading || isCreating}
+                  aria-label={group.session.name ? 'Rename session' : 'Name session'} title={group.session.name ? 'Rename session' : 'Name session'}
+                  onClick={() => startRenaming(group.session)}>
+                  <Icon name="edit" className="size-5" />
                 </button>
                 <button type="button" className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-blue-700 hover:bg-blue-50 disabled:opacity-50"
                   disabled={restoring || managingProject || isLoading || isCreating}

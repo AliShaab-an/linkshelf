@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export type IconName = 'archive' | 'bookmark' | 'check' | 'clock' | 'folder' | 'home' | 'manage' | 'more' | 'park' | 'search' | 'settings' | 'today' | 'trash' | 'undo';
+export type IconName = 'archive' | 'bookmark' | 'check' | 'clock' | 'edit' | 'folder' | 'home' | 'manage' | 'more' | 'park' | 'search' | 'settings' | 'today' | 'trash' | 'undo';
 
 export function Icon({ name, className = 'size-4' }: { name: IconName; className?: string }) {
   const paths: Record<IconName, ReactNode> = {
@@ -8,6 +8,7 @@ export function Icon({ name, className = 'size-4' }: { name: IconName; className
     bookmark: <path d="M6 3h12v18l-6-4-6 4z"/>,
     check: <path d="m5 12 4 4L19 6"/>,
     clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
+    edit: <><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></>,
     folder: <path d="M3 6h7l2 2h9v11H3z"/>,
     home: <><path d="M4 11 12 4l8 7"/><path d="M6 10v10h12V10M10 20v-5h4v5"/></>,
     manage: <><path d="M14 4h6v6M20 4l-8 8"/><path d="M18 14v6H4V6h6"/></>,

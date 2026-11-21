@@ -47,8 +47,8 @@ describe('describeAgo', () => {
 });
 
 describe('recentSessions', () => {
-  const group = (id: string, projectId: string, createdAt: string, titles: string[]) =>
-    ({ session: { id, projectId, createdAt }, links: titles.map(title => ({ title })) });
+  const group = (id: string, projectId: string, createdAt: string, titles: string[], name?: string) =>
+    ({ session: { id, projectId, createdAt, ...(name ? { name } : {}) }, links: titles.map(title => ({ title })) });
   it('lists the newest sessions that still have links, with project names', () => {
     const result = recentSessions([
       group('old', 'p1', '2026-01-01T00:00:00.000Z', ['Old']),
@@ -56,9 +56,14 @@ describe('recentSessions', () => {
       group('new', 'p2', '2026-02-01T00:00:00.000Z', ['First', 'Second']),
       group('lost', 'gone', '2026-01-15T00:00:00.000Z', ['Orphan']),
     ], [project('p1', 'Reading'), project('p2', 'Trip')], 3);
-    expect(result.map(entry => [entry.id, entry.projectName, entry.linkCount, entry.firstTitle]))
+    expect(result.map(entry => [entry.id, entry.projectName, entry.linkCount, entry.label]))
       .toEqual([['new', 'Trip', 2, 'First'], ['lost', 'Unknown project', 1, 'Orphan'], ['old', 'Reading', 1, 'Old']]);
   });
+  it('labels a named session by its name', () => {
+    const [entry] = recentSessions([group('n', 'p1', '2026-01-01T00:00:00.000Z', ['First', 'Second'], 'Trip planning')], [project('p1', 'Reading')]);
+    expect(entry).toMatchObject({ label: 'Trip planning', named: true });
+  });
+
   it('honours the limit', () => {
     const many = ['a', 'b', 'c', 'd'].map((id, index) => group(id, 'p1', `2026-01-0${index + 1}T00:00:00.000Z`, ['x']));
     expect(recentSessions(many, [project('p1', 'Reading')], 2).map(entry => entry.id)).toEqual(['d', 'c']);

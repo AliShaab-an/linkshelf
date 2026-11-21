@@ -92,6 +92,7 @@ export async function executeParkSelectedTabs(
 
     if (toPark.length > 0) parkedRecords = await dependencies.persistTabs({
       projectId: message.payload.projectId,
+      name: message.payload.name,
       note: message.payload.note,
       reminderAt: message.payload.reminderAt,
       sourceWindowId: tabs[0].windowId,

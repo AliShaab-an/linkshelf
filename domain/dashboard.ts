@@ -62,13 +62,15 @@ export interface RecentSession {
   id: string;
   projectName: string;
   linkCount: number;
-  firstTitle: string;
+  /** What to call the session: its name, or else the title of its first link. */
+  label: string;
+  named: boolean;
   createdAt: string;
 }
 
 /** The newest parked sessions that still have links, for quick recognition. */
 export function recentSessions(
-  groups: ReadonlyArray<{ session: { id: string; projectId: string; createdAt: string }; links: ReadonlyArray<{ title: string }> }>,
+  groups: ReadonlyArray<{ session: { id: string; projectId: string; createdAt: string; name?: string }; links: ReadonlyArray<{ title: string }> }>,
   projects: readonly Project[],
   limit = 3,
 ): RecentSession[] {
@@ -81,7 +83,8 @@ export function recentSessions(
       id: group.session.id,
       projectName: names.get(group.session.projectId) ?? 'Unknown project',
       linkCount: group.links.length,
-      firstTitle: group.links[0].title,
+      label: group.session.name ?? group.links[0].title,
+      named: group.session.name !== undefined,
       createdAt: group.session.createdAt,
     }));
 }
