@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export type IconName = 'archive' | 'bookmark' | 'check' | 'clock' | 'edit' | 'folder' | 'home' | 'manage' | 'more' | 'park' | 'search' | 'settings' | 'today' | 'trash' | 'undo';
+export type IconName = 'archive' | 'bookmark' | 'check' | 'clock' | 'edit' | 'folder' | 'home' | 'manage' | 'monitor' | 'moon' | 'more' | 'park' | 'search' | 'settings' | 'sun' | 'today' | 'trash' | 'undo';
 
 export function Icon({ name, className = 'size-4' }: { name: IconName; className?: string }) {
   const paths: Record<IconName, ReactNode> = {
@@ -12,10 +12,13 @@ export function Icon({ name, className = 'size-4' }: { name: IconName; className
     folder: <path d="M3 6h7l2 2h9v11H3z"/>,
     home: <><path d="M4 11 12 4l8 7"/><path d="M6 10v10h12V10M10 20v-5h4v5"/></>,
     manage: <><path d="M14 4h6v6M20 4l-8 8"/><path d="M18 14v6H4V6h6"/></>,
+    monitor: <><path d="M3 5h18v11H3z"/><path d="M9 20h6M12 16v4"/></>,
+    moon: <path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>,
     more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>,
     park: <><path d="M6 4v16M18 4v16M6 12h12"/><path d="M3 20h18"/></>,
     search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2.1-.7-.7-1.7 1-2-2.1-2.1-2 1-1.7-.7L10.5 2h-3l-.7 2.1-1.7.7-2-1L1 5.9l1 2-.7 1.7L-1 10.5v3l2.1.7.7 1.7-1 2L3 20l2-1 1.7.7.8 2.3h3l.7-2.1 1.7-.7 2 1 2.1-2.1-1-2 .7-1.7z" transform="translate(2) scale(.83)"/></>,
+    sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/></>,
     today: <><path d="M4 5h16v15H4zM8 3v4M16 3v4M4 9h16"/><path d="m8 14 2 2 5-5"/></>,
     trash: <><path d="M5 7h14M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6"/></>,
     undo: <><path d="m9 7-5 5 5 5"/><path d="M5 12h8a6 6 0 0 1 6 6"/></>,

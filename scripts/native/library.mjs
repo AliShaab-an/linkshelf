@@ -43,6 +43,22 @@ try {
   checks.push('Large projects show the first links and expand on request');
   await page.screenshot({ path: path.join(h.output, 'library.png'), fullPage: true });
 
+  // The top bar switches the theme, and the choice is the one Settings shows.
+  const theme = page.getByRole('group', { name: 'Theme' });
+  await theme.getByRole('button', { name: 'Dark theme' }).click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'dark');
+  assert.equal(await theme.getByRole('button', { name: 'Dark theme' }).getAttribute('aria-pressed'), 'true');
+  await page.screenshot({ path: path.join(h.output, 'library-dark.png') });
+  await theme.getByRole('button', { name: 'Light theme' }).click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'light');
+  checks.push('The top bar switches between light, dark and system themes');
+
+  // A narrow window puts the navigation above the content instead of beside it.
+  await page.setViewportSize({ width: 360, height: 800 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  checks.push('The Manager layout does not overflow at 360px');
+
   // Keyboard path: the Move menu.
   await card('Reading list').getByLabel('Move Link a to another project').selectOption({ label: 'Nothing here' });
   await poll(async () => (await h.raw()).links.find(item => item.id === 'a')?.projectId, value => value === 'empty', 'link a moved');
