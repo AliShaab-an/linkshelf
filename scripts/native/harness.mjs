@@ -14,7 +14,7 @@ export async function sectionButton(page, name) {
   return button;
 }
 
-const managerSections = { Home: 'home', Review: 'review', Archive: 'archive', Settings: 'settings' };
+const managerSections = { Home: 'home', Library: 'library', Review: 'review', Archive: 'archive', Settings: 'settings' };
 
 /** The Manager page's link for a section. */
 export const managerLink = (page, name) => page.getByRole('navigation', { name: 'Manager sections' }).getByRole('link', { name, exact: true });

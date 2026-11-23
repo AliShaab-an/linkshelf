@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** Sections that live on the full-tab Manager page instead of the sidebar. */
-export const ManagerSectionSchema = z.enum(['home', 'review', 'archive', 'settings']);
+export const ManagerSectionSchema = z.enum(['home', 'library', 'review', 'archive', 'settings']);
 export type ManagerSection = z.infer<typeof ManagerSectionSchema>;
 
 export const MANAGER_PAGE_PATH = '/manager.html';

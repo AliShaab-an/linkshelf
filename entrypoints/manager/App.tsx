@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { managerSectionFromHash, type ManagerSection } from '@/domain/manager';
 import { ArchiveSection } from '../sidepanel/components/ArchiveSection';
 import { HomeSection } from '../sidepanel/components/HomeSection';
+import { LibrarySection } from '../sidepanel/components/LibrarySection';
 import { ReviewSection } from '../sidepanel/components/ReviewSection';
 import { SettingsSection } from '../sidepanel/components/SettingsSection';
 import { StorageRecoveryGate } from '../sidepanel/components/StorageRecovery';
@@ -11,6 +12,7 @@ import { useInterfaceTheme } from '../sidepanel/use-interface-theme';
 
 const sections: { id: ManagerSection; label: string; icon: IconName }[] = [
   { id: 'home', label: 'Home', icon: 'home' },
+  { id: 'library', label: 'Library', icon: 'folder' },
   { id: 'review', label: 'Review', icon: 'check' },
   { id: 'archive', label: 'Archive', icon: 'archive' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
@@ -47,7 +49,7 @@ function App() {
   }, []);
 
   // Home is a dashboard and uses the room; the lists keep a readable line length.
-  const width = section === 'home' ? 'max-w-5xl' : 'max-w-3xl';
+  const width = section === 'library' ? 'max-w-7xl' : section === 'home' ? 'max-w-5xl' : 'max-w-3xl';
 
   return <main className="sidebar-workspace min-h-screen bg-slate-50 font-sans text-slate-900">
     <StorageRecoveryGate>
@@ -70,6 +72,7 @@ function App() {
       </div>
       <section className={`mx-auto ${width} px-4 pt-6 pb-10`}>
         {section === 'home' && <HomeSection />}
+        {section === 'library' && <LibrarySection />}
         {section === 'review' && <ReviewSection />}
         {section === 'archive' && <ArchiveSection />}
         {section === 'settings' && <SettingsSection appearance={appearance} />}
