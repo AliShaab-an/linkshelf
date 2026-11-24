@@ -8,7 +8,7 @@ export default defineConfig({
   manifest: {
     name: 'LinkShelf',
     description: 'Park tabs, organize useful links, and return to them at the right time.',
-    version: '0.4.0',
+    version: '0.5.0',
     permissions: ['storage', 'alarms', 'notifications', 'tabs', 'bookmarks'],
     // Asked for only when the person turns on tab groups in Settings; never needed to install or update.
     optional_permissions: ['tabGroups'],
