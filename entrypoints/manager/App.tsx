@@ -106,7 +106,7 @@ function App() {
   }, []);
 
   // Pages start right beside the navigation. Library and Home use the whole width; the list pages stop at a readable width.
-  const width = section === 'library' || section === 'home' ? '' : 'max-w-5xl';
+  const width = section === 'library' || section === 'home' ? '' : section === 'settings' ? 'max-w-6xl' : 'max-w-5xl';
 
   return <main className="sidebar-workspace min-h-screen bg-slate-50 font-sans text-slate-900 md:grid md:grid-cols-[14rem_minmax(0,1fr)]">
     <StorageRecoveryGate>

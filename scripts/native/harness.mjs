@@ -25,6 +25,14 @@ export const managerLink = (page, name) => page.getByRole('navigation', { name: 
  * Park, Saved, Search and Today in the sidebar; Home, Review, Archive and Settings on the Manager page.
  */
 export async function navigateSidebar(page, name) {
+  // Your data and About are pages inside Settings, opened by their address.
+  const settingsPage = { 'Your data': 'data', About: 'about' }[name];
+  if (settingsPage) {
+    await page.goto(new URL(`/manager.html#settings/${settingsPage}`, page.url()).href);
+    await poll(() => page.getByRole('navigation', { name: 'Settings groups' }).getByRole('link', { name, exact: true }).getAttribute('aria-current'),
+      value => value === 'page', `${name} shown in Settings`);
+    return;
+  }
   const managerSection = managerSections[name];
   const onManager = new URL(page.url()).pathname === '/manager.html';
   if (managerSection) {

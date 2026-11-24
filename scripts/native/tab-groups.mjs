@@ -56,8 +56,9 @@ const openedTabs = (page, urls) => poll(() => tabsAt(page, urls), tabs => tabs.e
     const toggle = keepGroupsSwitch(h.page);
     await toggle.waitFor();
     await poll(() => toggle.isChecked(), checked => checked === false, 'Keep tab groups starts off');
-    assert.equal(await h.page.getByRole('region', { name: 'Why these permissions?' }).getByText('Tab groups (optional)').count(), 1);
     await toggle.locator('xpath=ancestor::section[1]').screenshot({ path: path.join(h.output, 'tab-groups-off.png') });
+    await navigateSidebar(h.page, 'About');
+    assert.equal(await h.page.getByRole('region', { name: 'Why these permissions?' }).getByText('Tab groups (optional)').count(), 1);
     checks.push('Without the permission, parking saves no group, restoring reopens tabs ungrouped, and Keep tab groups starts off');
     assert.deepEqual(h.requests, []);
   } finally { await h.close(); }

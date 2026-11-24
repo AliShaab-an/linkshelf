@@ -105,7 +105,7 @@ try {
   Object.assign(link, { title: '<script>alert(1)</script> [x](javascript:alert(1))', note: '<img src=x onerror=alert(1)>' });
   assert.equal((await h.seed(stored)).status.state, 'healthy');
   await page.reload();
-  await navigateSidebar(page, 'Settings');
+  await navigateSidebar(page, 'Your data');
   const exportSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Export to read or share' }) });
   await choose(exportSection.getByLabel('Project', { exact: true }), { label: 'Duplicate project' });
 

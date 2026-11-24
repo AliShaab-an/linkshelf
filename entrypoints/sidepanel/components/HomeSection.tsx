@@ -105,7 +105,7 @@ export function HomeSection() {
           <h3 id="home-backups" className="font-semibold text-slate-900">Backups</h3>
           <p className="mt-2 text-sm text-slate-700">{backupLine(backup)}</p>
           {backup.problem && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">{backup.problem === 'space' ? 'The last automatic backup did not fit in the space Chrome allows.' : 'The last automatic backup could not be made.'}</p>}
-          <a href="#settings" className={buttonClass('secondary', 'mt-3')}>{backup.enabled ? 'Backup settings' : 'Turn on automatic backups'}</a>
+          <a href="#settings/data" className={buttonClass('secondary', 'mt-3')}>{backup.enabled ? 'Backup settings' : 'Turn on automatic backups'}</a>
         </section>}
       </div>
     </>}

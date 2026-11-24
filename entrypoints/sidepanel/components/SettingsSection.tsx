@@ -6,7 +6,8 @@ import { SettingsPreferences } from './SettingsPreferences';
 import { SidebarSetting } from './SidebarSetting';
 import { useSettingsPreferences } from './useSettingsPreferences';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { settingsPageFromHash, type SettingsPage } from '@/domain/manager';
 import { TabGroupsSetting } from './TabGroupsSetting';
 import { RATE_PROMPT_REVIEW_URL } from '@/domain/rate-prompt';
 import type { LinkShelfBackup } from '@/domain/schemas';
@@ -25,11 +26,11 @@ import {
   previewImportData,
 } from '@/messaging/contracts';
 
-const groups = [
-  { id: 'settings-general', title: 'General', description: 'How LinkShelf parks, restores, reminds, and looks.' },
-  { id: 'settings-data', title: 'Your data', description: 'Back up, import, and export your library. Everything stays on this device.' },
-  { id: 'settings-about', title: 'About', description: 'Privacy, permissions, and how to get help.' },
-] as const;
+const groups: readonly { page: SettingsPage; id: string; title: string; description: string }[] = [
+  { page: 'general', id: 'settings-general', title: 'General', description: 'How LinkShelf parks, restores, reminds, and looks.' },
+  { page: 'data', id: 'settings-data', title: 'Your data', description: 'Back up, import, and export your library. Everything stays on this device.' },
+  { page: 'about', id: 'settings-about', title: 'About', description: 'Privacy, permissions, and how to get help.' },
+];
 
 export function SettingsSection() {
   const backupInput = useRef<HTMLInputElement>(null);
@@ -49,6 +50,25 @@ export function SettingsSection() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({});
+  const [page, setPage] = useState<SettingsPage>(() => settingsPageFromHash(location.hash));
+  const moved = useRef(false);
+
+  // Each group is its own page, named in the address so links such as #settings/data open it directly.
+  useEffect(() => {
+    const follow = () => {
+      moved.current = true;
+      setPage(settingsPageFromHash(location.hash));
+    };
+    window.addEventListener('hashchange', follow);
+    return () => window.removeEventListener('hashchange', follow);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!moved.current) return;
+    moved.current = false;
+    window.scrollTo(0, 0);
+    document.getElementById(`${groups.find(group => group.page === page)?.id}-title`)?.focus({ preventScroll: true });
+  }, [page]);
 
   useEffect(() => {
     let current = true;
@@ -164,16 +184,15 @@ export function SettingsSection() {
   return (
     <>
       <SectionHeader title="Settings" description="Change how LinkShelf works, keep your data safe, and find help." />
-      <nav aria-label="Settings groups" className="-mt-1 mb-2 flex flex-wrap gap-2">
-        {groups.map(group => <button key={group.id} type="button" className={buttonClass('secondary', 'min-h-9 px-3')}
-          onClick={() => {
-            const heading = document.getElementById(`${group.id}-title`);
-            heading?.scrollIntoView({ block: 'start' });
-            heading?.focus({ preventScroll: true });
-          }}>{group.title}</button>)}
+      <nav aria-label="Settings groups" className="-mt-1 mb-2 flex flex-wrap gap-1 border-b border-slate-200">
+        {groups.map(group => <a key={group.id} href={group.page === 'general' ? '#settings' : `#settings/${group.page}`}
+          aria-current={page === group.page ? 'page' : undefined}
+          className={`-mb-px inline-flex min-h-10 items-center border-b-2 px-3 text-sm ${page === group.page ? 'border-blue-700 font-bold text-blue-800' : 'border-transparent font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900'}`}>
+          {group.title}
+        </a>)}
       </nav>
 
-      <SettingsGroup {...groups[0]}>
+      {page === 'general' && <SettingsGroup {...groups[0]}>
         <SettingsPreferences preferences={preferences} disabled={isPreviewing || isImporting || importPreview !== null} />
         <TabGroupsSetting />
         <SidebarSetting />
@@ -186,10 +205,10 @@ export function SettingsSection() {
           ].map(([name, label]) => <div key={name} className="flex items-center justify-between gap-3"><span className="text-sm font-semibold">{label}</span><kbd className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold shadow-inner">{shortcuts[name] ?? 'Loading...'}</kbd></div>)}</div>
           <button type="button" className={buttonClass('secondary', 'mt-4 w-full')} onClick={() => void browser.tabs.create({ url: 'chrome://extensions/shortcuts', active: true })}>Manage keyboard shortcuts</button>
         </SettingsCard>
-      </SettingsGroup>
+      </SettingsGroup>}
 
-      <SettingsGroup {...groups[1]}>
-        {feedback}
+      {page === 'data' && <SettingsGroup {...groups[1]}>
+        <div className="lg:col-span-2">{feedback}</div>
         <SettingsCard id="settings-backup" title="Backup">
           <p className="mt-2 text-sm text-slate-600">Export projects, sessions, links, reminders, and settings as readable JSON. Chrome bookmarks are not included.</p>
           <p className="mt-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">Backups can contain sensitive URLs and notes. Store the file securely.</p>
@@ -237,9 +256,9 @@ export function SettingsSection() {
         </SettingsCard>
 
         <SnapshotsPanel />
-      </SettingsGroup>
+      </SettingsGroup>}
 
-      <SettingsGroup {...groups[2]}>
+      {page === 'about' && <SettingsGroup {...groups[2]}>
         <SettingsCard id="settings-privacy" title="Privacy">
           <p className="mt-2 text-sm text-slate-600">LinkShelf stores its own data locally and does not send your links, notes, or bookmarks to a server.</p>
           <p className="mt-2 text-xs text-slate-500">Version {browser.runtime.getManifest().version}</p>
@@ -254,16 +273,17 @@ export function SettingsSection() {
           <div className="mt-3 flex flex-wrap gap-2"><a className={buttonClass('primary', 'flex-1')} href="mailto:ali.shaaban2002@gmail.com?subject=LinkShelf%20feedback">Send feedback</a><a className={buttonClass('secondary', 'flex-1')} href="https://github.com/AliShaab-an/linkshelf/issues" target="_blank" rel="noreferrer">Report issue</a></div>
           <a className={buttonClass('quiet', 'mt-2 w-full')} href={RATE_PROMPT_REVIEW_URL} target="_blank" rel="noreferrer">Rate LinkShelf on the Chrome Web Store</a>
         </SettingsCard>
-      </SettingsGroup>
+      </SettingsGroup>}
     </>
   );
 }
 
 function SettingsGroup({ id, title, description, children }: { id: string; title: string; description: string; children: ReactNode }) {
-  return <section aria-labelledby={`${id}-title`} className="mt-8 scroll-mt-4">
+  return <section aria-labelledby={`${id}-title`} className="mt-6 scroll-mt-4">
     <h3 id={`${id}-title`} tabIndex={-1} className="text-base font-bold text-slate-900">{title}</h3>
     <p className="mt-0.5 text-sm text-slate-600">{description}</p>
-    <div className="mt-3 space-y-4">{children}</div>
+    {/* Two columns of cards on wide screens; the cards keep their natural height. */}
+    <div className="mt-3 grid items-start gap-4 lg:grid-cols-2">{children}</div>
   </section>;
 }
 

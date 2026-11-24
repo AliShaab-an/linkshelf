@@ -357,7 +357,7 @@ try {
   });
 
   await scenario('Backup Merge and Replace remain named inline previews with cancel and verified Merge focus', async () => {
-    await navigateSidebar(page, 'Settings');
+    await navigateSidebar(page, 'Your data');
     const file = { name: 'synthetic.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup(await h.database()))) };
     const chooser = page.getByLabel('Choose backup file');
     await chooser.setInputFiles(file);
@@ -385,13 +385,14 @@ try {
 
   await scenario('Settings and Quick Settings save the same preferences and report write failures', async () => {
     await page.setViewportSize({ width: 320, height: 760 });
+    await navigateSidebar(page, 'Settings');
     await h.ok({ type: 'PATCH_SETTINGS', payload: { notificationsEnabled: false, displayDensity: 'compact' } });
     const desktop = page.getByRole('switch', { name: 'Desktop reminders', exact: true });
     const project = page.getByRole('combobox', { name: 'Save new parked tabs to', exact: true });
     const spacing = page.getByRole('radio', { name: 'Comfortable', exact: true });
     await desktop.waitFor();
     await poll(() => desktop.isChecked(), checked => !checked, 'notifications initially off');
-    assert.equal(await button('Download backup').evaluate(el => getComputedStyle(el).cursor), 'pointer');
+    assert.equal(await button('Manage keyboard shortcuts').evaluate(el => getComputedStyle(el).cursor), 'pointer');
     assert.equal(await project.evaluate(el => getComputedStyle(el).cursor), 'pointer');
     assert.equal(await desktop.evaluate(el => getComputedStyle(el).cursor), 'pointer');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
