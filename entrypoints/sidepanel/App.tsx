@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { SIDE_PANEL_INTENTS_KEY, type SidePanelSection } from '@/domain/side-panel';
-import { ArchiveSection } from './components/ArchiveSection';
+import { DEFAULT_SIDEBAR_PREFERENCES, SIDE_PANEL_INTENTS_KEY, sidebarOpeningSection, type SidebarPreferences, type SidePanelSection } from '@/domain/side-panel';
 import { ParkTabsSection } from './components/ParkTabsSection';
 import { ProjectsSection } from './components/ProjectsSection';
 import { SearchSection } from './components/SearchSection';
-import { ReviewSection } from './components/ReviewSection';
-import { SettingsSection } from './components/SettingsSection';
-import { SidePanelNavigation } from './components/SidePanelNavigation';
+import { SIDEBAR_SECTIONS, SidePanelNavigation } from './components/SidePanelNavigation';
+import { openManager } from '@/messaging/contracts';
 import { TodaySection } from './components/TodaySection';
 import { QuickSettings } from './components/QuickSettings';
 import { StorageRecoveryGate } from './components/StorageRecovery';
 import { RatePromptCard } from './components/RatePromptCard';
 import { hasActiveModal } from './components/ui/Modal';
-import { consumeWindowIntent, DEFAULT_UI_STATE, loadUiState, readWindowIntent, updateUiState } from './ui-state';
+import { consumeWindowIntent, DEFAULT_UI_STATE, loadUiState, UI_STATE_STORAGE_KEY, UiStateSchema, readWindowIntent, updateUiState } from './ui-state';
 import { createNavigationIntents } from './navigation-intents';
 import type { SavedSessionTarget } from './parking-outcome';
 import { useInterfaceTheme } from './use-interface-theme';
@@ -21,11 +19,14 @@ function App() {
   const appearance = useInterfaceTheme();
   const [activeSection, setActiveSection] =
     useState<SidePanelSection>(DEFAULT_UI_STATE.lastSection);
+  const [sidebar, setSidebar] = useState<SidebarPreferences>(DEFAULT_SIDEBAR_PREFERENCES);
   const [ready, setReady] = useState(false);
   const [searchFocusRequestId, setSearchFocusRequestId] = useState<string>();
   const [searchQuery, setSearchQuery] = useState('');
   const [savedSession, setSavedSession] = useState<SavedSessionTarget>();
   const [parkProjectId, setParkProjectId] = useState<string>();
+  const [manageError, setManageError] = useState('');
+  const windowId = useRef<number>(undefined);
   const intents = useRef<ReturnType<typeof createNavigationIntents>>(null);
 
   useLayoutEffect(() => { window.scrollTo(0, 0); }, [activeSection]);
@@ -62,6 +63,11 @@ function App() {
       if (areaName === 'session' && changes[SIDE_PANEL_INTENTS_KEY]) {
         void receive(changes[SIDE_PANEL_INTENTS_KEY].newValue);
       }
+      if (areaName === 'local' && changes[UI_STATE_STORAGE_KEY]) {
+        const parsed = UiStateSchema.safeParse(changes[UI_STATE_STORAGE_KEY].newValue);
+        if (parsed.success) setSidebar(current => current.startSection === parsed.data.startSection && current.hiddenSections.join() === parsed.data.hiddenSections.join()
+          ? current : { startSection: parsed.data.startSection, hiddenSections: parsed.data.hiddenSections });
+      }
     }
 
     browser.storage.onChanged.addListener(onStorageChange);
@@ -70,9 +76,14 @@ function App() {
       browser.windows.getCurrent(),
     ]).then(async ([uiState, currentWindow]) => {
       if (disposed) return;
-      setActiveSection(uiState.status === 'fulfilled' ? uiState.value.lastSection : DEFAULT_UI_STATE.lastSection);
+      if (uiState.status === 'fulfilled') {
+        const { startSection, hiddenSections } = uiState.value;
+        setSidebar({ startSection, hiddenSections });
+        setActiveSection(sidebarOpeningSection({ startSection, hiddenSections }, sidebarSection(uiState.value.lastSection)));
+      } else setActiveSection(DEFAULT_UI_STATE.lastSection);
       if (currentWindow.status === 'fulfilled') {
         currentWindowId = currentWindow.value.id;
+        windowId.current = currentWindowId;
         try {
           const stored = await browser.storage.session.get(SIDE_PANEL_INTENTS_KEY);
           await receive(stored[SIDE_PANEL_INTENTS_KEY]);
@@ -88,6 +99,13 @@ function App() {
       browser.storage.onChanged.removeListener(onStorageChange);
     };
   }, [navigate]);
+
+  function manage() {
+    setManageError('');
+    void openManager('home', windowId.current).then(response => {
+      if (!response.success) setManageError(response.error.message);
+    }).catch(() => setManageError('LinkShelf could not open the Manager page.'));
+  }
 
   function changeSection(section: SidePanelSection) {
     if (hasActiveModal()) return;
@@ -120,7 +138,8 @@ function App() {
               </div>
               <QuickSettings {...appearance} />
             </header>
-            <SidePanelNavigation activeSection={activeSection} onChange={changeSection} />
+            <SidePanelNavigation activeSection={activeSection} hiddenSections={sidebar.hiddenSections} onChange={changeSection} onManage={manage} />
+            {manageError && <p role="alert" className="mx-3 mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{manageError}</p>}
           </div>
           <section className="mx-auto max-w-2xl p-4 pb-10">
             {(activeSection === 'park' || activeSection === 'projects' || activeSection === 'today') && <RatePromptCard />}
@@ -133,15 +152,17 @@ function App() {
               intents.current?.supersede();
               navigate('park', undefined, undefined, projectId);
             }} />}
-            {activeSection === 'archive' && <ArchiveSection />}
             {activeSection === 'search' && <SearchSection query={searchQuery} onQueryChange={setSearchQuery} focusRequestId={searchFocusRequestId} />}
-            {activeSection === 'review' && <ReviewSection />}
-            {activeSection === 'settings' && <SettingsSection />}
           </section>
         </> : <p role="status" className="p-4 text-sm text-slate-600">Loading workspace…</p>}
       </StorageRecoveryGate>
     </main>
   );
+}
+
+/** Review, Archive and Settings moved to the Manager page; a sidebar last left on one opens Saved. */
+function sidebarSection(section: SidePanelSection): SidePanelSection {
+  return (SIDEBAR_SECTIONS as readonly SidePanelSection[]).includes(section) ? section : 'projects';
 }
 
 function reportNavigationError(error: unknown) {

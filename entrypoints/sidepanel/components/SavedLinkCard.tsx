@@ -27,9 +27,14 @@ interface SavedLinkCardProps {
   onEditTags?: () => void;
   onRemind?: () => void;
   onRemove?: () => void;
+  /** 'row' is the compact one-line layout used by the Manager's lists. */
+  layout?: 'card' | 'row';
+  /** With a row layout: whether the row's checkbox is ticked, and how to change it. */
+  selected?: boolean;
+  onSelectChange?: (selected: boolean) => void;
 }
 
-export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', inSession = false, showParkedDate = true, isRestoring, onRestore, onRestoreAndRemove, onArchive, onUnarchive, onBookmark, onMove, onEditTags, onRemind, onRemove }: SavedLinkCardProps) {
+export function SavedLinkCard({ cardId, link, note = link.note, projectName, isDue = false, density = 'comfortable', inSession = false, showParkedDate = true, isRestoring, onRestore, onRestoreAndRemove, onArchive, onUnarchive, onBookmark, onMove, onEditTags, onRemind, onRemove, layout = 'card', selected = false, onSelectChange }: SavedLinkCardProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [opensDown, setOpensDown] = useState(false);
   const actionsButton = useRef<HTMLButtonElement>(null);
@@ -41,7 +46,7 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
 
   // The menu opens upward; flip it when sticky headers would cover its first items.
   useLayoutEffect(() => {
-    if (!actionsOpen || menuInHeader) {
+    if (!actionsOpen || (menuInHeader && layout !== 'row')) {
       setOpensDown(false);
       return;
     }
@@ -51,7 +56,11 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
     const styles = getComputedStyle(document.documentElement);
     const covered = ['--sidebar-shell-height', '--saved-toolbar-height']
       .reduce((total, name) => total + (Number.parseFloat(styles.getPropertyValue(name)) || 0), 0);
-    setOpensDown(button.getBoundingClientRect().top - covered < panel.offsetHeight + 16);
+    const rect = button.getBoundingClientRect();
+    const roomAbove = rect.top - covered;
+    // A row's menu opens downward, like a dropdown, unless the space below is too small and above is larger.
+    if (layout === 'row') setOpensDown(innerHeight - rect.bottom >= panel.offsetHeight + 16 || innerHeight - rect.bottom >= roomAbove);
+    else setOpensDown(roomAbove < panel.offsetHeight + 16);
   }, [actionsOpen]);
 
   useEffect(() => {
@@ -75,10 +84,53 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
     callback?.();
   }
 
+  const menuItems = <>
+    {onMove && <ActionButton onClick={() => action(onMove)}>Move to project</ActionButton>}
+    {onArchive && <ActionButton onClick={() => action(onArchive)}>Archive</ActionButton>}
+    {onEditTags && <ActionButton onClick={() => action(onEditTags)}>{link.tags?.length ? 'Edit tags' : 'Add tags'}</ActionButton>}
+    {onRemind && <ActionButton onClick={() => action(onRemind)}>{isDue ? 'Snooze…' : link.reminderAt ? 'Change reminder' : 'Remind me…'}</ActionButton>}
+    {onRestoreAndRemove && <ActionButton onClick={() => action(onRestoreAndRemove)}>Restore and remove from list</ActionButton>}
+    {onUnarchive && <ActionButton onClick={() => action(onUnarchive)}>Return to project</ActionButton>}
+    {onRemove && <ActionButton danger onClick={() => action(onRemove)}>Remove</ActionButton>}
+  </>;
+
   const compact = density === 'compact';
   const row = inSession && compact;
   const actionsTrigger = secondaryActions && <button ref={actionsButton} type="button" className="dropdown-trigger shrink-0" aria-label="More link actions" aria-expanded={actionsOpen && !isRestoring} aria-controls={actionsId} disabled={isRestoring} onClick={() => setActionsOpen((open) => !open)}><Icon name="more"/></button>;
   const primaryAction = 'inline-flex min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-sm font-semibold disabled:opacity-45';
+
+  if (layout === 'row') {
+    const dateLine = link.status === 'archived' ? `Archived ${formatLinkDate(link.archivedAt ?? link.updatedAt)}` : `Parked ${formatLinkDate(link.createdAt)}`;
+    // One line per link: the list's keyboard shortcuts act on the focused row, and its actions sit on the right.
+    return <article id={cardId} data-link-row={link.id} tabIndex={0} aria-label={link.title}
+      className={`relative flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-white px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${selected ? 'border-blue-300 bg-blue-50' : 'border-slate-200'}`}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !actionsOpen) return;
+        event.preventDefault();
+        event.stopPropagation();
+        actionsButton.current?.focus();
+        setActionsOpen(false);
+      }}>
+      {onSelectChange && <input type="checkbox" className="size-4 shrink-0 accent-blue-700" aria-label={`Select ${link.title}`} checked={selected}
+        disabled={isRestoring} onChange={event => onSelectChange(event.target.checked)} />}
+      <LinkFavicon link={link} />
+      <div className="min-w-0 flex-1 basis-56">
+        <h3 className="truncate text-sm font-semibold text-slate-900" dir="auto" title={link.title}>{link.title}</h3>
+        <p className="truncate text-xs text-slate-600" title={link.url}>{[link.domain, projectName, dateLine].filter(Boolean).join(' · ')}</p>
+        {link.tags && link.tags.length > 0 && <CardTags tags={link.tags} />}
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {onRestore && <button type="button" aria-label={isRestoring ? undefined : 'Restore link'} className={`${primaryAction} text-blue-700 hover:bg-blue-50`} disabled={isRestoring} onClick={onRestore}><Icon name="undo" className="size-4 shrink-0"/>{isRestoring ? 'Working…' : 'Restore'}</button>}
+        {onBookmark && <button type="button" aria-label="Bookmark in Chrome" className={`${primaryAction} text-slate-700 hover:bg-slate-100`} disabled={isRestoring} onClick={onBookmark}><Icon name="bookmark" className="size-4 shrink-0"/>Bookmark</button>}
+        {actionsTrigger}
+      </div>
+      {note && <div className="min-w-0 basis-full"><NotePreview note={note} /></div>}
+      {secondaryActions && <div id={actionsId} ref={actionsPanel} hidden={!actionsOpen || isRestoring}
+        className={`dropdown-panel absolute right-3 ${opensDown ? 'top-full mt-1' : 'bottom-full mb-1'} z-20 min-w-40 space-y-1`} role="group" aria-label="Link actions">
+        {actionsOpen && !isRestoring && menuItems}
+      </div>}
+    </article>;
+  }
 
   return <article id={cardId} data-saved-row={inSession || undefined} tabIndex={inSession ? 0 : undefined}
     aria-label={inSession ? link.title : undefined}
@@ -120,15 +172,7 @@ export function SavedLinkCard({ cardId, link, note = link.note, projectName, isD
 
     {secondaryActions && <div id={actionsId} ref={actionsPanel} hidden={!actionsOpen || isRestoring}
       className={`dropdown-panel absolute right-4 ${menuInHeader ? 'top-14' : opensDown ? 'top-full mt-1' : 'bottom-14'} z-20 min-w-40 space-y-1`} role="group" aria-label="Link actions">
-      {actionsOpen && !isRestoring && <>
-        {onMove && <ActionButton onClick={() => action(onMove)}>Move to project</ActionButton>}
-        {onArchive && <ActionButton onClick={() => action(onArchive)}>Archive</ActionButton>}
-        {onEditTags && <ActionButton onClick={() => action(onEditTags)}>{link.tags?.length ? 'Edit tags' : 'Add tags'}</ActionButton>}
-        {onRemind && <ActionButton onClick={() => action(onRemind)}>{isDue ? 'Snooze…' : link.reminderAt ? 'Change reminder' : 'Remind me…'}</ActionButton>}
-        {onRestoreAndRemove && <ActionButton onClick={() => action(onRestoreAndRemove)}>Restore and remove from list</ActionButton>}
-        {onUnarchive && <ActionButton onClick={() => action(onUnarchive)}>Return to project</ActionButton>}
-        {onRemove && <ActionButton danger onClick={() => action(onRemove)}>Remove</ActionButton>}
-      </>}
+      {actionsOpen && !isRestoring && menuItems}
     </div>}
   </article>;
 }

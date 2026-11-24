@@ -35,7 +35,7 @@
         <h2>Data LinkShelf handles</h2>
         <p>LinkShelf processes the following information only to provide its visible features:</p>
         <ul>
-          <li>Titles, URLs, favicons, pin state, and original position of tabs the user chooses to park.</li>
+          <li>Titles, URLs, favicons, pin state, and original position of tabs the user chooses to park. If the user turns on <em>Keep tab groups</em>, also the name and colour of the Chrome tab group a parked tab was in.</li>
           <li>Project names, notes, tags, reminder dates, and settings entered by the user.</li>
           <li>
             Only if the user turns on <em>Recent window snapshots</em> in Settings (off by default): the
@@ -84,6 +84,7 @@
           <li><strong>Storage:</strong> keep LinkShelf projects, links, sessions, reminders, settings, and lifecycle history locally.</li>
           <li><strong>Alarms and notifications:</strong> schedule and display reminders created by the user, and refresh window snapshots when the user has enabled them.</li>
           <li><strong>Side panel:</strong> provide the extension interface. Current-tab parking uses the existing Tabs permission; LinkShelf does not request <code>activeTab</code>.</li>
+          <li><strong>Tab groups (optional):</strong> requested only when the user turns on <em>Keep tab groups</em> in Settings. It is used to read the name and colour of a parked tab's group and to recreate that group when the tabs are restored. It can be turned off at any time, and LinkShelf works without it.</li>
         </ul>
         <p>LinkShelf does not request broad website host access and does not inject scripts into webpages.</p>
 

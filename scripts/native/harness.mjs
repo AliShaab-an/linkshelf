@@ -14,8 +14,71 @@ export async function sectionButton(page, name) {
   return button;
 }
 
+const managerSections = { Home: 'home', Library: 'library', Review: 'review', Archive: 'archive', Bin: 'bin', Duplicates: 'duplicates', Settings: 'settings' };
+
+/** The Manager page's link for a section. */
+// A link's name may end with a count, such as "Review, 4 waiting".
+export const managerLink = (page, name) => page.getByRole('navigation', { name: 'Manager sections' }).getByRole('link', { name: new RegExp(`^${name}(?![A-Za-z])`) });
+
+/**
+ * Shows a LinkShelf section in this test page the way it lives in the product:
+ * Park, Saved, Search and Today in the sidebar; Home, Review, Archive and Settings on the Manager page.
+ */
 export async function navigateSidebar(page, name) {
+  // Your data and About are pages inside Settings, opened by their address.
+  const settingsPage = { 'Your data': 'data', About: 'about' }[name];
+  if (settingsPage) {
+    await page.goto(new URL(`/manager.html#settings/${settingsPage}`, page.url()).href);
+    await poll(() => page.getByRole('navigation', { name: 'Settings groups' }).getByRole('link', { name, exact: true }).getAttribute('aria-current'),
+      value => value === 'page', `${name} shown in Settings`);
+    return;
+  }
+  const managerSection = managerSections[name];
+  const onManager = new URL(page.url()).pathname === '/manager.html';
+  if (managerSection) {
+    if (onManager) await managerLink(page, name).click();
+    else await page.goto(new URL(`/manager.html#${managerSection}`, page.url()).href);
+    await poll(() => managerLink(page, name).getAttribute('aria-current'), value => value === 'page', `${name} shown on the Manager page`);
+    return;
+  }
+  if (onManager) await page.goto(new URL('/sidepanel.html', page.url()).href);
   await (await sectionButton(page, name)).click();
+}
+
+/**
+ * Chooses a value in a LinkShelf Dropdown (combobox) or SegmentedControl (radiogroup),
+ * the way a user would: by clicking. `choice` is an option value, or `{ label }`.
+ */
+export async function choose(control, choice) {
+  const match = typeof choice === 'object'
+    ? item => item.filter({ hasText: new RegExp(`^${choice.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) })
+    : item => item.and(control.page().locator(`[data-value="${String(choice).replace(/"/g, '\\"')}"]`));
+  if (await control.getAttribute('role') === 'radiogroup') {
+    await match(control.getByRole('radio')).click();
+    return;
+  }
+  // While open, the listbox shares the label, so pin the combobox itself.
+  const box = control.and(control.page().getByRole('combobox'));
+  const list = control.page().locator(`[id="${await box.getAttribute('aria-controls')}"]`);
+  await box.click();
+  await match(list.getByRole('option')).click();
+  await list.waitFor({ state: 'detached' });
+}
+
+/** The value currently chosen in a Dropdown or SegmentedControl. */
+export const chosenValue = control => control.getAttribute('data-value');
+
+/** The option labels a Dropdown or SegmentedControl offers. */
+export async function optionLabels(control) {
+  if (await control.getAttribute('role') === 'radiogroup') return control.getByRole('radio').allTextContents();
+  // While open, the listbox shares the label, so pin the combobox itself.
+  const box = control.and(control.page().getByRole('combobox'));
+  const list = control.page().locator(`[id="${await box.getAttribute('aria-controls')}"]`);
+  await box.click();
+  const labels = await list.getByRole('option').allTextContents();
+  await box.press('Escape');
+  await list.waitFor({ state: 'detached' });
+  return labels;
 }
 
 export async function poll(read, matches, label, timeout = 15000) {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { navigateSidebar, createHarness, poll } from './harness.mjs';
+import { navigateSidebar, createHarness, poll, choose } from './harness.mjs';
 import { backup, library } from './fixtures.mjs';
 
 const h = await createHarness();
@@ -226,13 +226,14 @@ try {
       await navigateSidebar(h.page, name);
       const navigation = h.page.getByRole('navigation', { name: 'LinkShelf sections' });
       const label = name === 'Projects' ? 'Saved' : name;
-      assert.equal(await navigation.getByRole('button', { name: label, exact: true }).getAttribute('aria-current'), 'page');
+      // navigateSidebar confirms the Manager page's current section itself.
+      if (!['Review', 'Archive', 'Settings'].includes(name)) assert.equal(await navigation.getByRole('button', { name: label, exact: true }).getAttribute('aria-current'), 'page');
       results.ui.push({ width, section: name, ...await h.page.evaluate(() => ({ viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth, headings: [...document.querySelectorAll('h1,h2')].map(el => el.textContent) })) });
     }
     await h.page.screenshot({ path: path.join(h.output, `settings-${width}.png`), fullPage: true });
   }
   await navigateSidebar(h.page, 'Projects');
-  await h.page.getByLabel('Project', { exact: true }).selectOption('legacy-project');
+  await choose(h.page.getByLabel('Project', { exact: true }), 'legacy-project');
   await h.page.getByLabel('Filter this project').fill('Synthetic');
   await h.page.keyboard.press('Tab');
   assert.ok(await h.page.evaluate(() => document.activeElement !== document.body));
@@ -266,6 +267,7 @@ try {
   await h.page.screenshot({ path: path.join(h.output, 'long-content-320.png'), fullPage: true });
   await navigateSidebar(h.page, 'Settings');
   await h.page.getByRole('switch', { name: 'Desktop reminders', exact: true }).waitFor();
+  await navigateSidebar(h.page, 'Your data');
   const exportDownload = h.page.waitForEvent('download');
   await h.page.getByRole('button', { name: 'Download backup', exact: true }).click();
   const exportPath = path.join(h.output, 'synthetic-standard-backup.json');

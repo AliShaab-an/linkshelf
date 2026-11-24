@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { build } from 'vite';
-import { navigateSidebar, createHarness, poll } from './harness.mjs';
+import { navigateSidebar, createHarness, poll, choose, chosenValue } from './harness.mjs';
 import { backup } from './fixtures.mjs';
 import { dataset } from '../performance/fixtures.mjs';
 
@@ -103,7 +103,7 @@ try {
 
   await page.setViewportSize({ width: 400, height: 760 });
   await navigateSidebar(page, 'Projects');
-  await page.getByLabel('Project', { exact: true }).selectOption('restore-probe');
+  await choose(page.getByLabel('Project', { exact: true }), 'restore-probe');
   await button('View options').click();
   await button('Expand all').click();
   const first = card(longTitle);
@@ -298,7 +298,7 @@ try {
     await openAction(moving, 'Move to project');
     const destination = dialog.getByLabel('Destination project');
     await active(destination);
-    await destination.selectOption('inbox');
+    await choose(destination, 'inbox');
     await dialog.getByRole('button', { name: 'Move link' }).click();
     await waitClosed();
     await active(more(moving));
@@ -328,7 +328,7 @@ try {
 
   await scenario('Inline project confirmations focus their headings and return on cancel and delete', async () => {
     await navigateSidebar(page, 'Projects');
-    await page.getByLabel('Project', { exact: true }).selectOption('restore-probe');
+    await choose(page.getByLabel('Project', { exact: true }), 'restore-probe');
     const restoreAll = page.getByRole('button', { name: /^Restore all \(\d+\)$/ });
     await restoreAll.click();
     const restore = page.getByRole('region', { name: /^Restore all/ });
@@ -357,7 +357,7 @@ try {
   });
 
   await scenario('Backup Merge and Replace remain named inline previews with cancel and verified Merge focus', async () => {
-    await navigateSidebar(page, 'Settings');
+    await navigateSidebar(page, 'Your data');
     const file = { name: 'synthetic.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup(await h.database()))) };
     const chooser = page.getByLabel('Choose backup file');
     await chooser.setInputFiles(file);
@@ -385,13 +385,14 @@ try {
 
   await scenario('Settings and Quick Settings save the same preferences and report write failures', async () => {
     await page.setViewportSize({ width: 320, height: 760 });
+    await navigateSidebar(page, 'Settings');
     await h.ok({ type: 'PATCH_SETTINGS', payload: { notificationsEnabled: false, displayDensity: 'compact' } });
     const desktop = page.getByRole('switch', { name: 'Desktop reminders', exact: true });
     const project = page.getByRole('combobox', { name: 'Save new parked tabs to', exact: true });
     const spacing = page.getByRole('radio', { name: 'Comfortable', exact: true });
     await desktop.waitFor();
     await poll(() => desktop.isChecked(), checked => !checked, 'notifications initially off');
-    assert.equal(await button('Download backup').evaluate(el => getComputedStyle(el).cursor), 'pointer');
+    assert.equal(await button('Manage keyboard shortcuts').evaluate(el => getComputedStyle(el).cursor), 'pointer');
     assert.equal(await project.evaluate(el => getComputedStyle(el).cursor), 'pointer');
     assert.equal(await desktop.evaluate(el => getComputedStyle(el).cursor), 'pointer');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -420,22 +421,25 @@ try {
     await spacing.focus();
     await page.keyboard.press('Space');
     await poll(h.raw, value => value.settings.displayDensity === 'comfortable', 'comfortable spacing saved');
+    // Quick settings lives in the sidebar; full Settings on the Manager page.
+    await navigateSidebar(page, 'Projects');
     const quick = button('Quick settings');
     await quick.click();
     const panel = page.getByRole('group', { name: 'Quick settings', exact: true });
     const quickSwitch = panel.getByRole('switch', { name: 'Desktop reminders' });
     await quickSwitch.waitFor();
     assert.equal(await quickSwitch.isChecked(), true);
-    assert.equal(await panel.getByRole('combobox', { name: 'Saved link spacing' }).inputValue(), 'comfortable');
+    assert.equal(await chosenValue(panel.getByRole('radiogroup', { name: 'Saved link spacing' })), 'comfortable');
     await quickSwitch.click();
     await poll(h.raw, value => !value.settings.notificationsEnabled, 'quick settings persisted');
     await page.keyboard.press('Escape');
     await active(quick);
+    await navigateSidebar(page, 'Settings');
     await poll(() => desktop.isChecked(), checked => !checked, 'full Settings reflects Quick Settings change');
   });
 
   await scenario('200% Chrome zoom, disappearing Search result, and section navigation after dismissal', async () => {
-    await button('Search').click();
+    await navigateSidebar(page, 'Search');
     await page.getByRole('searchbox').fill(fixture.links[4].title);
     const searchCard = card(fixture.links[4].title);
     await openAction(searchCard, 'Remove');

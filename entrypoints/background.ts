@@ -25,6 +25,7 @@ import {
   isRemoveLinkMessage,
   isUndoParkedLinkMessage,
   isMoveLinkMessage,
+  isRenameSessionMessage,
   isSetLinkTagsMessage,
   isSetLinkReminderMessage,
   isGetParkDuplicatesMessage,
@@ -41,6 +42,7 @@ import {
   isTrashMessage,
   isAutoBackupMessage,
   isRatePromptMessage,
+  isOpenManagerMessage,
   isUpdateSettingsMessage,
   isPatchSettingsMessage,
   isStorageRecoveryMessage,
@@ -81,12 +83,17 @@ import { parseSearchQuery } from '@/domain/tags';
 import { ChromeStorageAdapter } from '@/storage/storage-adapter';
 import { RatePromptStore } from '@/storage/rate-prompt-store';
 import { RATE_PROMPT_REVIEW_URL, isRatePromptVisible } from '@/domain/rate-prompt';
+import { MANAGER_PAGE_PATH, type ManagerSection } from '@/domain/manager';
+import { TAB_GROUPS_PERMISSION } from '@/domain/tab-groups';
+import { createTabGroups } from '@/features/tab-groups/tab-groups';
 import {
   DuplicateProjectNameError,
   InvalidLinkStateError,
   InvalidProjectNameError,
   InvalidTagsError,
+  InvalidSessionNameError,
   LinkNotFoundError,
+  SessionNotFoundError,
   LinkShelfRepository,
   ProjectNotFoundError,
   ProtectedInboxError,
@@ -162,7 +169,13 @@ export default defineBackground(() => {
       console.warn('LinkShelf could not update the snapshot alarm:', error);
     }
   }
-  const restoration = createRestoreCoordinator(repository, operations, browser.tabs);
+  // chrome.tabGroups exists only while the optional permission is granted, so it is looked up on use.
+  const tabGroups = createTabGroups({
+    granted: () => browser.permissions.contains({ permissions: [TAB_GROUPS_PERMISSION] }),
+    groups: () => browser.tabGroups,
+    tabs: { group: (options) => browser.tabs.group(options as Parameters<typeof browser.tabs.group>[0]) },
+  });
+  const restoration = createRestoreCoordinator(repository, operations, browser.tabs, tabGroups);
   const bookmarking = createBookmarkCoordinator(operations, {
     getLink: (id) => repository.getLink(id),
     getTrackingParams: async () => (await repository.getSettings()).trackingParamsToRemove,
@@ -252,14 +265,14 @@ export default defineBackground(() => {
 
   function parkCurrent(message: ParkCurrentTabMessage) {
     return operations.reserve([`tab:${message.payload.tabId}`], () => watchTabSnapshots(browser.tabs, [message.payload.tabId], (hasTabChanged) => executeParkCurrentTab(message, {
-      getTab: (id) => browser.tabs.get(id), persistTab: async (input) => { const result = await repository.parkTab(input); countParked(1); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
+      getTab: (id) => browser.tabs.get(id), describeGroup: (id) => tabGroups.describe(id), persistTab: async (input) => { const result = await repository.parkTab(input); countParked(1); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
       closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
     })));
   }
 
   function parkSelected(message: ParkSelectedTabsMessage) {
     return operations.reserve(message.payload.tabIds.map((id) => `tab:${id}`), () => watchTabSnapshots(browser.tabs, message.payload.tabIds, (hasTabChanged) => executeParkSelectedTabs(message, {
-      getTab: (id) => browser.tabs.get(id), persistTabs: async (input) => { const result = await repository.parkTabs(input); countParked(result.links.length); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
+      getTab: (id) => browser.tabs.get(id), describeGroup: (id) => tabGroups.describe(id), persistTabs: async (input) => { const result = await repository.parkTabs(input); countParked(result.links.length); return result; }, findParkedDuplicateUrls: (urls) => repository.findParkedDuplicateUrls(urls),
       closeTab: (id) => browser.tabs.remove(id), hasTabChanged,
     })));
   }
@@ -791,6 +804,17 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (isOpenManagerMessage(message)) {
+      const { section, windowId } = message.payload;
+      void openManagerTab(section, windowId)
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => {
+          console.error('Opening the Manager page failed:', error);
+          sendResponse({ success: false, error: { message: 'LinkShelf could not open the Manager page.' } });
+        });
+      return true;
+    }
+
     if (isAutoBackupMessage(message)) {
       const { action, id } = message.payload;
       void (async () => {
@@ -1019,6 +1043,27 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (isRenameSessionMessage(message)) {
+      const { sessionId, name } = message.payload;
+      void operations.reserve([`session:${sessionId}`], () => repository.renameSession(sessionId, name))
+        .then((session) => sendResponse({ success: true, session }))
+        .catch((error) => {
+          const known: Array<[new (...args: never[]) => Error, string]> = [
+            [OperationInProgressError, 'OPERATION_IN_PROGRESS'],
+            [SessionNotFoundError, 'SESSION_NOT_FOUND'],
+            [InvalidSessionNameError, 'INVALID_NAME'],
+          ];
+          const match = known.find(([type]) => error instanceof type);
+          if (match) {
+            sendResponse({ success: false, error: { code: match[1], message: error.message } });
+            return;
+          }
+          console.error('Failed to rename a session:', error);
+          sendResponse({ success: false, error: { code: 'UNEXPECTED_ERROR', message: 'LinkShelf could not rename the session.' } });
+        });
+      return true;
+    }
+
     if (isSetLinkTagsMessage(message)) {
       const { linkId, tags } = message.payload;
       void operations.reserve([`link:${linkId}`], () => repository.setLinkTags(linkId, tags))
@@ -1154,3 +1199,17 @@ export default defineBackground(() => {
     return false;
   });
 });
+
+/** Shows the Manager page at a section, reusing an open Manager tab (preferring the caller's window). */
+async function openManagerTab(section: ManagerSection, windowId?: number) {
+  const base = browser.runtime.getURL(MANAGER_PAGE_PATH);
+  const url = `${base}#${section}`;
+  const managers = (await browser.tabs.query({})).filter(tab => tab.id !== undefined && tab.url?.startsWith(base));
+  const existing = managers.find(tab => tab.windowId === windowId) ?? managers[0];
+  if (!existing?.id) {
+    await browser.tabs.create({ url, active: true, ...(windowId === undefined ? {} : { windowId }) });
+    return;
+  }
+  await browser.tabs.update(existing.id, { url, active: true });
+  await browser.windows.update(existing.windowId, { focused: true });
+}

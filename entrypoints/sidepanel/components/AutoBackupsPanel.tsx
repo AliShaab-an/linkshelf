@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { buttonClass } from './ui/styles';
 import type { LinkShelfBackup } from '@/domain/schemas';
 import type { AutoBackupReason } from '@/domain/auto-backups';
 import {
@@ -53,7 +54,7 @@ export function AutoBackupsPanel({ disabled, onChoose }: {
   }, []);
 
   return <section aria-labelledby="auto-backups-title">
-    <h4 id="auto-backups-title" className="text-sm font-semibold">Automatic backups</h4>
+    <h4 id="auto-backups-title" className="font-semibold text-slate-900">Automatic backups</h4>
     <p className="mt-1 text-xs text-slate-500">LinkShelf keeps up to 5 recent copies of your library inside the extension: one a day, plus one before you replace everything with an import. They stay on this device and are not a substitute for Download backup, because removing the extension deletes them.</p>
     <label className="mt-3 flex min-h-10 items-start gap-3 text-sm font-semibold">
       <input type="checkbox" className="mt-1 size-4 shrink-0 accent-blue-700" checked={state.enabled} disabled={busy || !loaded || disabled}
@@ -76,7 +77,7 @@ export function AutoBackupsPanel({ disabled, onChoose }: {
           <p className="text-sm font-semibold">{dateFormatter.format(new Date(backup.createdAt))}</p>
           <p className="text-xs text-slate-600">{reasonLabel(backup.reason)} · {plural(backup.links, 'link')} in {plural(backup.projects, 'project')} · {sizeLabel(backup.bytes)}</p>
           <div className="mt-2 flex gap-2">
-            <button type="button" className="min-h-10 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold disabled:opacity-50" disabled={busy || disabled}
+            <button type="button" className={buttonClass('secondary', 'flex-1')} disabled={busy || disabled}
               aria-label={`Restore automatic backup from ${dateFormatter.format(new Date(backup.createdAt))}`}
               onClick={() => void run(async () => {
                 const response = await getAutoBackup(backup.id);
@@ -85,7 +86,7 @@ export function AutoBackupsPanel({ disabled, onChoose }: {
                 onChoose(response.backup, `Automatic backup · ${dateFormatter.format(new Date(backup.createdAt))}`);
                 setMessage('Loaded below. Choose Merge or Replace all to continue.');
               })}>Restore…</button>
-            <button type="button" className="min-h-10 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={busy || disabled}
+            <button type="button" className={buttonClass('danger-outline')} disabled={busy || disabled}
               aria-label={`Delete automatic backup from ${dateFormatter.format(new Date(backup.createdAt))}`}
               onClick={() => void run(async () => { apply(await deleteAutoBackup(backup.id)); setMessage('Automatic backup deleted.'); })}>Delete</button>
           </div>

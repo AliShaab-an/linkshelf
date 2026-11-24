@@ -112,3 +112,27 @@ describe('HTML export', () => {
     expect(content).toContain('No saved links.');
   });
 });
+
+describe('session names in exports', () => {
+  const named = (name: string) => {
+    const database = library([{ id: 'a' }]);
+    return { ...database, sessions: [{ ...database.sessions[0], name }] };
+  };
+
+  it('puts the name in the session heading in Markdown, escaped', () => {
+    const { content } = run(named('Trip *planning* <b>'), 'markdown', 'p1');
+    expect(content).toContain('Trip');
+    expect(content).toMatch(/### .*planning.* — Saved 2026-08-09 12:00 UTC/);
+    expect(content).not.toContain('<b>');
+  });
+
+  it('puts the escaped name in the HTML heading', () => {
+    const { content } = run(named('Trip <script>alert(1)</script>'), 'html', 'p1');
+    expect(content).toContain('Trip &lt;script&gt;alert(1)&lt;/script&gt; — Saved 2026-08-09 12:00 UTC');
+    expect(content).not.toContain('<script>alert(1)');
+  });
+
+  it('keeps the plain heading for unnamed sessions', () => {
+    expect(run(library([{ id: 'a' }]), 'markdown', 'p1').content).toContain('### Saved 2026-08-09 12:00 UTC');
+  });
+});

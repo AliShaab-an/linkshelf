@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
+import { buttonClass } from './ui/styles';
 import type { SavedLink } from '@/domain/schemas';
 import { deleteFromTrash, emptyTrash, getTrash, restoreFromTrash, type TrashResponse } from '@/messaging/contracts';
 import { OperationFeedback } from './ui/OperationFeedback';
+import { EmptyState } from './ui/Feedback';
+import { Icon } from './ui/Icon';
+import { SectionHeader } from './ui/SectionHeader';
+import { LinkFavicon } from './SavedLinkCard';
 
 const VISIBLE = 25;
 const DAY = 86_400_000;
@@ -13,7 +18,7 @@ function daysLeft(link: SavedLink, retentionDays: number, now = Date.now()): num
   return Math.max(0, Math.ceil((removed + retentionDays * DAY - now) / DAY));
 }
 
-/** Removed links stay here for 30 days so a mistake can be undone. */
+/** The Manager's Bin: removed links stay here for 30 days so a mistake can be undone. */
 export function TrashPanel() {
   const [links, setLinks] = useState<SavedLink[]>([]);
   const [retentionDays, setRetentionDays] = useState(30);
@@ -34,7 +39,7 @@ export function TrashPanel() {
     if (busy) return;
     setBusy(true); setError(null); setMessage(null);
     try { await action(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'LinkShelf could not update the trash.'); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'LinkShelf could not update the bin.'); }
     finally { setBusy(false); setConfirming(undefined); }
   }
 
@@ -44,7 +49,7 @@ export function TrashPanel() {
     const load = () => {
       const request = ++version;
       void getTrash().then((response) => { if (request === version) apply(response); })
-        .catch((cause) => { if (request === version) setError(cause instanceof Error ? cause.message : 'LinkShelf could not load the trash.'); });
+        .catch((cause) => { if (request === version) setError(cause instanceof Error ? cause.message : 'LinkShelf could not load the bin.'); });
     };
     const changed: Parameters<typeof browser.storage.onChanged.addListener>[0] = (changes, area) => {
       if (area !== 'local' || !Object.hasOwn(changes, 'linkshelfDatabase')) return;
@@ -58,42 +63,44 @@ export function TrashPanel() {
 
   const shown = links.slice(0, VISIBLE);
 
-  return <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="trash-title">
-    <h3 id="trash-title" className="font-semibold">Recently removed</h3>
-    <p className="mt-1 text-sm text-slate-600">Removed links stay here for {retentionDays} days, then are deleted for good. Recover one to put it back where it was.</p>
+  return <section aria-labelledby="bin-title">
+    <SectionHeader headingId="bin-title" title="Bin"
+      description={`Removed links stay here for ${retentionDays} days, then are deleted for good. Recover one to put it back where it was.`}
+      action={links.length > 0 && confirming !== '*'
+        ? <button type="button" className={buttonClass('danger-outline')} disabled={busy} onClick={() => setConfirming('*')}>Empty bin</button>
+        : undefined} />
     <OperationFeedback message={message} error={error} />
-    {loaded && links.length === 0 && <p className="mt-2 text-sm text-slate-600">Nothing removed recently.</p>}
-    {shown.length > 0 && <ul aria-label="Removed links" className="mt-3 space-y-2">
-      {shown.map((link) => <li key={link.id} className="rounded-lg border border-slate-200 p-3">
-        <p className="break-words text-sm font-semibold [overflow-wrap:anywhere]">{link.title}</p>
-        <p className="break-words text-xs text-slate-600 [overflow-wrap:anywhere]">{link.domain} · Removed {dateFormatter.format(new Date(link.removedAt ?? link.updatedAt))} · {daysLeft(link, retentionDays) === 0 ? 'deleted soon' : `${plural(daysLeft(link, retentionDays), 'day')} left`}</p>
+    {links.length > 0 && confirming === '*' && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3" role="group" aria-label="Empty bin">
+      <p className="text-sm text-red-900">Permanently delete {plural(links.length, 'removed link')}? This cannot be undone.</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button type="button" className={buttonClass('danger')} disabled={busy}
+          onClick={() => void run(async () => { const response = await emptyTrash(); apply(response); setMessage(`Deleted ${plural(response.success ? response.affected : 0, 'link')} permanently.`); })}>Empty bin</button>
+        <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={() => setConfirming(undefined)}>Cancel</button>
+      </div>
+    </div>}
+    {loaded && links.length === 0 && <EmptyState title="The bin is empty">Links you remove come here first, so a mistake can be undone.</EmptyState>}
+    {shown.length > 0 && <ul aria-label="Removed links" className="space-y-2">
+      {shown.map((link) => <li key={link.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+        <LinkFavicon link={link} />
+        <div className="min-w-0 flex-1 basis-56">
+          <p className="truncate text-sm font-semibold text-slate-900" dir="auto" title={link.title}>{link.title}</p>
+          <p className="truncate text-xs text-slate-600">{link.domain} · Removed {dateFormatter.format(new Date(link.removedAt ?? link.updatedAt))} · {daysLeft(link, retentionDays) === 0 ? 'deleted soon' : `${plural(daysLeft(link, retentionDays), 'day')} left`}</p>
+        </div>
         {confirming === link.id
-          ? <div className="mt-2" role="group" aria-label={`Delete ${link.title} permanently`}>
-            <p className="text-sm">Delete this link permanently? This cannot be undone.</p>
-            <div className="mt-2 flex gap-2">
-              <button type="button" className="flex-1 rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy}
-                onClick={() => void run(async () => { apply(await deleteFromTrash(link.id)); setMessage('Link deleted permanently.'); })}>Delete permanently</button>
-              <button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={busy} onClick={() => setConfirming(undefined)}>Cancel</button>
-            </div>
+          ? <div className="ml-auto flex flex-wrap items-center gap-2" role="group" aria-label={`Delete ${link.title} permanently`}>
+            <span className="text-sm text-slate-700">Delete for good?</span>
+            <button type="button" className={buttonClass('danger')} disabled={busy}
+              onClick={() => void run(async () => { apply(await deleteFromTrash(link.id)); setMessage('Link deleted permanently.'); })}>Delete permanently</button>
+            <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={() => setConfirming(undefined)}>Cancel</button>
           </div>
-          : <div className="mt-2 flex gap-2">
-            <button type="button" className="min-h-10 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold disabled:opacity-50" disabled={busy} aria-label={`Recover ${link.title}`}
-              onClick={() => void run(async () => { apply(await restoreFromTrash(link.id)); setMessage(`Recovered “${link.title}”.`); })}>Recover</button>
-            <button type="button" className="min-h-10 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={busy} aria-label={`Delete ${link.title} permanently`}
-              onClick={() => setConfirming(link.id)}>Delete</button>
+          : <div className="ml-auto flex items-center gap-1">
+            <button type="button" className={buttonClass('quiet')} disabled={busy} aria-label={`Recover ${link.title}`}
+              onClick={() => void run(async () => { apply(await restoreFromTrash(link.id)); setMessage(`Recovered “${link.title}”.`); })}><Icon name="undo" className="size-4" />Recover</button>
+            <button type="button" className={buttonClass('danger-outline', 'border-transparent')} disabled={busy} aria-label={`Delete ${link.title} permanently`}
+              onClick={() => setConfirming(link.id)}><Icon name="trash" className="size-4" />Delete</button>
           </div>}
       </li>)}
     </ul>}
     {links.length > VISIBLE && <p className="mt-2 text-xs text-slate-600">Showing the newest {VISIBLE} of {links.length} removed links.</p>}
-    {links.length > 0 && (confirming === '*'
-      ? <div className="mt-3" role="group" aria-label="Empty trash">
-        <p className="text-sm">Permanently delete {plural(links.length, 'removed link')}? This cannot be undone.</p>
-        <div className="mt-2 flex gap-2">
-          <button type="button" className="flex-1 rounded-lg bg-red-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy}
-            onClick={() => void run(async () => { const response = await emptyTrash(); apply(response); setMessage(`Deleted ${plural(response.success ? response.affected : 0, 'link')} permanently.`); })}>Empty trash</button>
-          <button type="button" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={busy} onClick={() => setConfirming(undefined)}>Cancel</button>
-        </div>
-      </div>
-      : <button type="button" className="mt-3 w-full rounded-lg border border-red-200 bg-white px-3 py-2.5 text-sm font-semibold text-red-700 disabled:opacity-50" disabled={busy} onClick={() => setConfirming('*')}>Empty trash</button>)}
   </section>;
 }

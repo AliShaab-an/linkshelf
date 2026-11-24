@@ -3,6 +3,7 @@ import { stringifyBackup } from '@/domain/backup';
 import { sameRestoreIdentity, type RestoreIdentity } from '@/domain/restore-identity';
 import {
   CURRENT_SCHEMA_VERSION,
+  SESSION_NAME_MAX_LENGTH,
   LinkShelfDatabaseSchema,
   LinkShelfBackupSchema,
   migrateLinkShelfDatabaseStructure,
@@ -16,6 +17,7 @@ import {
   type SettingsPatch,
 } from '@/domain/schemas';
 import { getDomain, normalizeUrl } from '@/domain/url';
+import type { OriginalTabGroup } from '@/domain/tab-groups';
 import { parseSearchQuery, parseTags } from '@/domain/tags';
 import { InvalidReminderError } from '@/domain/reminders';
 import type { StorageAdapter } from './storage-adapter';
@@ -49,6 +51,20 @@ export class InvalidLinkStateError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'InvalidLinkStateError';
+  }
+}
+
+export class SessionNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionNotFoundError';
+  }
+}
+
+export class InvalidSessionNameError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidSessionNameError';
   }
 }
 
@@ -97,6 +113,7 @@ export interface ParkTabInput {
   sourceWindowId?: number;
   pinnedBeforeParking: boolean;
   originalIndex?: number;
+  originalGroup?: OriginalTabGroup;
 }
 
 export interface ParkTabResult {
@@ -106,6 +123,8 @@ export interface ParkTabResult {
 
 export interface ParkTabsInput {
   projectId?: string;
+  /** A short name for the session; blank means unnamed. */
+  name?: string;
   note?: string;
   reminderAt?: string;
   sourceWindowId?: number;
@@ -115,6 +134,7 @@ export interface ParkTabsInput {
     faviconUrl?: string;
     pinnedBeforeParking: boolean;
     originalIndex?: number;
+    originalGroup?: OriginalTabGroup;
   }>;
 }
 
@@ -397,6 +417,7 @@ export class LinkShelfRepository {
           faviconUrl: input.faviconUrl,
           pinnedBeforeParking: input.pinnedBeforeParking,
           originalIndex: input.originalIndex,
+          originalGroup: input.originalGroup,
         },
       ],
     });
@@ -425,9 +446,11 @@ export class LinkShelfRepository {
 
       const timestamp = this.now();
       const note = input.note?.trim() || undefined;
+      const name = normalizeSessionName(input.name);
       const session: ParkingSession = {
         id: this.createId(),
         projectId,
+        ...(name ? { name } : {}),
         note,
         reminderAt: input.reminderAt,
         sourceWindowId: input.sourceWindowId,
@@ -450,6 +473,7 @@ export class LinkShelfRepository {
         status: 'parked',
         pinnedBeforeParking: tab.pinnedBeforeParking,
         originalIndex: tab.originalIndex,
+        ...(tab.originalGroup ? { originalGroup: tab.originalGroup } : {}),
         reminderAt: input.reminderAt,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -790,6 +814,22 @@ export class LinkShelfRepository {
       },
       'Only parked or archived links can be tagged.',
     );
+  }
+
+  /** Names a session, or clears its name with null. Works for any session, including archived or restored links. */
+  async renameSession(sessionId: string, input: unknown): Promise<ParkingSession> {
+    const name = input === null ? undefined : normalizeSessionName(input);
+    let renamed: ParkingSession | undefined;
+    await this.updateDatabase((database) => {
+      const session = database.sessions.find((candidate) => candidate.id === sessionId);
+      if (!session) throw new SessionNotFoundError('The session no longer exists.');
+      if (session.name === name) { renamed = session; return database; }
+      const { name: _previous, ...rest } = session;
+      renamed = { ...rest, ...(name ? { name } : {}), updatedAt: this.now() };
+      return { ...database, sessions: database.sessions.map((candidate) => candidate.id === sessionId ? renamed! : candidate) };
+    });
+    if (!renamed) throw new StorageIntegrityError('LinkShelf did not rename the session.');
+    return renamed;
   }
 
   /** Sets, changes (snooze) or clears (null) the reminder of a parked link. */
@@ -1482,4 +1522,14 @@ export class LinkShelfRepository {
     }
     throw writeError;
   }
+}
+
+/** Trims and collapses whitespace. Blank means no name; anything over the limit is refused rather than cut short. */
+function normalizeSessionName(input: unknown): string | undefined {
+  if (input === undefined) return undefined;
+  if (typeof input !== 'string') throw new InvalidSessionNameError('Enter a name using text.');
+  const name = input.replace(/\s+/g, ' ').trim();
+  if (!name) return undefined;
+  if (name.length > SESSION_NAME_MAX_LENGTH) throw new InvalidSessionNameError(`Use ${SESSION_NAME_MAX_LENGTH} characters or fewer.`);
+  return name;
 }

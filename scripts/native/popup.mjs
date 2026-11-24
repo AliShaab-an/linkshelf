@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createHarness, navigateSidebar, poll } from './harness.mjs';
+import { createHarness, navigateSidebar, poll, choose, chosenValue } from './harness.mjs';
 
 const h = await createHarness();
 const { page } = h;
@@ -41,7 +41,7 @@ try {
   await h.ok({ type: 'PATCH_SETTINGS', payload: { defaultProjectId: project.id, displayDensity: 'compact', notificationsEnabled: false } });
   const first = await h.tab('popup-default-project');
   const popup = await popupFor(first);
-  await poll(() => picker(popup).inputValue(), value => value === project.id, 'configured destination in popup');
+  await poll(() => chosenValue(picker(popup)), value => value === project.id, 'configured destination in popup');
   const details = popup.locator('summary');
   assert.equal(await popup.getByLabel('Note', { exact: true }).isVisible(), false);
   await details.focus();
@@ -73,7 +73,7 @@ try {
 
   const second = await h.tab('popup-close-failure');
   const partial = await popupFor(second, true);
-  await poll(() => picker(partial).inputValue(), value => value === 'inbox', 'missing preference falls back to Inbox');
+  await poll(() => chosenValue(picker(partial)), value => value === 'inbox', 'missing preference falls back to Inbox');
   const worker = h.worker();
   await worker.evaluate(id => {
     const original = chrome.tabs.remove;
@@ -103,7 +103,7 @@ try {
   await page.bringToFront();
   await navigateSidebar(page, 'Park');
   await navigateSidebar(page, 'Saved');
-  await page.getByRole('combobox', { name: 'Project', exact: true }).selectOption(project.id);
+  await choose(page.getByRole('combobox', { name: 'Project', exact: true }), project.id);
   const link = page.locator('article').filter({ hasText: first.title });
   await link.waitFor();
   assert.equal(await page.getByText('Synthetic popup session note', { exact: true }).count(), 1);
@@ -111,7 +111,7 @@ try {
   await page.getByRole('searchbox', { name: 'Filter this project' }).fill('popup-default-project');
   await button(page, 'Restore all (1)').click();
   const confirm = page.getByRole('region', { name: /^Restore all 1 link/ });
-  await confirm.getByRole('combobox', { name: 'When to load tabs' }).selectOption('unloaded');
+  await choose(confirm.getByRole('radiogroup', { name: 'When to load tabs' }), 'unloaded');
   assert.equal((await h.raw()).links.find(link => link.id === parked.id).status, 'parked');
   await button(confirm, 'Restore 1 tab').click();
   await poll(h.raw, value => value.links.find(link => link.id === parked.id)?.status === 'restored', 'Saved restored the popup link');

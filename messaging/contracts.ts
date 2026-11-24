@@ -2,6 +2,7 @@ import type { OperationWarnings } from '@/features/operations/secondary-result';
 import type { RawRecoveryExport, StorageStatus } from '@/domain/recovery';
 import type { RecoveryBackupPreview } from '@/storage/repository';
 import { SettingsPatchSchema, type SettingsPatch } from '@/domain/schemas';
+import { ManagerSectionSchema, type ManagerSection } from '@/domain/manager';
 import type { SnapshotSummary } from '@/domain/snapshots';
 import type { AutoBackupList } from '@/features/backups/auto-backup-service';
 import type {
@@ -230,6 +231,8 @@ export interface ParkSelectedTabsMessage {
   payload: {
     tabIds: number[];
     projectId: string;
+    /** A short name for the session. */
+    name?: string;
     note?: string;
     reminderAt?: string;
     /** What to do with tabs whose URL is already parked. Defaults to `park`. */
@@ -462,6 +465,22 @@ export type SetLinkTagsResponse =
       success: false;
       error: {
         code: 'LINK_NOT_FOUND' | 'INVALID_STATE' | 'INVALID_TAGS' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR';
+        message: string;
+      };
+    };
+
+export interface RenameSessionMessage {
+  type: 'RENAME_SESSION';
+  /** null clears the name. */
+  payload: { sessionId: string; name: string | null };
+}
+
+export type RenameSessionResponse =
+  | { success: true; session: ParkingSession }
+  | {
+      success: false;
+      error: {
+        code: 'SESSION_NOT_FOUND' | 'INVALID_NAME' | 'OPERATION_IN_PROGRESS' | 'UNEXPECTED_ERROR';
         message: string;
       };
     };
@@ -769,6 +788,7 @@ export function isParkSelectedTabsMessage(
     new Set(tabIds).size === tabIds.length &&
     typeof candidate.payload?.projectId === 'string' &&
     candidate.payload.projectId.length > 0 &&
+    (candidate.payload.name === undefined || typeof candidate.payload.name === 'string') &&
     (candidate.payload.note === undefined ||
       typeof candidate.payload.note === 'string') &&
     (candidate.payload.reminderAt === undefined ||
@@ -963,6 +983,14 @@ export function isSetLinkTagsMessage(message: unknown): message is SetLinkTagsMe
     Array.isArray(candidate.payload.tags);
 }
 
+export function isRenameSessionMessage(message: unknown): message is RenameSessionMessage {
+  if (typeof message !== 'object' || message === null) return false;
+  const candidate = message as Partial<RenameSessionMessage>;
+  return candidate.type === 'RENAME_SESSION' &&
+    typeof candidate.payload?.sessionId === 'string' && candidate.payload.sessionId.length > 0 &&
+    (candidate.payload.name === null || typeof candidate.payload.name === 'string');
+}
+
 export function isSetLinkReminderMessage(message: unknown): message is SetLinkReminderMessage {
   if (typeof message !== 'object' || message === null) return false;
   const candidate = message as Partial<SetLinkReminderMessage>;
@@ -1132,6 +1160,7 @@ export async function parkSelectedTabs(
   tabIds: number[],
   options: {
     projectId: string;
+    name?: string;
     note?: string;
     reminderAt?: string;
     duplicates?: 'park' | 'skip';
@@ -1326,6 +1355,15 @@ export async function setLinkTags(linkId: string, tags: string[]): Promise<SetLi
   return response as SetLinkTagsResponse;
 }
 
+export async function renameSession(sessionId: string, name: string | null): Promise<RenameSessionResponse> {
+  const response = (await browser.runtime.sendMessage({
+    type: 'RENAME_SESSION',
+    payload: { sessionId, name },
+  } satisfies RenameSessionMessage)) as unknown;
+  assertResponse(response);
+  return response as RenameSessionResponse;
+}
+
 export async function getParkDuplicates(tabIds: number[]): Promise<GetParkDuplicatesResponse> {
   const response = (await browser.runtime.sendMessage({ type: 'GET_PARK_DUPLICATES', payload: { tabIds } } satisfies GetParkDuplicatesMessage)) as unknown;
   assertResponse(response);
@@ -1491,3 +1529,22 @@ async function sendRatePromptMessage(action: RatePromptAction): Promise<RateProm
 
 export const getRatePrompt = () => sendRatePromptMessage('get');
 export const answerRatePrompt = (answer: Exclude<RatePromptAction, 'get'>) => sendRatePromptMessage(answer);
+
+export interface OpenManagerMessage { type: 'OPEN_MANAGER'; payload: { section: ManagerSection; windowId?: number } }
+export type OpenManagerResponse = { success: true } | { success: false; error: { message: string } };
+
+export function isOpenManagerMessage(message: unknown): message is OpenManagerMessage {
+  const candidate = message as Partial<OpenManagerMessage> | null;
+  if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'OPEN_MANAGER') return false;
+  const payload = candidate.payload;
+  return typeof payload === 'object' && payload !== null && ManagerSectionSchema.safeParse(payload.section).success &&
+    (payload.windowId === undefined || Number.isInteger(payload.windowId));
+}
+
+/** Opens the Manager page at a section, reusing an open Manager tab. */
+export async function openManager(section: ManagerSection, windowId?: number): Promise<OpenManagerResponse> {
+  const message: OpenManagerMessage = { type: 'OPEN_MANAGER', payload: { section, windowId } };
+  const response = (await browser.runtime.sendMessage(message)) as unknown;
+  assertResponse(response);
+  return response as OpenManagerResponse;
+}

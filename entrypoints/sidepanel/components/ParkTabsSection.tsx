@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { SectionHeader } from './ui/SectionHeader';
 import { localReminderToUtc, toLocalDateTimeInputValue } from '@/domain/reminders';
-import type { Project } from '@/domain/schemas';
+import { SESSION_NAME_MAX_LENGTH, type Project } from '@/domain/schemas';
 import { getCurrentWindowTabs, getParkDuplicates, getSettings, parkSelectedTabs, type WindowTabCandidate } from '@/messaging/contracts';
 import { Modal } from './ui/Modal';
 import { OperationWarnings } from './ui/OperationWarnings';
 import { Button } from './ui/Button';
-import { Select } from './ui/Select';
+import { Dropdown } from './ui/Dropdown';
 import { parkingOutcome, type SavedSessionTarget } from '../parking-outcome';
 
 export function ParkTabsSection({ initialProjectId, onViewSession }: { initialProjectId?: string; onViewSession(target: SavedSessionTarget): void }) {
@@ -17,6 +18,7 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
   const [projectError, setProjectError] = useState<string>();
   const [projectId, setProjectId] = useState('');
   const [note, setNote] = useState('');
+  const [name, setName] = useState('');
   const [reminderLocal, setReminderLocal] = useState('');
   const [extraDetails, setExtraDetails] = useState(false);
   const [reviewing, setReviewing] = useState(false);
@@ -138,7 +140,7 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
     setError(undefined);
     setWarnings([]);
     try {
-      const response = await parkSelectedTabs(selectedIds, { projectId, note: note.trim() || undefined, reminderAt, duplicates: selectedDuplicates.length ? duplicateMode : 'park' });
+      const response = await parkSelectedTabs(selectedIds, { projectId, name: selectedIds.length > 1 ? name.trim() || undefined : undefined, note: note.trim() || undefined, reminderAt, duplicates: selectedDuplicates.length ? duplicateMode : 'park' });
       setWarnings(response.warnings ?? []);
       if (!response.success) {
         setError(response.error.message);
@@ -147,6 +149,7 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
       }
       setSelectedIds([]);
       setNote('');
+      setName('');
       setReminderLocal('');
       setExtraDetails(false);
       setReviewing(false);
@@ -162,19 +165,14 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
   }
 
   return <>
-    <div className="mb-4 flex items-start justify-between gap-2">
-      <div>
-        <h2 ref={sectionHeading} tabIndex={-1} className="text-lg font-bold">Park tabs</h2>
-        <p className="mt-1 text-sm text-slate-600">Choose tabs in this window to save together.</p>
-      </div>
-      <Button ref={refreshButton} type="button" disabled={loading || pending} onClick={() => {
+    <SectionHeader headingRef={sectionHeading} title="Park tabs" description="Choose tabs in this window to save together."
+      action={<Button ref={refreshButton} type="button" disabled={loading || pending} onClick={() => {
         setSelectedNotice('');
         void loadTabs();
-      }}>Refresh</Button>
-    </div>
+      }}>Refresh</Button>} />
 
     {result && <section aria-labelledby="parking-result-title" className={`mb-4 rounded-xl border p-4 ${result.unconfirmed ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
-      <h3 ref={resultHeading} tabIndex={-1} id="parking-result-title" className="font-bold">{result.target ? 'Parking session saved' : 'Nothing new to save'}</h3>
+      <h3 ref={resultHeading} tabIndex={-1} id="parking-result-title" className="font-semibold text-slate-900">{result.target ? 'Parking session saved' : 'Nothing new to save'}</h3>
       <p className="mt-1 wrap-anywhere text-sm">Saved {result.saved} {result.saved === 1 ? 'tab' : 'tabs'}{result.target && project ? ` to ${project.name}` : ''}.{result.skipped > 0 ? ` Skipped ${result.skipped} already saved ${result.skipped === 1 ? 'tab' : 'tabs'}.` : ''} {result.unconfirmed ? `Closed ${result.closed} of ${result.saved + result.skipped}.` : result.skipped > 0 ? 'All handled tabs closed.' : 'All saved tabs closed.'}</p>
       {result.unconfirmed > 0 && <p className="mt-2 text-sm">Chrome could not confirm closing {result.unconfirmed} {result.unconfirmed === 1 ? 'tab' : 'tabs'}. Check your open tabs before parking again.</p>}
       {result.target && <Button type="button" variant="primary" className="mt-3" onClick={() => onViewSession(result.target!)}>View saved session</Button>}
@@ -206,9 +204,13 @@ export function ParkTabsSection({ initialProjectId, onViewSession }: { initialPr
       <form onSubmit={event => void confirm(event)} className="mt-3">
         <fieldset disabled={pending} className="min-w-0 space-y-3">
           <label className="block text-sm font-semibold" htmlFor="bulk-project">Save to project</label>
-          <Select id="bulk-project" className="w-full" value={projectId} onChange={event => setProjectId(event.target.value)}>
-            {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </Select>
+          <Dropdown id="bulk-project" className="w-full" value={projectId}
+            options={projects.map(project => ({ value: project.id, label: project.name }))} onChange={setProjectId} />
+          {selectedTabs.length > 1 && <div>
+            <label className="block text-sm font-semibold" htmlFor="bulk-name">Session name (optional)</label>
+            <input id="bulk-name" type="text" maxLength={SESSION_NAME_MAX_LENGTH} autoComplete="off" placeholder="For example, Trip planning"
+              className="mt-1 w-full min-w-0 rounded-lg border border-slate-300 p-2 text-sm" value={name} onChange={event => setName(event.target.value)} />
+          </div>}
           <details open={extraDetails} onToggle={event => setExtraDetails(event.currentTarget.open)}>
             <summary className="cursor-pointer rounded py-2 text-sm font-semibold text-blue-800">Add note or reminder</summary>
             <label className="mt-2 block text-sm font-semibold" htmlFor="bulk-note">Shared note (optional)</label>

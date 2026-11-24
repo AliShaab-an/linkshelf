@@ -12,7 +12,7 @@ export function filterAndSortProjectGroups(
   const tokens = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const filtered = groups.map((group) => {
     if (tokens.length === 0 && !tag) return group;
-    const sessionText = group.session.note?.toLocaleLowerCase() ?? '';
+    const sessionText = [group.session.name, group.session.note].filter(Boolean).join(' ').toLocaleLowerCase();
     const sessionMatches = tokens.every((token) => sessionText.includes(token));
     const links = (sessionMatches ? group.links : group.links.filter((link) => {
       const searchable = [link.title, link.url, link.domain, link.note ?? '', ...(link.tags ?? [])]

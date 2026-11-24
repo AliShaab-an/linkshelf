@@ -8,6 +8,9 @@ import { executeRestoreSession } from './restore-session';
 import { executeRestoreProject } from './restore-project';
 import type { RestoreTabOutcome } from './restore-collection';
 import { waitForTabCommit, type TabCommitApi } from './tab-commit';
+import type { TabGroups } from '@/features/tab-groups/tab-groups';
+
+export const TAB_GROUP_WARNING = 'Links opened, but Chrome could not restore some tab groups.';
 
 interface RestoreTabsApi {
   query(query: { windowId: number }): Promise<unknown[]>;
@@ -18,9 +21,17 @@ interface RestoreTabsApi {
   onUpdated?: TabCommitApi['onUpdated'];
 }
 
-export function createRestoreCoordinator(repository: LinkShelfRepository, operations: OperationCoordinator, tabs: RestoreTabsApi) {
+export function createRestoreCoordinator(
+  repository: LinkShelfRepository,
+  operations: OperationCoordinator,
+  tabs: RestoreTabsApi,
+  /** Optional: restores tab groups when the person allowed it. Without it tabs open ungrouped. */
+  tabGroups?: Pick<TabGroups, 'restore'>,
+) {
   // Receipts are recovery data, not locks. Keep only confirmed opens awaiting persistence.
   const opened = new Map<string, { identity: RestoreIdentity; outcome: RestoreTabOutcome }>();
+  // Tabs opened for a link and not yet grouped, kept until the operation that opened them finishes.
+  const openedTabs = new Map<string, number>();
   async function open(link: SavedLink, markAsRestored: boolean, create: () => Promise<{ id?: number }>, unloaded = false) {
     const previous = opened.get(link.id);
     if (previous) {
@@ -28,6 +39,7 @@ export function createRestoreCoordinator(repository: LinkShelfRepository, operat
       return previous.outcome;
     }
     const tab = await create();
+    if (tab.id !== undefined) openedTabs.set(link.id, tab.id);
     const outcome = { discarded: false, fallback: unloaded };
     if (markAsRestored) opened.set(link.id, { identity: restoreIdentity(link), outcome });
     if (unloaded && tab.id !== undefined) {
@@ -52,21 +64,34 @@ export function createRestoreCoordinator(repository: LinkShelfRepository, operat
   }
   const linkKeys = (ids: string[]) => ids.map((id) => `link:${id}`);
 
+  /** Regroups the tabs opened for these links, then forgets them. A grouping problem is a warning, never a failure. */
+  async function regroup<Response extends { warnings?: string[] }>(links: readonly SavedLink[], windowId: number, response: Response): Promise<Response> {
+    const placements = links.flatMap((link) => {
+      const tabId = openedTabs.get(link.id);
+      openedTabs.delete(link.id);
+      return tabId !== undefined && link.originalGroup ? [{ tabId, group: link.originalGroup }] : [];
+    });
+    if (!tabGroups || !placements.length) return response;
+    let failed = false;
+    try { failed = (await tabGroups.restore(placements, windowId)).failedGroups > 0; } catch { failed = true; }
+    return failed ? { ...response, warnings: [...(response.warnings ?? []), TAB_GROUP_WARNING] } : response;
+  }
+
   return {
     restoreLink(message: RestoreLinkMessage, selectTarget: () => Promise<number>) {
       return operations.reserve(linkKeys([message.payload.linkId]), async () => {
         const [windowId, settings] = await Promise.all([selectTarget(), repository.getSettings()]);
         return operations.enqueue(`window:${windowId}`, async () => {
           const markAsRestored = (message.payload.behavior ?? settings.defaultRestoreBehavior) === 'restore-and-remove';
-          let captured: SavedLink;
+          let captured: SavedLink | undefined;
           const result = await executeRestoreLink(message, {
             getLink: async (id) => { const link = await repository.getLink(id); if (link) captured = link; return link; },
-            openTab: () => open(captured, markAsRestored,
-              () => tabs.create({ url: captured.url, active: true, windowId })).then(() => undefined),
+            openTab: () => open(captured!, markAsRestored,
+              () => tabs.create({ url: captured!.url, active: true, windowId })).then(() => undefined),
             markLinkRestored: markRestored,
             markAsRestored,
           });
-          return result;
+          return regroup(captured ? [captured] : [], windowId, result);
         });
       });
     },
@@ -109,7 +134,7 @@ export function createRestoreCoordinator(repository: LinkShelfRepository, operat
           const result = message.type === 'RESTORE_SESSION'
             ? await executeRestoreSession(message, dependencies)
             : await executeRestoreProject(message, dependencies);
-          return result;
+          return regroup(snapshot, windowId, result);
         });
       });
     },

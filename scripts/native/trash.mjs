@@ -5,7 +5,7 @@ const h = await createHarness();
 const { page } = h;
 const checks = [];
 const ago = days => new Date(Date.now() - days * 86_400_000).toISOString();
-const panel = page.getByRole('region', { name: 'Recently removed' });
+const panel = page.getByRole('region', { name: 'Bin', exact: true });
 
 try {
   const link = (id, title, status, extra = {}) => ({
@@ -27,7 +27,7 @@ try {
   });
 
   await page.setViewportSize({ width: 320, height: 800 });
-  await navigateSidebar(page, 'Archive');
+  await navigateSidebar(page, 'Bin');
   await panel.waitFor();
   await panel.getByText('Removed recently').waitFor();
   await panel.getByText('Removed from archive').waitFor();
@@ -36,7 +36,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await panel.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${h.output}/trash-320.png` });
-  checks.push('Opening the trash lists recent removals and deletes those older than 30 days');
+  checks.push('The Bin tab lists recent removals and deletes those older than 30 days');
 
   // Recover: goes back to where it came from.
   await panel.getByRole('button', { name: 'Recover Removed recently', exact: true }).click();
@@ -45,7 +45,7 @@ try {
   await panel.getByRole('button', { name: 'Recover Removed from archive', exact: true }).click();
   await poll(() => h.database(), db => db.links.find(item => item.id === 'from-archive')?.status === 'archived', 'archived link returns to the archive');
   assert.equal((await h.database()).links.find(item => item.id === 'from-archive').removedAt, undefined);
-  await panel.getByText('Nothing removed recently.').waitFor();
+  await panel.getByRole('heading', { name: 'The bin is empty' }).waitFor();
   checks.push('Recover returns links to their project or the archive');
 
   // Permanent delete needs confirmation; empty trash too.

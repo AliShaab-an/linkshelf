@@ -24,7 +24,7 @@ const titlesOf = async () => (await h.database()).links.map(link => link.title).
 
 try {
   await page.setViewportSize({ width: 320, height: 800 });
-  await navigateSidebar(page, 'Settings');
+  await navigateSidebar(page, 'Your data');
   await panel.waitFor();
   assert.equal(await panel.getByRole('checkbox', { name: 'Keep automatic backups' }).isChecked(), true);
   await panel.getByText(/No automatic backups yet/).waitFor();
@@ -48,7 +48,7 @@ try {
   // Replacing everything keeps a copy of what was there first.
   await h.seed(databaseWith(['Alpha', 'Beta']));
   await page.reload();
-  await navigateSidebar(page, 'Settings');
+  await navigateSidebar(page, 'Your data');
   await page.getByLabel('Choose backup file').setInputFiles({ name: 'empty.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(emptyBackup)) });
   await page.getByRole('button', { name: 'Replace all' }).click();
   await page.getByRole('button', { name: 'Replace LinkShelf data' }).click();
@@ -61,7 +61,7 @@ try {
 
   // Restore that backup through the normal import preview.
   await page.reload();
-  await navigateSidebar(page, 'Settings');
+  await navigateSidebar(page, 'Your data');
   await panel.getByText('Before replacing data').first().waitFor();
   await panel.getByRole('button', { name: /^Restore automatic backup/ }).first().click();
   await panel.getByText(/Loaded below/).waitFor();
@@ -74,7 +74,7 @@ try {
 
   // Delete one, then turning off deletes the rest.
   await page.reload();
-  await navigateSidebar(page, 'Settings');
+  await navigateSidebar(page, 'Your data');
   const before = (await stored()).backups.length;
   await panel.getByRole('button', { name: /^Delete automatic backup/ }).first().click();
   await poll(stored, value => value.backups.length === before - 1, 'one backup deleted');

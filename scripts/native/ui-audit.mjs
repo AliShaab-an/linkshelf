@@ -2,7 +2,7 @@
 // Usage: node scripts/native/ui-audit.mjs [outputDirectory]
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHarness, navigateSidebar } from './harness.mjs';
+import { createHarness, navigateSidebar, choose } from './harness.mjs';
 
 const h = await createHarness();
 const { page } = h;
@@ -55,7 +55,7 @@ try {
       await page.reload();
       for (const section of sections) {
         await navigateSidebar(page, section);
-        if (section === 'Saved') await page.getByLabel('Project', { exact: true }).selectOption('legacy-project').catch(() => undefined);
+        if (section === 'Saved') await choose(page.getByLabel('Project', { exact: true }), 'legacy-project').catch(() => undefined);
         if (section === 'Search') await page.getByLabel('Search saved links').fill('coastal').catch(() => undefined);
         await page.waitForTimeout(150);
         await page.screenshot({ path: path.join(out, `${theme}-${width}-${section.toLowerCase()}.png`) });

@@ -118,7 +118,7 @@ function renderMarkdown(sections: ProjectSection[], exportedAt: string, truncate
     if (project.description?.trim()) out.push('', inline(project.description));
     if (sessions.length === 0 && archived.length === 0) out.push('', '_No saved links._');
     for (const { session, links } of sessions) {
-      out.push('', `### Saved ${formatDate(session?.createdAt ?? links[0]?.createdAt)}`);
+      out.push('', `### ${session?.name ? `${inline(session.name)} — ` : ''}Saved ${formatDate(session?.createdAt ?? links[0]?.createdAt)}`);
       if (session?.note?.trim()) out.push('', quote(session.note.trim(), ''));
       out.push('', ...links.map(markdownLinkItem));
     }
@@ -159,7 +159,7 @@ function renderHtml(sections: ProjectSection[], exportedAt: string, truncated: b
     if (project.description?.trim()) body.push(`<p dir="auto">${escapeHtml(project.description.trim())}</p>`);
     if (sessions.length === 0 && archived.length === 0) body.push('<p class="meta">No saved links.</p>');
     for (const { session, links } of sessions) {
-      body.push(`<h3>Saved ${escapeHtml(formatDate(session?.createdAt ?? links[0]?.createdAt))}</h3>`);
+      body.push(`<h3 dir="auto">${session?.name ? `${escapeHtml(session.name)} — ` : ''}Saved ${escapeHtml(formatDate(session?.createdAt ?? links[0]?.createdAt))}</h3>`);
       if (session?.note?.trim()) body.push(`<blockquote dir="auto">${escapeHtml(session.note.trim())}</blockquote>`);
       body.push(`<ul>${links.map(htmlLinkItem).join('')}</ul>`);
     }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createHarness, navigateSidebar, poll } from './harness.mjs';
+import { createHarness, navigateSidebar, poll, choose } from './harness.mjs';
 import { library } from './fixtures.mjs';
 
 const h = await createHarness();
@@ -26,7 +26,7 @@ try {
   await page.setViewportSize({ width: 320, height: 760 });
   await page.reload();
   await navigateSidebar(page, 'Projects');
-  await page.getByLabel('Project', { exact: true }).selectOption('legacy-project');
+  await choose(page.getByLabel('Project', { exact: true }), 'legacy-project');
 
   const first = 'Synthetic historical 0';
   const second = 'Synthetic historical 4';
