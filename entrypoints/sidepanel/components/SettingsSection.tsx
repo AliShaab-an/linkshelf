@@ -7,10 +7,8 @@ import { SidebarSetting } from './SidebarSetting';
 import { useSettingsPreferences } from './useSettingsPreferences';
 import { withSecondaryWarning } from '@/features/operations/secondary-result';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { SegmentedControl } from './ui/SegmentedControl';
 import { TabGroupsSetting } from './TabGroupsSetting';
 import { RATE_PROMPT_REVIEW_URL } from '@/domain/rate-prompt';
-import type { InterfaceTheme } from '../use-interface-theme';
 import type { LinkShelfBackup } from '@/domain/schemas';
 import { buildExport, type ExportFormat } from '@/domain/export';
 import { Dropdown } from './ui/Dropdown';
@@ -33,7 +31,7 @@ const groups = [
   { id: 'settings-about', title: 'About', description: 'Privacy, permissions, and how to get help.' },
 ] as const;
 
-export function SettingsSection({ appearance }: { appearance?: { theme: InterfaceTheme; changeTheme(value: InterfaceTheme): void } } = {}) {
+export function SettingsSection() {
   const backupInput = useRef<HTMLInputElement>(null);
   const importTrigger = useRef<HTMLButtonElement>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -178,10 +176,6 @@ export function SettingsSection({ appearance }: { appearance?: { theme: Interfac
       <SettingsGroup {...groups[0]}>
         <SettingsPreferences preferences={preferences} disabled={isPreviewing || isImporting || importPreview !== null} />
         <TabGroupsSetting />
-        {appearance && <SettingsCard id="settings-theme" title="Theme">
-          <SegmentedControl className="mt-2" aria-labelledby="settings-theme-title" value={appearance.theme} onChange={appearance.changeTheme}
-            options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] satisfies { value: InterfaceTheme; label: string }[]} />
-        </SettingsCard>}
         <SidebarSetting />
         <SettingsCard id="settings-shortcuts" title="Keyboard shortcuts">
           <div className="mt-3 space-y-2">{[
