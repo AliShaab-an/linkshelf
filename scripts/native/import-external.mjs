@@ -8,7 +8,7 @@ const chooser = page.getByLabel('Choose backup file');
 
 try {
   await page.setViewportSize({ width: 360, height: 800 });
-  await navigateSidebar(page, 'Settings');
+  await navigateSidebar(page, 'Your data');
 
   // Unsupported files are rejected without touching data.
   const before = JSON.stringify(await h.raw());

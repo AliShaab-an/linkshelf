@@ -267,6 +267,7 @@ try {
   await h.page.screenshot({ path: path.join(h.output, 'long-content-320.png'), fullPage: true });
   await navigateSidebar(h.page, 'Settings');
   await h.page.getByRole('switch', { name: 'Desktop reminders', exact: true }).waitFor();
+  await navigateSidebar(h.page, 'Your data');
   const exportDownload = h.page.waitForEvent('download');
   await h.page.getByRole('button', { name: 'Download backup', exact: true }).click();
   const exportPath = path.join(h.output, 'synthetic-standard-backup.json');

@@ -14,6 +14,13 @@ import { SavedLinkCard } from './SavedLinkCard';
 import { EmptyState, SkeletonCards } from './ui/Feedback';
 import { ListNavigation } from './ui/ListNavigation';
 import { listRange, LIST_PAGE_SIZE } from '../list-range';
+import { linkMatches, queryWords } from '@/domain/link-query';
+import { Dropdown } from './ui/Dropdown';
+import { Icon } from './ui/Icon';
+import { buttonClass } from './ui/styles';
+
+const ALL_PROJECTS = '*';
+const plural = (count: number) => `${count} ${count === 1 ? 'link' : 'links'}`;
 
 export function ArchiveSection() {
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -31,8 +38,62 @@ export function ArchiveSection() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const cards = useRef<HTMLDivElement>(null);
-  const range = listRange(links.length, page);
+  const [query, setQuery] = useState('');
+  const [projectFilter, setProjectFilter] = useState(ALL_PROJECTS);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmingBulkRemove, setConfirmingBulkRemove] = useState(false);
+  const [bulkWorking, setBulkWorking] = useState(false);
   const projectNames = useMemo(() => new Map(projects.map(project => [project.id, project.name])), [projects]);
+  const archivedProjects = useMemo(() => projects.filter(project => links.some(link => link.projectId === project.id)), [projects, links]);
+  const activeFilter = archivedProjects.some(project => project.id === projectFilter) ? projectFilter : ALL_PROJECTS;
+  const filtered = useMemo(() => {
+    const words = queryWords(query);
+    return links.filter(link => (activeFilter === ALL_PROJECTS || link.projectId === activeFilter) && linkMatches(link, words, [projectNames.get(link.projectId)]));
+  }, [links, query, activeFilter, projectNames]);
+  const filtering = filtered.length !== links.length;
+  const range = listRange(filtered.length, page);
+  const pageLinks = filtered.slice(range.start, range.end);
+  const selectedLinks = filtered.filter(link => selected.has(link.id));
+
+  function changeFilter(update: () => void) {
+    update();
+    setPage(0);
+    setSelected(new Set());
+    setConfirmingBulkRemove(false);
+  }
+
+  function toggle(linkId: string, checked: boolean) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (checked) next.add(linkId); else next.delete(linkId);
+      return next;
+    });
+  }
+
+  /** Runs one action over every selected link in turn and reports how many it managed. */
+  async function runBulk(verb: string, action: (linkId: string) => Promise<{ success: boolean; error?: { message: string } }>) {
+    const targets = selectedLinks;
+    if (bulkWorking || isRefreshing || targets.length === 0) return;
+    setBulkWorking(true); setConfirmingBulkRemove(false);
+    setError(null); setMessage(null); setWarnings([]);
+    if (cards.current?.contains(document.activeElement)) heading.current?.focus();
+    const done = new Set<string>();
+    let failure: string | undefined;
+    for (const link of targets) {
+      try {
+        const response = await action(link.id);
+        if (response.success) done.add(link.id);
+        else failure ??= response.error?.message;
+      } catch (caught) {
+        failure ??= caught instanceof Error ? caught.message : 'LinkShelf could not update a link.';
+      }
+    }
+    setLinks((current) => current.filter((link) => !done.has(link.id)));
+    setSelected((current) => new Set([...current].filter((id) => !done.has(id))));
+    if (done.size === targets.length) setMessage(`${verb} ${plural(done.size)}.`);
+    else setError(`${verb} ${done.size} of ${plural(targets.length)}. ${failure ?? ''}`.trim());
+    setBulkWorking(false);
+  }
 
   function focusBeforeRemoval(linkId: string) {
     const active = document.activeElement;
@@ -151,7 +212,7 @@ export function ArchiveSection() {
     setMessage(updated.tags?.length ? `Saved tags for “${updated.title}”.` : `Removed tags from “${updated.title}”.`);
   }
 
-  const feedback = { pending: workingId ? 'Updating link…' : undefined, message, error: error || loadError, warnings };
+  const feedback = { pending: bulkWorking ? 'Updating selected links…' : workingId ? 'Updating link…' : undefined, message, error: error || loadError, warnings };
 
   return (
     <>
@@ -161,9 +222,46 @@ export function ArchiveSection() {
       {tagCandidate && <TagLinkDialog link={tagCandidate} suggestions={[...new Set(links.flatMap((link) => link.tags ?? []))]} returnFocus={(invoker) => invoker ?? heading.current} onSaved={finishTagging} onCancel={() => setTagCandidate(null)} />}
       {isLoading && <SkeletonCards count={2} />}
       {!isLoading && !error && !loadError && links.length === 0 && <EmptyState title="Archive is empty">Links you archive remain searchable and will appear here.</EmptyState>}
-      <ListNavigation label="Archived links pages" range={range} count={links.length} onPage={setPage} />
+      {!isLoading && links.length > 0 && <div className="mb-3 flex flex-wrap items-center gap-3">
+        <label className="relative min-w-0 flex-1 basis-64 sm:max-w-md">
+          <span className="sr-only">Search the archive</span>
+          <Icon name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-500" />
+          <input type="search" value={query} placeholder="Search by title, site, note, or tag"
+            className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 pl-9 text-sm" onChange={event => changeFilter(() => setQuery(event.target.value))} />
+        </label>
+        {archivedProjects.length > 1 && <div className="flex items-center gap-2">
+          <span id="archive-project-filter" className="text-sm text-slate-700">Project</span>
+          <Dropdown aria-labelledby="archive-project-filter" className="min-w-40" value={activeFilter}
+            options={[{ value: ALL_PROJECTS, label: 'All projects' }, ...archivedProjects.map((project) => ({ value: project.id, label: project.name }))]}
+            onChange={(value) => changeFilter(() => setProjectFilter(value))} />
+        </div>}
+        {filtering && <span className="text-sm text-slate-700">{filtered.length ? `${plural(filtered.length)} found` : 'No archived links match'}</span>}
+      </div>}
+      {!isLoading && pageLinks.length > 0 && <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+        <label className="inline-flex min-h-10 items-center gap-2 text-sm font-medium text-slate-800">
+          <input type="checkbox" className="size-4 accent-blue-700" disabled={bulkWorking}
+            checked={pageLinks.every(link => selected.has(link.id))}
+            ref={(element) => { if (element) element.indeterminate = pageLinks.some(link => selected.has(link.id)) && !pageLinks.every(link => selected.has(link.id)); }}
+            onChange={(event) => setSelected((current) => {
+              const next = new Set(current);
+              for (const link of pageLinks) { if (event.target.checked) next.add(link.id); else next.delete(link.id); }
+              return next;
+            })} />
+          {selectedLinks.length ? `${selectedLinks.length} selected` : range.pages > 1 ? 'Select this page' : 'Select all'}
+        </label>
+        {selectedLinks.length > 0 && !confirmingBulkRemove && <>
+          <button type="button" className={buttonClass('secondary')} disabled={bulkWorking || isRefreshing} onClick={() => void runBulk('Returned', unarchiveLink)}>Return to projects</button>
+          <button type="button" className={buttonClass('danger-outline')} disabled={bulkWorking || isRefreshing} onClick={() => setConfirmingBulkRemove(true)}>Remove selected</button>
+        </>}
+        {confirmingBulkRemove && <div role="group" aria-label="Remove selected links" className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-slate-800">Move {plural(selectedLinks.length)} to the Bin? You can recover them for 30 days.</span>
+          <button type="button" className={buttonClass('danger')} disabled={bulkWorking} onClick={() => void runBulk('Removed', removeLink)}>Remove</button>
+          <button type="button" className={buttonClass('ghost')} disabled={bulkWorking} onClick={() => setConfirmingBulkRemove(false)}>Cancel</button>
+        </div>}
+      </div>}
+      <ListNavigation label="Archived links pages" range={range} count={filtered.length} onPage={setPage} />
       <div ref={cards} data-page={range.page} className="space-y-2">
-        {links.slice(range.start, range.end).map((link) => <SavedLinkCard key={link.id} layout="row" cardId={`archived-${link.id}`} link={link} projectName={projectNames.get(link.projectId)} isRestoring={workingId === link.id} onEditTags={() => { setMessage(null); setError(null); setWarnings([]); setTagCandidate(link); }} onUnarchive={() => void returnToProject(link)} onRemove={() => { if (!isRefreshing) startRemoving(link); }} />)}
+        {pageLinks.map((link) => <SavedLinkCard key={link.id} layout="row" selected={selected.has(link.id)} onSelectChange={(checked) => toggle(link.id, checked)} cardId={`archived-${link.id}`} link={link} projectName={projectNames.get(link.projectId)} isRestoring={workingId === link.id} onEditTags={() => { setMessage(null); setError(null); setWarnings([]); setTagCandidate(link); }} onUnarchive={() => void returnToProject(link)} onRemove={() => { if (!isRefreshing) startRemoving(link); }} />)}
       </div>
     </>
   );

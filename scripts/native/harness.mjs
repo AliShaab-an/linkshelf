@@ -14,16 +14,25 @@ export async function sectionButton(page, name) {
   return button;
 }
 
-const managerSections = { Home: 'home', Library: 'library', Review: 'review', Archive: 'archive', Bin: 'bin', Settings: 'settings' };
+const managerSections = { Home: 'home', Library: 'library', Review: 'review', Archive: 'archive', Bin: 'bin', Duplicates: 'duplicates', Settings: 'settings' };
 
 /** The Manager page's link for a section. */
-export const managerLink = (page, name) => page.getByRole('navigation', { name: 'Manager sections' }).getByRole('link', { name, exact: true });
+// A link's name may end with a count, such as "Review, 4 waiting".
+export const managerLink = (page, name) => page.getByRole('navigation', { name: 'Manager sections' }).getByRole('link', { name: new RegExp(`^${name}(?![A-Za-z])`) });
 
 /**
  * Shows a LinkShelf section in this test page the way it lives in the product:
  * Park, Saved, Search and Today in the sidebar; Home, Review, Archive and Settings on the Manager page.
  */
 export async function navigateSidebar(page, name) {
+  // Your data and About are pages inside Settings, opened by their address.
+  const settingsPage = { 'Your data': 'data', About: 'about' }[name];
+  if (settingsPage) {
+    await page.goto(new URL(`/manager.html#settings/${settingsPage}`, page.url()).href);
+    await poll(() => page.getByRole('navigation', { name: 'Settings groups' }).getByRole('link', { name, exact: true }).getAttribute('aria-current'),
+      value => value === 'page', `${name} shown in Settings`);
+    return;
+  }
   const managerSection = managerSections[name];
   const onManager = new URL(page.url()).pathname === '/manager.html';
   if (managerSection) {

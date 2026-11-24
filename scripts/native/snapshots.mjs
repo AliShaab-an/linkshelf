@@ -15,7 +15,7 @@ const checkWidth = () => page.evaluate(() => document.documentElement.scrollWidt
 
 try {
   await page.setViewportSize({ width: 320, height: 760 });
-  await navigateSidebar(page, 'Settings');
+  await navigateSidebar(page, 'Your data');
   await panel.waitFor();
 
   // Off by default: nothing is stored and no alarm exists.
@@ -53,7 +53,7 @@ try {
   assert.equal(afterClose.history[0].windows[0].tabs.length, 2);
   await page.bringToFront();
   await page.reload();
-  await navigateSidebar(page, 'Settings');
+  await navigateSidebar(page, 'Your data');
   await panel.getByText('Closed window').waitFor();
   await panel.getByText(/2 tabs/).waitFor();
   assert.equal(await checkWidth(), true);

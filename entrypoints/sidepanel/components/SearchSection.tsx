@@ -2,7 +2,7 @@ import { describeLinkRestore } from '../restore-feedback';
 import { buttonClass } from './ui/styles';
 import { SectionHeader } from './ui/SectionHeader';
 import { OperationFeedback } from './ui/OperationFeedback';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { SavedLink } from '@/domain/schemas';
 import {
   archiveLink,
@@ -29,12 +29,15 @@ import { SavedLinkCard } from './SavedLinkCard';
 import { ListNavigation } from './ui/ListNavigation';
 import { listRange, LIST_PAGE_SIZE } from '../list-range';
 
-export function SearchSection({ focusRequestId, query, onQueryChange }: {
+export function SearchSection({ focusRequestId, query, onQueryChange, externalInput }: {
   focusRequestId?: string;
   query: string;
   onQueryChange(value: string): void;
+  /** When the page already has a search box (the Manager's top bar), use it instead of drawing another. */
+  externalInput?: RefObject<HTMLInputElement | null>;
 }) {
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const ownInput = useRef<HTMLInputElement>(null);
+  const searchInputRef = externalInput ?? ownInput;
   const focusSearchAfterMutation = useRef(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [results, setResults] = useState<LinkSearchResult[]>([]);
@@ -353,8 +356,8 @@ export function SearchSection({ focusRequestId, query, onQueryChange }: {
     <>
       <OperationFeedback {...(!(removeCandidate || bookmarkCandidate || tagCandidate) ? feedback : {})} />
       <SectionHeader title="Search" description="Search LinkShelf links by title, URL, note, or project. Chrome bookmark matches appear separately." />
-      <label className="sr-only" htmlFor="link-search">Search saved links</label>
-      <input ref={searchInputRef} id="link-search" type="search" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="React docs, client project, example.com..." value={query} onChange={(event) => changeQuery(event.target.value)} />
+      {!externalInput && <label className="sr-only" htmlFor="link-search">Search saved links</label>}
+      {!externalInput && <input ref={ownInput} id="link-search" type="search" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="React docs, client project, example.com..." value={query} onChange={(event) => changeQuery(event.target.value)} />}
       {tagCounts.length > 0 && <div className="mt-3"><TagFilterBar tags={tagCounts} selected={parseSearchQuery(query).tags} onToggle={(tag) => changeQuery(toggleTagInQuery(query, tag))} /></div>}
       <div className="mt-2 flex justify-between text-xs text-slate-500"><span role="status">{isSearching ? 'Searching...' : query.trim() ? `${resultCount} result${resultCount === 1 ? '' : 's'}` : 'Type to search'}</span><span>Stored locally</span></div>
 

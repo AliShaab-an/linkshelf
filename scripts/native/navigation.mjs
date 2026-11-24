@@ -98,7 +98,7 @@ try {
     assert.equal(new URL(manager.url()).hash, '#home');
     assert.equal(await windowId(manager), await windowId(page));
     await manager.getByRole('heading', { name: 'Home', exact: true }).waitFor();
-    assert.deepEqual(await manager.getByRole('navigation', { name: 'Manager sections' }).getByRole('link').allTextContents(), ['Home', 'Library', 'Review', 'Archive', 'Bin', 'Settings']);
+    assert.deepEqual((await manager.getByRole('navigation', { name: 'Manager sections' }).getByRole('link').allTextContents()).map(text => text.replace(/,.*$/, '')), ['Home', 'Library', 'Review', 'Archive', 'Bin', 'Duplicates', 'Settings']);
     await manager.getByRole('link', { name: 'Archive', exact: true }).click();
     await manager.getByRole('heading', { name: 'Archive', exact: true }).waitFor();
     assert.equal(await manager.title(), 'Archive · LinkShelf Manager');
@@ -112,12 +112,16 @@ try {
     await poll(() => new URL(manager.url()).hash, hash => hash === '#settings', 'Manager tab moved to Settings');
     await manager.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
     assert.equal(managerTabs().length, 1);
-    // Settings is grouped into General, Your data and About, each reachable from a jump button.
-    const groupTitles = manager.getByRole('region').locator('h3');
-    assert.deepEqual(await groupTitles.allTextContents(), ['General', 'Your data', 'About']);
-    await manager.getByRole('navigation', { name: 'Settings groups' }).getByRole('button', { name: 'About' }).click();
+    // Settings has three pages, General, Your data and About, each with its own address.
+    const settingsNav = manager.getByRole('navigation', { name: 'Settings groups' });
+    assert.deepEqual(await settingsNav.getByRole('link').allTextContents(), ['General', 'Your data', 'About']);
+    assert.equal(await settingsNav.getByRole('link', { name: 'General' }).getAttribute('aria-current'), 'page');
+    assert.equal(await manager.getByRole('region', { name: 'Why these permissions?' }).count(), 0, 'only the open page is shown');
+    await settingsNav.getByRole('link', { name: 'About' }).click();
     await poll(() => manager.evaluate(() => document.activeElement?.textContent), text => text === 'About', 'About heading focused');
+    assert.equal(new URL(manager.url()).hash, '#settings/about');
     await manager.getByRole('region', { name: 'Why these permissions?' }).waitFor();
+    assert.equal(await manager.getByRole('region', { name: 'Keyboard shortcuts' }).count(), 0);
     await page.screenshot({ path: path.join(h.output, 'navigation-manage-320.png') });
     await manager.setViewportSize({ width: 1024, height: 760 });
     await manager.screenshot({ path: path.join(h.output, 'manager-settings-1024.png') });

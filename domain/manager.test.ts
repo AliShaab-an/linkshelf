@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { managerSectionFromHash } from './manager';
+import { managerSectionFromHash, settingsPageFromHash } from './manager';
 import { isOpenManagerMessage } from '@/messaging/contracts';
 
 describe('Manager page sections', () => {
@@ -11,6 +11,15 @@ describe('Manager page sections', () => {
     expect(managerSectionFromHash('#review')).toBe('review');
     expect(managerSectionFromHash('#library')).toBe('library');
     expect(managerSectionFromHash('#bin')).toBe('bin');
+  });
+
+  it('reads Settings pages after the slash', () => {
+    expect(managerSectionFromHash('#settings/data')).toBe('settings');
+    expect(settingsPageFromHash('#settings/data')).toBe('data');
+    expect(settingsPageFromHash('#settings/about')).toBe('about');
+    expect(settingsPageFromHash('#settings')).toBe('general');
+    expect(settingsPageFromHash('#settings/nope')).toBe('general');
+    expect(settingsPageFromHash('#archive/data')).toBe('general');
   });
 
   it('accepts only known sections and integer window ids', () => {
