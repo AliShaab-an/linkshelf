@@ -10,6 +10,7 @@ describe('Manager page sections', () => {
     expect(managerSectionFromHash('#park')).toBe('home');
     expect(managerSectionFromHash('#review')).toBe('review');
     expect(managerSectionFromHash('#library')).toBe('library');
+    expect(managerSectionFromHash('#bin')).toBe('bin');
   });
 
   it('accepts only known sections and integer window ids', () => {

@@ -5,6 +5,7 @@ import { HomeSection } from '../sidepanel/components/HomeSection';
 import { LibrarySection } from '../sidepanel/components/LibrarySection';
 import { ReviewSection } from '../sidepanel/components/ReviewSection';
 import { SettingsSection } from '../sidepanel/components/SettingsSection';
+import { TrashPanel } from '../sidepanel/components/TrashPanel';
 import { StorageRecoveryGate } from '../sidepanel/components/StorageRecovery';
 import { Icon, type IconName } from '../sidepanel/components/ui/Icon';
 import { hasActiveModal } from '../sidepanel/components/ui/Modal';
@@ -15,6 +16,7 @@ const sections: { id: ManagerSection; label: string; icon: IconName }[] = [
   { id: 'library', label: 'Library', icon: 'folder' },
   { id: 'review', label: 'Review', icon: 'check' },
   { id: 'archive', label: 'Archive', icon: 'archive' },
+  { id: 'bin', label: 'Bin', icon: 'trash' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
@@ -54,7 +56,9 @@ function App() {
 
   return <main className="sidebar-workspace min-h-screen bg-slate-50 font-sans text-slate-900 md:grid md:grid-cols-[14rem_minmax(0,1fr)]">
     <StorageRecoveryGate>
-      <aside className="border-b border-slate-200 bg-white md:sticky md:top-0 md:h-screen md:border-r md:border-b-0">
+      {/* The aside fills the full height so its border never ends early; its contents stay in view while the page scrolls. */}
+      <aside className="border-b border-slate-200 bg-white md:border-r md:border-b-0">
+        <div className="md:sticky md:top-0">
         <div className="flex items-center gap-2 px-4 py-3">
           <img src="/icon/48.png" alt="" className="size-7 rounded-lg" />
           <h1 className="text-base font-bold tracking-tight">LinkShelf Manager</h1>
@@ -68,6 +72,7 @@ function App() {
             {item.label}
           </a>)}
         </nav>
+        </div>
       </aside>
       <div className="min-w-0">
         <div ref={observeHeader} className="sidebar-shell sticky top-0 z-40 border-b border-slate-200 bg-white">
@@ -84,7 +89,8 @@ function App() {
           {section === 'library' && <LibrarySection />}
           {section === 'review' && <ReviewSection />}
           {section === 'archive' && <ArchiveSection />}
-          {section === 'settings' && <SettingsSection appearance={appearance} />}
+          {section === 'bin' && <TrashPanel />}
+          {section === 'settings' && <SettingsSection />}
         </section>
       </div>
     </StorageRecoveryGate>
