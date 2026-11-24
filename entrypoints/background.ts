@@ -25,6 +25,7 @@ import {
   isRemoveLinkMessage,
   isUndoParkedLinkMessage,
   isMoveLinkMessage,
+  isRenameSessionMessage,
   isSetLinkTagsMessage,
   isSetLinkReminderMessage,
   isGetParkDuplicatesMessage,
@@ -90,7 +91,9 @@ import {
   InvalidLinkStateError,
   InvalidProjectNameError,
   InvalidTagsError,
+  InvalidSessionNameError,
   LinkNotFoundError,
+  SessionNotFoundError,
   LinkShelfRepository,
   ProjectNotFoundError,
   ProtectedInboxError,
@@ -1036,6 +1039,27 @@ export default defineBackground(() => {
           }
           console.error('Failed to update link reminder:', error);
           sendResponse({ success: false, error: { code: 'UNEXPECTED_ERROR', message: 'LinkShelf could not update the reminder.' } });
+        });
+      return true;
+    }
+
+    if (isRenameSessionMessage(message)) {
+      const { sessionId, name } = message.payload;
+      void operations.reserve([`session:${sessionId}`], () => repository.renameSession(sessionId, name))
+        .then((session) => sendResponse({ success: true, session }))
+        .catch((error) => {
+          const known: Array<[new (...args: never[]) => Error, string]> = [
+            [OperationInProgressError, 'OPERATION_IN_PROGRESS'],
+            [SessionNotFoundError, 'SESSION_NOT_FOUND'],
+            [InvalidSessionNameError, 'INVALID_NAME'],
+          ];
+          const match = known.find(([type]) => error instanceof type);
+          if (match) {
+            sendResponse({ success: false, error: { code: match[1], message: error.message } });
+            return;
+          }
+          console.error('Failed to rename a session:', error);
+          sendResponse({ success: false, error: { code: 'UNEXPECTED_ERROR', message: 'LinkShelf could not rename the session.' } });
         });
       return true;
     }

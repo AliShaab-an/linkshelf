@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import {
   SidePanelSectionSchema,
+  SidebarStartSchema,
+  HideableSidebarSectionSchema,
+  DEFAULT_SIDEBAR_PREFERENCES,
   SidePanelNavigationIntentSchema,
   SIDE_PANEL_INTENTS_KEY,
   SIDE_PANEL_INTENTS_LOCK,
@@ -9,12 +12,14 @@ import {
 
 export const UI_STATE_STORAGE_KEY = 'linkshelfUiState';
 
-const UiStateSchema = z.strictObject({
+export const UiStateSchema = z.strictObject({
   lastSection: SidePanelSectionSchema,
   selectedProjectId: z.string().min(1),
   sessionOrder: z.enum(['newest', 'oldest', 'title']),
   groupSessionsByDay: z.boolean().default(true),
   expandedSessionIds: z.array(z.string().min(1)),
+  startSection: SidebarStartSchema.default(DEFAULT_SIDEBAR_PREFERENCES.startSection),
+  hiddenSections: z.array(HideableSidebarSectionSchema).default(DEFAULT_SIDEBAR_PREFERENCES.hiddenSections),
 });
 
 export type UiState = z.infer<typeof UiStateSchema>;
@@ -25,6 +30,7 @@ export const DEFAULT_UI_STATE: UiState = {
   sessionOrder: 'newest',
   groupSessionsByDay: true,
   expandedSessionIds: [],
+  ...DEFAULT_SIDEBAR_PREFERENCES,
 };
 
 export async function loadUiState(): Promise<UiState> {

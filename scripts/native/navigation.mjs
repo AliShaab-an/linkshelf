@@ -89,21 +89,21 @@ try {
     await poll(state, value => value?.lastSection === 'projects', 'persisted Saved ID');
   });
 
-  await check('Manage opens Review, Archive, and Settings in one reused tab', async () => {
+  await check('Manage opens Home, Review, Archive, and Settings in one reused tab', async () => {
     assert.equal(managerTabs().length, 0);
     await destination(page, 'Manage').click();
     await poll(() => managerTabs().length, count => count === 1, 'Manager tab opened');
     const manager = managerTabs()[0];
     await manager.waitForLoadState();
-    assert.equal(new URL(manager.url()).hash, '#review');
+    assert.equal(new URL(manager.url()).hash, '#home');
     assert.equal(await windowId(manager), await windowId(page));
-    await manager.getByRole('heading', { name: 'Review', exact: true }).waitFor();
-    assert.deepEqual(await manager.getByRole('navigation', { name: 'Manager sections' }).getByRole('link').allTextContents(), ['Review', 'Archive', 'Settings']);
+    await manager.getByRole('heading', { name: 'Home', exact: true }).waitFor();
+    assert.deepEqual(await manager.getByRole('navigation', { name: 'Manager sections' }).getByRole('link').allTextContents(), ['Home', 'Library', 'Review', 'Archive', 'Settings']);
     await manager.getByRole('link', { name: 'Archive', exact: true }).click();
     await manager.getByRole('heading', { name: 'Archive', exact: true }).waitFor();
     assert.equal(await manager.title(), 'Archive · LinkShelf Manager');
     await manager.goBack();
-    await manager.getByRole('heading', { name: 'Review', exact: true }).waitFor();
+    await manager.getByRole('heading', { name: 'Home', exact: true }).waitFor();
 
     // Quick settings links to the full Settings page in the same tab.
     await page.bringToFront();

@@ -108,9 +108,18 @@ describe('sidebar preference storage', () => {
     ]);
     expect(await loadUiState()).toEqual({
       lastSection: 'search', selectedProjectId: 'example', sessionOrder: 'oldest', groupSessionsByDay: true, expandedSessionIds: ['session'],
+      startSection: 'last', hiddenSections: [],
     });
     await updateUiState({ lastSection: 'search' });
     expect(set).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps sidebar tab preferences and fills them in for state saved before they existed', async () => {
+    const { values } = storage();
+    values[UI_STATE_STORAGE_KEY] = { lastSection: 'search', selectedProjectId: 'inbox', sessionOrder: 'newest', groupSessionsByDay: true, expandedSessionIds: [] };
+    expect(await loadUiState()).toMatchObject({ lastSection: 'search', startSection: 'last', hiddenSections: [] });
+    await updateUiState({ startSection: 'today', hiddenSections: ['park'] });
+    expect(await loadUiState()).toMatchObject({ lastSection: 'search', startSection: 'today', hiddenSections: ['park'] });
   });
 
   it('consumes only the current valid request under the same lock used by the producer', async () => {
