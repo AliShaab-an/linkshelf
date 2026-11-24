@@ -53,11 +53,18 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'light');
   checks.push('The top bar switches between light, dark and system themes');
 
-  // A narrow window puts the navigation above the content instead of beside it.
-  await page.setViewportSize({ width: 360, height: 800 });
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  // The pages start beside the navigation and adapt from wide screens down to a phone.
+  for (const hash of ['library', 'home', 'review', 'settings']) {
+    await page.goto(new URL(`/manager.html#${hash}`, page.url()).href);
+    for (const width of [1920, 1280, 768, 360]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `${hash} overflows at ${width}px`);
+      if (hash === 'library') await page.screenshot({ path: path.join(h.output, `library-${width}.png`) });
+    }
+  }
   await page.setViewportSize({ width: 1280, height: 900 });
-  checks.push('The Manager layout does not overflow at 360px');
+  await page.goto(new URL('/manager.html#library', page.url()).href);
+  checks.push('Library, Home, Review and Settings do not overflow from 1920px down to 360px');
 
   // Keyboard path: the Move menu.
   await card('Reading list').getByLabel('Move Link a to another project').selectOption({ label: 'Nothing here' });

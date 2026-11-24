@@ -48,8 +48,8 @@ function App() {
     };
   }, []);
 
-  // Each section keeps a comfortable line length, centred in the room beside the navigation.
-  const width = section === 'library' ? 'max-w-6xl' : section === 'home' ? 'max-w-4xl' : 'max-w-3xl';
+  // Pages start right beside the navigation. Library and Home use the whole width; the list pages stop at a readable width.
+  const width = section === 'library' || section === 'home' ? '' : 'max-w-5xl';
   const current = sections.find(item => item.id === section);
 
   return <main className="sidebar-workspace min-h-screen bg-slate-50 font-sans text-slate-900 md:grid md:grid-cols-[14rem_minmax(0,1fr)]">
@@ -71,7 +71,7 @@ function App() {
       </aside>
       <div className="min-w-0">
         <div ref={observeHeader} className="sidebar-shell sticky top-0 z-40 border-b border-slate-200 bg-white">
-          <div className="flex min-h-14 items-center justify-between gap-3 px-4 md:px-8">
+          <div className="flex min-h-14 items-center justify-between gap-3 px-4 md:px-6">
             <span className="text-sm font-medium text-slate-600">{current?.label}</span>
             <div className="flex items-center gap-3">
               <ThemeSwitch appearance={appearance} />
@@ -79,7 +79,7 @@ function App() {
             </div>
           </div>
         </div>
-        <section className={`mx-auto ${width} px-4 pt-6 pb-10 md:px-8`}>
+        <section className={`${width} px-4 pt-6 pb-10 md:px-6`}>
           {section === 'home' && <HomeSection />}
           {section === 'library' && <LibrarySection />}
           {section === 'review' && <ReviewSection />}
