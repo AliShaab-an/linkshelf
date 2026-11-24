@@ -40,3 +40,16 @@ export function moveInLibrary(cards: readonly LibraryCard[], linkId: string, pro
       : { ...card, links: without };
   });
 }
+
+/** Narrows each card to the links whose title, address, session name or tags contain every word of the query. */
+export function filterLibrary(cards: readonly LibraryCard[], query: string): LibraryCard[] {
+  const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [...cards];
+  return cards.map(card => ({
+    ...card,
+    links: card.links.filter(({ link, sessionName }) => {
+      const text = [link.title, link.url, link.domain, sessionName, ...(link.tags ?? []), card.project.name].join(' ').toLocaleLowerCase();
+      return words.every(word => text.includes(word));
+    }),
+  }));
+}

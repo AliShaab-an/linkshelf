@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildLibrary, moveInLibrary } from './library';
+import { buildLibrary, filterLibrary, moveInLibrary } from './library';
 import type { Project, SavedLink } from './schemas';
 
 const at = '2026-01-01T00:00:00.000Z';
@@ -37,5 +37,25 @@ describe('moveInLibrary', () => {
   it('ignores unknown links and moves into the same project', () => {
     expect(moveInLibrary(cards, 'nope', 'b')).toEqual(cards);
     expect(moveInLibrary(cards, 'x', 'a')).toEqual(cards);
+  });
+});
+
+describe('filterLibrary', () => {
+  const cards = buildLibrary([project('a', 'Alpha'), project('b', 'Beta')], [
+    { session: session('a', at, 'Trip'), links: [{ ...link('x', 'a'), title: 'Flights to Rome', url: 'https://air.example/x', domain: 'air.example', tags: ['travel'] } as SavedLink] },
+    { session: session('b', at), links: [{ ...link('y', 'b'), title: 'Recipe', url: 'https://food.example/y', domain: 'food.example' } as SavedLink] },
+  ]);
+  const ids = (result: ReturnType<typeof filterLibrary>) => result.map(card => card.links.map(entry => entry.link.id));
+
+  it('matches every word against title, address, session name, tags and project', () => {
+    expect(ids(filterLibrary(cards, 'rome'))).toEqual([['x'], []]);
+    expect(ids(filterLibrary(cards, 'TRIP travel'))).toEqual([['x'], []]);
+    expect(ids(filterLibrary(cards, 'food.example'))).toEqual([[], ['y']]);
+    expect(ids(filterLibrary(cards, 'beta'))).toEqual([[], ['y']]);
+    expect(ids(filterLibrary(cards, 'rome recipe'))).toEqual([[], []]);
+  });
+
+  it('keeps everything for an empty query', () => {
+    expect(ids(filterLibrary(cards, '   '))).toEqual([['x'], ['y']]);
   });
 });

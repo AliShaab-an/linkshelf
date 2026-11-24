@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { createHarness, managerLink, poll } from './harness.mjs';
+import { choose, createHarness, managerLink, poll } from './harness.mjs';
 
 const h = await createHarness();
 const { page } = h;
@@ -66,8 +66,13 @@ try {
   await page.goto(new URL('/manager.html#library', page.url()).href);
   checks.push('Library, Home, Review and Settings do not overflow from 1920px down to 360px');
 
-  // Keyboard path: the Move menu.
-  await card('Reading list').getByLabel('Move Link a to another project').selectOption({ label: 'Nothing here' });
+  // Keyboard path: the link's menu opens the Move dialog.
+  await card('Reading list').getByRole('button', { name: 'Actions for Link a', exact: true }).click();
+  await page.getByRole('group', { name: 'Actions for Link a', exact: true }).getByRole('button', { name: 'Move to…' }).click();
+  const moveDialog = page.getByRole('dialog');
+  await choose(moveDialog.getByLabel('Destination project'), 'empty');
+  await moveDialog.getByRole('button', { name: 'Move link' }).click();
+  await moveDialog.waitFor({ state: 'hidden' });
   await poll(async () => (await h.raw()).links.find(item => item.id === 'a')?.projectId, value => value === 'empty', 'link a moved');
   assert.equal(await card('Nothing here').getByRole('listitem').count(), 1);
   assert.equal(await card('Reading list').getByRole('listitem').count(), 1);
@@ -98,6 +103,53 @@ try {
   await card('Reading list').waitFor();
   assert.equal(await card('Reading list').getByRole('listitem').count(), 2);
   checks.push('Moved links stay where they were put after a reload');
+
+  // Filtering narrows every card and hides cards with no match.
+  const filter = page.getByRole('searchbox', { name: 'Filter links' });
+  await filter.fill('big3');
+  await page.getByText('1 link match').waitFor();
+  assert.equal(await page.locator('section[aria-labelledby^="lib-"]').count(), 1);
+  assert.equal(await card('Big project').getByRole('listitem').count(), 1);
+  await filter.fill('nothing-like-this');
+  await page.getByRole('heading', { name: 'No links match' }).waitFor();
+  await filter.fill('');
+  await card('Inbox').waitFor();
+  checks.push('The filter narrows cards to matching links and says when nothing matches');
+
+  // Projects can be created, renamed and deleted from the board.
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.getByLabel('Project name').fill('Synthetic new project');
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  await card('Synthetic new project').waitFor();
+  const created = (await h.raw()).projects.find(item => item.name === 'Synthetic new project');
+  assert.ok(created, 'the project is saved');
+
+  await card('Synthetic new project').getByRole('button', { name: 'Synthetic new project actions' }).click();
+  await page.getByRole('group', { name: 'Synthetic new project actions' }).getByRole('button', { name: 'Rename project' }).click();
+  await page.getByLabel('Project name').fill('Renamed project');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await card('Renamed project').waitFor();
+  assert.equal((await h.raw()).projects.find(item => item.id === created.id).name, 'Renamed project');
+
+  await card('Reading list').getByRole('button', { name: 'Reading list actions' }).click();
+  await page.getByRole('group', { name: 'Reading list actions' }).getByRole('button', { name: 'Delete project' }).click();
+  await page.getByRole('group', { name: 'Delete Reading list' }).getByText('Its 2 links will move to the Inbox.').waitFor();
+  await page.getByRole('group', { name: 'Delete Reading list' }).getByRole('button', { name: 'Delete project' }).click();
+  await page.getByText('Deleted Reading list. Its 2 links moved to the Inbox.').waitFor();
+  assert.equal((await h.raw()).projects.some(item => item.id === 'reading'), false);
+  assert.equal(await card('Inbox').getByRole('listitem').count(), 2);
+  await card('Inbox').getByRole('button', { name: 'Inbox actions' }).click();
+  const inboxActions = await page.getByRole('group', { name: 'Inbox actions' }).getByRole('button').allTextContents();
+  assert.deepEqual(inboxActions, ['Restore all (2)'], 'the Inbox can not be renamed or deleted');
+  await page.keyboard.press('Escape');
+  checks.push('Projects can be created, renamed and deleted (links move to the Inbox); the Inbox is protected');
+
+  // Removing a link from its menu sends it to the Bin.
+  await card('Big project').getByRole('button', { name: 'Actions for Link big0', exact: true }).click();
+  await page.getByRole('group', { name: 'Actions for Link big0', exact: true }).getByRole('button', { name: 'Move to the Bin' }).click();
+  await poll(async () => (await h.raw()).links.find(item => item.id === 'big0')?.status, value => value === 'removed', 'big0 moved to the Bin');
+  await page.screenshot({ path: path.join(h.output, 'library-menus.png') });
+  checks.push('Move to the Bin removes a link from the board');
 
   assert.deepEqual(h.requests, []);
 } finally {
