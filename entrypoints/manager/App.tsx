@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { managerSectionFromHash, type ManagerSection } from '@/domain/manager';
 import { ArchiveSection } from '../sidepanel/components/ArchiveSection';
 import { HomeSection } from '../sidepanel/components/HomeSection';
@@ -6,6 +6,8 @@ import { LibrarySection } from '../sidepanel/components/LibrarySection';
 import { ReviewSection } from '../sidepanel/components/ReviewSection';
 import { SettingsSection } from '../sidepanel/components/SettingsSection';
 import { TrashPanel } from '../sidepanel/components/TrashPanel';
+import { SearchSection } from '../sidepanel/components/SearchSection';
+import { getParkedLinks, getTrash } from '@/messaging/contracts';
 import { StorageRecoveryGate } from '../sidepanel/components/StorageRecovery';
 import { Icon, type IconName } from '../sidepanel/components/ui/Icon';
 import { hasActiveModal } from '../sidepanel/components/ui/Modal';
@@ -20,10 +22,61 @@ const sections: { id: ManagerSection; label: string; icon: IconName }[] = [
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
+/** Search is reached from the top bar rather than the navigation. */
+const sectionLabel = (section: ManagerSection) => section === 'search' ? 'Search' : sections.find(item => item.id === section)?.label;
+
+/** How many links wait in Review and in the Bin, kept current as the library changes. */
+function useNavigationCounts() {
+  const [counts, setCounts] = useState<Partial<Record<ManagerSection, number>>>({});
+  useEffect(() => {
+    let version = 0;
+    let timeout: ReturnType<typeof setTimeout>;
+    const load = () => {
+      const request = ++version;
+      void Promise.all([getParkedLinks(), getTrash()]).then(([parked, trash]) => {
+        if (request !== version) return;
+        setCounts({
+          ...(parked.success ? { review: parked.links.length } : {}),
+          ...(trash.success ? { bin: trash.links.length } : {}),
+        });
+      }).catch(() => undefined);
+    };
+    const changed: Parameters<typeof browser.storage.onChanged.addListener>[0] = (changes, area) => {
+      if (area !== 'local' || !Object.hasOwn(changes, 'linkshelfDatabase')) return;
+      clearTimeout(timeout);
+      timeout = setTimeout(load, 200);
+    };
+    browser.storage.onChanged.addListener(changed);
+    load();
+    return () => { version++; clearTimeout(timeout); browser.storage.onChanged.removeListener(changed); };
+  }, []);
+  return counts;
+}
+
 /** The full-tab Manager page: the less frequent work that does not need to sit in the sidebar. */
 function App() {
   const appearance = useInterfaceTheme();
   const [section, setSection] = useState<ManagerSection>(() => managerSectionFromHash(location.hash));
+  const [query, setQuery] = useState('');
+  const searchInput = useRef<HTMLInputElement>(null);
+  const counts = useNavigationCounts();
+
+  function search(value: string) {
+    setQuery(value);
+    if (section !== 'search' && value.trim()) location.hash = '#search';
+  }
+
+  // "/" jumps to the search box from anywhere on the page, as it does in the sidebar.
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if (event.key !== '/' || event.altKey || event.ctrlKey || event.metaKey || event.defaultPrevented || hasActiveModal()) return;
+      if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select, [role="textbox"]'))) return;
+      event.preventDefault();
+      searchInput.current?.focus();
+    };
+    document.addEventListener('keydown', focusSearch);
+    return () => document.removeEventListener('keydown', focusSearch);
+  }, []);
 
   useEffect(() => {
     const follow = () => setSection(managerSectionFromHash(location.hash));
@@ -33,7 +86,7 @@ function App() {
 
   useLayoutEffect(() => {
     window.scrollTo(0, 0);
-    document.title = `${sections.find(item => item.id === section)?.label} · LinkShelf Manager`;
+    document.title = `${sectionLabel(section)} · LinkShelf Manager`;
   }, [section]);
 
   // Lists and dropdowns keep clear of the sticky header, as in the sidebar.
@@ -52,7 +105,6 @@ function App() {
 
   // Pages start right beside the navigation. Library and Home use the whole width; the list pages stop at a readable width.
   const width = section === 'library' || section === 'home' ? '' : 'max-w-5xl';
-  const current = sections.find(item => item.id === section);
 
   return <main className="sidebar-workspace min-h-screen bg-slate-50 font-sans text-slate-900 md:grid md:grid-cols-[14rem_minmax(0,1fr)]">
     <StorageRecoveryGate>
@@ -70,6 +122,9 @@ function App() {
             onClick={event => { if (hasActiveModal()) event.preventDefault(); }}>
             <Icon name={item.icon} className="size-4" />
             {item.label}
+            {counts[item.id] ? <span className={`ml-auto min-w-6 rounded-full px-1.5 text-center text-xs font-semibold ${section === item.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'}`}>
+              <span className="sr-only">, </span>{counts[item.id]}<span className="sr-only"> {item.id === 'bin' ? 'removed' : 'waiting'}</span>
+            </span> : null}
           </a>)}
         </nav>
         </div>
@@ -77,8 +132,13 @@ function App() {
       <div className="min-w-0">
         <div ref={observeHeader} className="sidebar-shell sticky top-0 z-40 border-b border-slate-200 bg-white">
           <div className="flex min-h-14 items-center justify-between gap-3 px-4 md:px-6">
-            <span className="text-sm font-medium text-slate-600">{current?.label}</span>
-            <div className="flex items-center gap-3">
+            <form role="search" className="relative min-w-0 flex-1 sm:max-w-md" onSubmit={event => { event.preventDefault(); search(query); }}>
+              <label className="sr-only" htmlFor="manager-search">Search saved links</label>
+              <Icon name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-500" />
+              <input ref={searchInput} id="manager-search" type="search" value={query} placeholder="Search links ( / )"
+                className="w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 pl-9 text-sm" onChange={event => search(event.target.value)} />
+            </form>
+            <div className="flex shrink-0 items-center gap-3">
               <ThemeSwitch appearance={appearance} />
               {/* Room for the signed-in account and its actions. */}
             </div>
@@ -90,6 +150,7 @@ function App() {
           {section === 'review' && <ReviewSection />}
           {section === 'archive' && <ArchiveSection />}
           {section === 'bin' && <TrashPanel />}
+          {section === 'search' && <SearchSection query={query} onQueryChange={setQuery} externalInput={searchInput} />}
           {section === 'settings' && <SettingsSection />}
         </section>
       </div>

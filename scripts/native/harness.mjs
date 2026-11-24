@@ -17,7 +17,8 @@ export async function sectionButton(page, name) {
 const managerSections = { Home: 'home', Library: 'library', Review: 'review', Archive: 'archive', Bin: 'bin', Settings: 'settings' };
 
 /** The Manager page's link for a section. */
-export const managerLink = (page, name) => page.getByRole('navigation', { name: 'Manager sections' }).getByRole('link', { name, exact: true });
+// A link's name may end with a count, such as "Review, 4 waiting".
+export const managerLink = (page, name) => page.getByRole('navigation', { name: 'Manager sections' }).getByRole('link', { name: new RegExp(`^${name}(?![A-Za-z])`) });
 
 /**
  * Shows a LinkShelf section in this test page the way it lives in the product:

@@ -98,7 +98,7 @@ try {
     assert.equal(new URL(manager.url()).hash, '#home');
     assert.equal(await windowId(manager), await windowId(page));
     await manager.getByRole('heading', { name: 'Home', exact: true }).waitFor();
-    assert.deepEqual(await manager.getByRole('navigation', { name: 'Manager sections' }).getByRole('link').allTextContents(), ['Home', 'Library', 'Review', 'Archive', 'Bin', 'Settings']);
+    assert.deepEqual((await manager.getByRole('navigation', { name: 'Manager sections' }).getByRole('link').allTextContents()).map(text => text.replace(/,.*$/, '')), ['Home', 'Library', 'Review', 'Archive', 'Bin', 'Settings']);
     await manager.getByRole('link', { name: 'Archive', exact: true }).click();
     await manager.getByRole('heading', { name: 'Archive', exact: true }).waitFor();
     assert.equal(await manager.title(), 'Archive · LinkShelf Manager');
