@@ -14,7 +14,7 @@ export async function sectionButton(page, name) {
   return button;
 }
 
-const managerSections = { Home: 'home', Library: 'library', Review: 'review', Archive: 'archive', Bin: 'bin', Settings: 'settings' };
+const managerSections = { Home: 'home', Library: 'library', Review: 'review', Archive: 'archive', Bin: 'bin', Duplicates: 'duplicates', Settings: 'settings' };
 
 /** The Manager page's link for a section. */
 // A link's name may end with a count, such as "Review, 4 waiting".

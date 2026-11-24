@@ -7,6 +7,7 @@ import { ReviewSection } from '../sidepanel/components/ReviewSection';
 import { SettingsSection } from '../sidepanel/components/SettingsSection';
 import { TrashPanel } from '../sidepanel/components/TrashPanel';
 import { SearchSection } from '../sidepanel/components/SearchSection';
+import { DuplicatesSection } from '../sidepanel/components/DuplicatesSection';
 import { getParkedLinks, getTrash } from '@/messaging/contracts';
 import { StorageRecoveryGate } from '../sidepanel/components/StorageRecovery';
 import { Icon, type IconName } from '../sidepanel/components/ui/Icon';
@@ -19,6 +20,7 @@ const sections: { id: ManagerSection; label: string; icon: IconName }[] = [
   { id: 'review', label: 'Review', icon: 'check' },
   { id: 'archive', label: 'Archive', icon: 'archive' },
   { id: 'bin', label: 'Bin', icon: 'trash' },
+  { id: 'duplicates', label: 'Duplicates', icon: 'copy' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
@@ -150,6 +152,7 @@ function App() {
           {section === 'review' && <ReviewSection />}
           {section === 'archive' && <ArchiveSection />}
           {section === 'bin' && <TrashPanel />}
+          {section === 'duplicates' && <DuplicatesSection />}
           {section === 'search' && <SearchSection query={query} onQueryChange={setQuery} externalInput={searchInput} />}
           {section === 'settings' && <SettingsSection />}
         </section>
