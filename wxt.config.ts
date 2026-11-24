@@ -10,6 +10,8 @@ export default defineConfig({
     description: 'Park tabs, organize useful links, and return to them at the right time.',
     version: '0.4.0',
     permissions: ['storage', 'alarms', 'notifications', 'tabs', 'bookmarks'],
+    // Asked for only when the person turns on tab groups in Settings; never needed to install or update.
+    optional_permissions: ['tabGroups'],
     commands: {
       'park-current-tab': {
         suggested_key: {
