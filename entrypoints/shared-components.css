@@ -1,0 +1,15 @@
+/* Component classes used by both the sidebar/Manager and the toolbar popup, so neither is missing them. */
+@reference "tailwindcss";
+@layer components {
+  .dropdown-trigger {
+    @apply inline-flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50;
+  }
+
+  .dropdown-panel {
+    @apply rounded-xl border border-slate-200 bg-white p-2 shadow-lg;
+  }
+
+  .dropdown-action {
+    @apply flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-start text-sm font-semibold text-slate-700 hover:bg-slate-50;
+  }
+}

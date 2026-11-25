@@ -62,6 +62,26 @@ try {
     await popup.screenshot({ path: path.join(h.output, `popup-${label}.png`) });
   }
   await popup.evaluate(async () => chrome.tabs.setZoom((await chrome.tabs.getCurrent()).id, 1));
+
+  // The destination list opens over the form, so it needs its own background (it once had none in the popup),
+  // and it must stay inside the popup, which is only as tall as its content.
+  for (const name of ['Docs', 'Flutter', 'AI tools', 'Reading list']) await h.ok({ type: 'CREATE_PROJECT', payload: { name } });
+  const probe = await popupFor(first);
+  await probe.setViewportSize({ width: 360, height: 430 });
+  await picker(probe).click();
+  const list = probe.getByRole('listbox');
+  await list.waitFor();
+  const look = await list.evaluate(el => {
+    const style = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    return { background: style.backgroundColor, border: style.borderTopWidth, shadow: style.boxShadow, bottom: box.bottom, viewport: innerHeight };
+  });
+  assert.notEqual(look.background, 'rgba(0, 0, 0, 0)', 'the list has a background');
+  assert.notEqual(look.border, '0px', 'and a border');
+  assert.notEqual(look.shadow, 'none', 'and a shadow');
+  assert.ok(look.bottom <= look.viewport, 'and stays inside the popup');
+  await probe.screenshot({ path: path.join(h.output, 'popup-destination-list.png') });
+  await probe.close();
   await button(popup, 'Park and close').click();
   await popup.getByRole('status').getByText(/Saved to .* and closed the tab/).waitFor();
   await poll(() => page.evaluate(id => chrome.tabs.get(id).then(() => false, () => true), first.id), Boolean, 'park closed the actual tab');

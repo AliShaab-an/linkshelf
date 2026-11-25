@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "../interactive-cursors.css";
 @import "../interface-theme.css";
+@import "../shared-components.css";
 
 @layer base {
   input:focus, select:focus, textarea:focus {
