@@ -86,9 +86,14 @@ export function AccountPanel() {
 
       {account?.status === 'signed_out' && <>
         <p className="mt-2 text-sm text-slate-600">Sign in to use Premium features such as cloud backup. Everything else keeps working on this device without an account.</p>
-        <button type="button" className={buttonClass('primary', 'mt-4 w-full')} disabled={busy !== null} onClick={() => void run('starting', startAccountSignIn)}>Sign in</button>
-        <p className="mt-2 text-xs text-slate-500">A new tab opens on the LinkShelf website. Sign in there and approve this browser.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" className={buttonClass('primary', 'flex-1')} disabled={busy !== null} onClick={() => void run('starting', startAccountSignIn)}>Sign in</button>
+          <a className={buttonClass('secondary', 'flex-1')} href={`${ACCOUNT_API_BASE_URL}/register`} target="_blank" rel="noreferrer">Create an account</a>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">Both open the LinkShelf website in a new tab. After signing in there, approve this browser.</p>
       </>}
+
+      {account && account.status !== 'unavailable' && <a className={buttonClass('quiet', 'mt-2 w-full')} href={ACCOUNT_API_BASE_URL ?? undefined} target="_blank" rel="noreferrer">Visit the LinkShelf website</a>}
 
       {account?.status === 'pending' && <>
         <p className="mt-2 text-sm text-slate-600">Approve this browser in the tab that just opened. Check that the website shows this code:</p>
