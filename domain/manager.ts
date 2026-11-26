@@ -13,7 +13,7 @@ export function managerSectionFromHash(hash: string): ManagerSection {
 }
 
 /** The pages inside Settings. */
-export const SettingsPageSchema = z.enum(['general', 'data', 'about']);
+export const SettingsPageSchema = z.enum(['general', 'data', 'account', 'about']);
 export type SettingsPage = z.infer<typeof SettingsPageSchema>;
 
 /** The Settings page named after the slash in `#settings/data`; General when absent or unknown. */

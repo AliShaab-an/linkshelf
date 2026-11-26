@@ -11,6 +11,16 @@ npm run dev
 
 Load `.output/chrome-mv3` as an unpacked extension from `chrome://extensions`.
 
+### Account features with a local backend
+
+Accounts are hidden unless the build knows the backend address.
+
+1. Copy `.env.example` to `.env.development` (ignored by Git). It points at `https://linkshelf-backend.test`.
+2. Run `npm run dev`, or `npm run build:dev` and load `.output/chrome-mv3-dev` unpacked.
+3. Open the Manager › Settings › Account.
+
+Development builds use a fixed key, so their ID is always `chlfgppaffnmojfjkdaidgoicejmfhmi`; the backend must allow `chrome-extension://chlfgppaffnmojfjkdaidgoicejmfhmi` in `LINKSHELF_EXTENSION_ORIGINS`. Release builds (`npm run build`, `npm run zip`) contain neither the key nor a backend address.
+
 ## Verification and release
 
 ```bash

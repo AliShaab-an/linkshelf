@@ -5,6 +5,7 @@ import { SettingsPatchSchema, type SettingsPatch } from '@/domain/schemas';
 import { ManagerSectionSchema, type ManagerSection } from '@/domain/manager';
 import type { SnapshotSummary } from '@/domain/snapshots';
 import type { AutoBackupList } from '@/features/backups/auto-backup-service';
+import type { AccountResult } from '@/features/account/account-service';
 import type {
   LinkShelfBackup,
   ParkingSession,
@@ -1548,3 +1549,34 @@ export async function openManager(section: ManagerSection, windowId?: number): P
   assertResponse(response);
   return response as OpenManagerResponse;
 }
+
+export const ACCOUNT_MESSAGE_TYPES = [
+  'ACCOUNT_GET',
+  'ACCOUNT_START_SIGN_IN',
+  'ACCOUNT_POLL_SIGN_IN',
+  'ACCOUNT_OPEN_SIGN_IN_PAGE',
+  'ACCOUNT_CANCEL_SIGN_IN',
+  'ACCOUNT_REFRESH',
+  'ACCOUNT_SIGN_OUT',
+] as const;
+export interface AccountMessage { type: typeof ACCOUNT_MESSAGE_TYPES[number] }
+export type AccountResponse = AccountResult;
+
+export function isAccountMessage(message: unknown): message is AccountMessage {
+  const candidate = message as Partial<AccountMessage> | null;
+  return typeof candidate === 'object' && candidate !== null &&
+    (ACCOUNT_MESSAGE_TYPES as readonly unknown[]).includes(candidate.type);
+}
+
+async function sendAccountMessage(type: AccountMessage['type']): Promise<AccountResponse> {
+  const response = (await browser.runtime.sendMessage({ type } satisfies AccountMessage)) as unknown;
+  assertResponse(response);
+  return response as AccountResponse;
+}
+export const getAccount = () => sendAccountMessage('ACCOUNT_GET');
+export const startAccountSignIn = () => sendAccountMessage('ACCOUNT_START_SIGN_IN');
+export const pollAccountSignIn = () => sendAccountMessage('ACCOUNT_POLL_SIGN_IN');
+export const openAccountSignInPage = () => sendAccountMessage('ACCOUNT_OPEN_SIGN_IN_PAGE');
+export const cancelAccountSignIn = () => sendAccountMessage('ACCOUNT_CANCEL_SIGN_IN');
+export const refreshAccount = () => sendAccountMessage('ACCOUNT_REFRESH');
+export const signOutAccount = () => sendAccountMessage('ACCOUNT_SIGN_OUT');

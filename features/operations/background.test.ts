@@ -69,6 +69,12 @@ describe('background operation outcomes', () => {
 
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+  it('answers account messages and hides accounts in builds without a backend', async () => {
+    await expect(request({ type: 'ACCOUNT_GET' })).resolves.toEqual({ success: true, account: { status: 'unavailable' } });
+    await expect(request({ type: 'ACCOUNT_START_SIGN_IN' })).resolves.toEqual({ success: true, account: { status: 'unavailable' } });
+    expect(values.linkshelfAccount).toBeUndefined();
+  });
+
   it('reports complete parking success against persisted data and closed tabs', async () => {
     const result = await park(true, [1, 2]);
     expect(result).toMatchObject({ success: true, saved: true, closedTabIds: [1, 2] });
