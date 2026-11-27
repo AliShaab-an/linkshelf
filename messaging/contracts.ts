@@ -2,7 +2,7 @@ import type { OperationWarnings } from '@/features/operations/secondary-result';
 import type { RawRecoveryExport, StorageStatus } from '@/domain/recovery';
 import type { RecoveryBackupPreview } from '@/storage/repository';
 import { SettingsPatchSchema, type SettingsPatch } from '@/domain/schemas';
-import { ManagerSectionSchema, type ManagerSection } from '@/domain/manager';
+import { ManagerSectionSchema, SettingsPageSchema, type ManagerSection, type SettingsPage } from '@/domain/manager';
 import type { SnapshotSummary } from '@/domain/snapshots';
 import type { AutoBackupList } from '@/features/backups/auto-backup-service';
 import type { AccountResult } from '@/features/account/account-service';
@@ -1531,7 +1531,7 @@ async function sendRatePromptMessage(action: RatePromptAction): Promise<RateProm
 export const getRatePrompt = () => sendRatePromptMessage('get');
 export const answerRatePrompt = (answer: Exclude<RatePromptAction, 'get'>) => sendRatePromptMessage(answer);
 
-export interface OpenManagerMessage { type: 'OPEN_MANAGER'; payload: { section: ManagerSection; windowId?: number } }
+export interface OpenManagerMessage { type: 'OPEN_MANAGER'; payload: { section: ManagerSection; windowId?: number; page?: SettingsPage } }
 export type OpenManagerResponse = { success: true } | { success: false; error: { message: string } };
 
 export function isOpenManagerMessage(message: unknown): message is OpenManagerMessage {
@@ -1539,12 +1539,13 @@ export function isOpenManagerMessage(message: unknown): message is OpenManagerMe
   if (typeof candidate !== 'object' || candidate === null || candidate.type !== 'OPEN_MANAGER') return false;
   const payload = candidate.payload;
   return typeof payload === 'object' && payload !== null && ManagerSectionSchema.safeParse(payload.section).success &&
-    (payload.windowId === undefined || Number.isInteger(payload.windowId));
+    (payload.windowId === undefined || Number.isInteger(payload.windowId)) &&
+    (payload.page === undefined || (payload.section === 'settings' && SettingsPageSchema.safeParse(payload.page).success));
 }
 
-/** Opens the Manager page at a section, reusing an open Manager tab. */
-export async function openManager(section: ManagerSection, windowId?: number): Promise<OpenManagerResponse> {
-  const message: OpenManagerMessage = { type: 'OPEN_MANAGER', payload: { section, windowId } };
+/** Opens the Manager page at a section (and a Settings page), reusing an open Manager tab. */
+export async function openManager(section: ManagerSection, windowId?: number, page?: SettingsPage): Promise<OpenManagerResponse> {
+  const message: OpenManagerMessage = { type: 'OPEN_MANAGER', payload: { section, windowId, ...(page ? { page } : {}) } };
   const response = (await browser.runtime.sendMessage(message)) as unknown;
   assertResponse(response);
   return response as OpenManagerResponse;
@@ -1553,6 +1554,7 @@ export async function openManager(section: ManagerSection, windowId?: number): P
 export const ACCOUNT_MESSAGE_TYPES = [
   'ACCOUNT_GET',
   'ACCOUNT_START_SIGN_IN',
+  'ACCOUNT_START_SIGN_UP',
   'ACCOUNT_POLL_SIGN_IN',
   'ACCOUNT_OPEN_SIGN_IN_PAGE',
   'ACCOUNT_CANCEL_SIGN_IN',
@@ -1575,6 +1577,7 @@ async function sendAccountMessage(type: AccountMessage['type']): Promise<Account
 }
 export const getAccount = () => sendAccountMessage('ACCOUNT_GET');
 export const startAccountSignIn = () => sendAccountMessage('ACCOUNT_START_SIGN_IN');
+export const startAccountSignUp = () => sendAccountMessage('ACCOUNT_START_SIGN_UP');
 export const pollAccountSignIn = () => sendAccountMessage('ACCOUNT_POLL_SIGN_IN');
 export const openAccountSignInPage = () => sendAccountMessage('ACCOUNT_OPEN_SIGN_IN_PAGE');
 export const cancelAccountSignIn = () => sendAccountMessage('ACCOUNT_CANCEL_SIGN_IN');

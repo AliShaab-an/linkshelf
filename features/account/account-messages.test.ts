@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACCOUNT_MESSAGE_TYPES, isAccountMessage } from '@/messaging/contracts';
+import { ACCOUNT_MESSAGE_TYPES, isAccountMessage, isOpenManagerMessage } from '@/messaging/contracts';
 
 describe('account messages', () => {
   it('recognises only account message types', () => {
@@ -8,5 +8,12 @@ describe('account messages', () => {
     expect(isAccountMessage({ type: 'GET_SETTINGS' })).toBe(false);
     expect(isAccountMessage(null)).toBe(false);
     expect(isAccountMessage('ACCOUNT_GET')).toBe(false);
+  });
+
+  it('opens the Manager at a Settings page only for settings', () => {
+    expect(isOpenManagerMessage({ type: 'OPEN_MANAGER', payload: { section: 'settings', page: 'account' } })).toBe(true);
+    expect(isOpenManagerMessage({ type: 'OPEN_MANAGER', payload: { section: 'settings' } })).toBe(true);
+    expect(isOpenManagerMessage({ type: 'OPEN_MANAGER', payload: { section: 'archive', page: 'account' } })).toBe(false);
+    expect(isOpenManagerMessage({ type: 'OPEN_MANAGER', payload: { section: 'settings', page: 'billing' } })).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ACCOUNT_FEATURES, ACCOUNT_FEATURE_LABELS, hasAccountFeature, type AccountView } from '@/domain/account';
+import { ACCOUNT_FEATURES, ACCOUNT_FEATURE_LABELS, ACCOUNT_STORAGE_KEY, hasAccountFeature, type AccountView } from '@/domain/account';
 import { ACCOUNT_API_BASE_URL } from '@/features/account/account-config';
 import {
   cancelAccountSignIn,
@@ -9,6 +9,7 @@ import {
   refreshAccount,
   signOutAccount,
   startAccountSignIn,
+  startAccountSignUp,
   type AccountResponse,
 } from '@/messaging/contracts';
 import { OperationFeedback } from './ui/OperationFeedback';
@@ -57,6 +58,16 @@ export function AccountPanel() {
     return () => { mounted.current = false; };
   }, [apply, run]);
 
+  // Another page (such as the top bar) may start or finish a sign-in; follow the stored account.
+  useEffect(() => {
+    const changed = (changes: Record<string, unknown>, area: string) => {
+      if (area !== 'local' || !Object.hasOwn(changes, ACCOUNT_STORAGE_KEY)) return;
+      void getAccount().then(response => apply(response, { quiet: true })).catch(() => undefined);
+    };
+    browser.storage.onChanged?.addListener(changed);
+    return () => browser.storage.onChanged?.removeListener(changed);
+  }, [apply]);
+
   // While a sign-in waits for approval, keep checking; also check as soon as the person comes back to this tab.
   const pending = account?.status === 'pending';
   useEffect(() => {
@@ -87,10 +98,10 @@ export function AccountPanel() {
       {account?.status === 'signed_out' && <>
         <p className="mt-2 text-sm text-slate-600">Sign in to use Premium features such as cloud backup. Everything else keeps working on this device without an account.</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" className={buttonClass('primary', 'flex-1')} disabled={busy !== null} onClick={() => void run('starting', startAccountSignIn)}>Sign in</button>
-          <a className={buttonClass('secondary', 'flex-1')} href={`${ACCOUNT_API_BASE_URL}/register`} target="_blank" rel="noreferrer">Create an account</a>
+          <button type="button" className={buttonClass('secondary', 'flex-1')} disabled={busy !== null} onClick={() => void run('starting', startAccountSignIn)}>Log in</button>
+          <button type="button" className={buttonClass('primary', 'flex-1')} disabled={busy !== null} onClick={() => void run('starting', startAccountSignUp)}>Sign up</button>
         </div>
-        <p className="mt-2 text-xs text-slate-500">Both open the LinkShelf website in a new tab. After signing in there, approve this browser.</p>
+        <p className="mt-2 text-xs text-slate-500">Both open the LinkShelf website in a new tab, where you can also use Google or GitHub. Afterwards, approve this browser there and come back.</p>
       </>}
 
       {account && account.status !== 'unavailable' && <a className={buttonClass('quiet', 'mt-2 w-full')} href={ACCOUNT_API_BASE_URL ?? undefined} target="_blank" rel="noreferrer">Visit the LinkShelf website</a>}

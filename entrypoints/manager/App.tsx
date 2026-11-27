@@ -5,6 +5,7 @@ import { HomeSection } from '../sidepanel/components/HomeSection';
 import { LibrarySection } from '../sidepanel/components/LibrarySection';
 import { ReviewSection } from '../sidepanel/components/ReviewSection';
 import { SettingsSection } from '../sidepanel/components/SettingsSection';
+import { AccountTopBar } from '../sidepanel/components/AccountTopBar';
 import { TrashPanel } from '../sidepanel/components/TrashPanel';
 import { SearchSection } from '../sidepanel/components/SearchSection';
 import { DuplicatesSection } from '../sidepanel/components/DuplicatesSection';
@@ -142,7 +143,7 @@ function App() {
             </form>
             <div className="flex shrink-0 items-center gap-3">
               <ThemeSwitch appearance={appearance} />
-              {/* Room for the signed-in account and its actions. */}
+              <AccountTopBar />
             </div>
           </div>
         </div>

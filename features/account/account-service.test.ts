@@ -86,6 +86,26 @@ describe('account service', () => {
     expect(storage.values[ACCOUNT_STORAGE_KEY]).toMatchObject({ status: 'signed_in', token: '1|secret-token' });
   });
 
+  it('sign up opens the register page and continues to the same code', async () => {
+    const accounts = service();
+
+    await expect(accounts.startSignUp()).resolves.toMatchObject({ success: true, account: { status: 'pending', userCode: 'BCDF-GHJK' } });
+    expect(openTab).toHaveBeenCalledWith('https://linkshelf.test/extension/signup?code=BCDF-GHJK');
+
+    // Log in on the same waiting code reuses it and opens the connect page instead.
+    await accounts.startSignIn('login');
+    expect(openTab).toHaveBeenLastCalledWith('https://linkshelf.test/extension/connect?code=BCDF-GHJK');
+    expect(api.startDeviceAuthorization).toHaveBeenCalledTimes(1);
+  });
+
+  it('works when its methods are called unbound, as the worker does', async () => {
+    const { startSignUp, startSignIn } = service();
+
+    await startSignUp();
+    await startSignIn();
+    expect(openTab).toHaveBeenCalledTimes(2);
+  });
+
   it('waits longer after slow_down', async () => {
     const accounts = service();
     await accounts.startSignIn();

@@ -1,4 +1,4 @@
-import { SIGNED_OUT, toAccountView, type AccountState, type AccountView } from '@/domain/account';
+import { SIGNED_OUT, toAccountView, type AccountState, type AccountView, type PendingSignIn } from '@/domain/account';
 import type { AccountStore } from '@/storage/account-store';
 import { AccountApiError, type AccountApi } from './account-api';
 
@@ -13,6 +13,20 @@ export interface AccountServiceOptions {
   openTab: (url: string) => Promise<unknown>;
   clientName: () => Promise<string>;
   now?: () => Date;
+}
+
+/** Which website page the sign-in opens first: log in, or create an account. */
+export type SignInIntent = 'login' | 'signup';
+
+/**
+ * The page to open for a waiting sign-in. Both end on the connect page for this code;
+ * `signup` passes through the website's register page first.
+ */
+export function websiteUrl(pending: PendingSignIn, intent: SignInIntent): string {
+  if (intent === 'login') return pending.verificationUri;
+  const url = new URL('/extension/signup', pending.verificationUri);
+  url.searchParams.set('code', pending.userCode);
+  return url.href;
 }
 
 /** Added to the polling interval each time the backend answers slow_down (RFC 8628 §3.5). */
@@ -50,18 +64,18 @@ export function createAccountService({ store, api, openTab, clientName, now = ()
     }
   }
 
-  return {
+  const service = {
     async view(): Promise<AccountResult> {
       if (!api) return unavailable;
       return ok(await store.get());
     },
 
-    /** Ask for a sign-in code and open the connect page in a new tab. */
-    startSignIn(): Promise<AccountResult> {
+    /** Ask for a sign-in code and open the website (login, or register for `signup`) in a new tab. */
+    startSignIn(intent: SignInIntent = 'login'): Promise<AccountResult> {
       return change(async (state, api) => {
         if (state.status === 'signed_in') return { state, result: ok(state) };
         if (state.status === 'pending' && !isPast(state.pending.expiresAt)) {
-          const opened = await openTab(state.pending.verificationUri).then(() => true, () => false);
+          const opened = await openTab(websiteUrl(state.pending, intent)).then(() => true, () => false);
           return { state, result: opened ? ok(state) : fail(state, MESSAGES.tabFailed) };
         }
         const authorization = await api.startDeviceAuthorization(await clientName());
@@ -76,9 +90,14 @@ export function createAccountService({ store, api, openTab, clientName, now = ()
             nextPollAt: at(authorization.interval),
           },
         };
-        const opened = await openTab(authorization.verificationUriComplete).then(() => true, () => false);
+        const opened = await openTab(websiteUrl(next.pending, intent)).then(() => true, () => false);
         return { state: next, result: opened ? ok(next) : fail(next, MESSAGES.tabFailed) };
       });
+    },
+
+    /** Like startSignIn, but the website shows its register page first, then the connect page. */
+    startSignUp(): Promise<AccountResult> {
+      return service.startSignIn('signup');
     },
 
     /** Check once whether the sign-in was approved. Calls sooner than the interval do nothing. */
@@ -159,6 +178,8 @@ export function createAccountService({ store, api, openTab, clientName, now = ()
       });
     },
   };
+
+  return service;
 }
 
 export type AccountService = ReturnType<typeof createAccountService>;
