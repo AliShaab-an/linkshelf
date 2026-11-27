@@ -26,6 +26,7 @@ import {
   isUndoParkedLinkMessage,
   isMoveLinkMessage,
   isRenameSessionMessage,
+  isAccountMessage,
   isSetLinkTagsMessage,
   isSetLinkReminderMessage,
   isGetParkDuplicatesMessage,
@@ -82,8 +83,13 @@ import {
 import { parseSearchQuery } from '@/domain/tags';
 import { ChromeStorageAdapter } from '@/storage/storage-adapter';
 import { RatePromptStore } from '@/storage/rate-prompt-store';
+import { AccountStore } from '@/storage/account-store';
+import { createAccountApi } from '@/features/account/account-api';
+import { createAccountService } from '@/features/account/account-service';
+import { ACCOUNT_API_BASE_URL } from '@/features/account/account-config';
+import { clientNameForPlatform } from '@/domain/account';
 import { RATE_PROMPT_REVIEW_URL, isRatePromptVisible } from '@/domain/rate-prompt';
-import { MANAGER_PAGE_PATH, type ManagerSection } from '@/domain/manager';
+import { MANAGER_PAGE_PATH, type ManagerSection, type SettingsPage } from '@/domain/manager';
 import { TAB_GROUPS_PERMISSION } from '@/domain/tab-groups';
 import { createTabGroups } from '@/features/tab-groups/tab-groups';
 import {
@@ -122,6 +128,13 @@ export default defineBackground(() => {
   }
   const operations = new OperationCoordinator();
   const ratePrompt = new RatePromptStore(new ChromeStorageAdapter());
+  // Account sign-in and plan; network access and the token stay in this worker.
+  const accounts = createAccountService({
+    store: new AccountStore(new ChromeStorageAdapter()),
+    api: ACCOUNT_API_BASE_URL ? createAccountApi(ACCOUNT_API_BASE_URL) : null,
+    openTab: url => browser.tabs.create({ url, active: true }),
+    clientName: async () => clientNameForPlatform((await browser.runtime.getPlatformInfo?.().catch(() => undefined))?.os),
+  });
   /** Counting parked tabs for the rate prompt must never affect parking itself. */
   function countParked(count: number) {
     void ratePrompt.recordParked(count).catch((error) => console.warn('LinkShelf could not update the rate prompt:', error));
@@ -469,6 +482,23 @@ export default defineBackground(() => {
         }));
         return true;
       }
+      if (isAccountMessage(message)) {
+        const actions = {
+          ACCOUNT_GET: accounts.view,
+          ACCOUNT_START_SIGN_IN: () => accounts.startSignIn('login'),
+          ACCOUNT_START_SIGN_UP: accounts.startSignUp,
+          ACCOUNT_POLL_SIGN_IN: accounts.pollSignIn,
+          ACCOUNT_OPEN_SIGN_IN_PAGE: accounts.openSignInPage,
+          ACCOUNT_CANCEL_SIGN_IN: accounts.cancelSignIn,
+          ACCOUNT_REFRESH: accounts.refresh,
+          ACCOUNT_SIGN_OUT: accounts.signOut,
+        } satisfies Record<typeof message.type, () => Promise<unknown>>;
+        void actions[message.type]().then(sendResponse).catch((error) => {
+          console.error('LinkShelf account action failed:', error);
+          sendResponse({ success: false, account: { status: 'signed_out' }, error: { message: 'LinkShelf could not complete this account action. Try again.' } });
+        });
+        return true;
+      }
       if (isGetSettingsMessage(message)) {
         void Promise.all([repository.getSettings(), repository.getProjects()])
           .then(([settings, projects]) =>
@@ -805,8 +835,8 @@ export default defineBackground(() => {
     }
 
     if (isOpenManagerMessage(message)) {
-      const { section, windowId } = message.payload;
-      void openManagerTab(section, windowId)
+      const { section, windowId, page } = message.payload;
+      void openManagerTab(section, windowId, page)
         .then(() => sendResponse({ success: true }))
         .catch((error) => {
           console.error('Opening the Manager page failed:', error);
@@ -1201,9 +1231,9 @@ export default defineBackground(() => {
 });
 
 /** Shows the Manager page at a section, reusing an open Manager tab (preferring the caller's window). */
-async function openManagerTab(section: ManagerSection, windowId?: number) {
+async function openManagerTab(section: ManagerSection, windowId?: number, page?: SettingsPage) {
   const base = browser.runtime.getURL(MANAGER_PAGE_PATH);
-  const url = `${base}#${section}`;
+  const url = `${base}#${section}${section === 'settings' && page ? `/${page}` : ''}`;
   const managers = (await browser.tabs.query({})).filter(tab => tab.id !== undefined && tab.url?.startsWith(base));
   const existing = managers.find(tab => tab.windowId === windowId) ?? managers[0];
   if (!existing?.id) {

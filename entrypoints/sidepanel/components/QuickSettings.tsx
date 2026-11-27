@@ -7,16 +7,18 @@ import { useDisclosure } from './useDisclosure';
 import { useSettingsPreferences } from './useSettingsPreferences';
 import { SegmentedControl } from './ui/SegmentedControl';
 import type { InterfaceTheme } from '../use-interface-theme';
+import type { SettingsPage } from '@/domain/manager';
+import { ACCOUNT_API_BASE_URL } from '@/features/account/account-config';
 
 export function QuickSettings({ theme, changeTheme }: { theme: InterfaceTheme; changeTheme(value: InterfaceTheme): void }) {
   const disclosure = useDisclosure();
   const preferences = useSettingsPreferences(disclosure.open);
   const [error, setError] = useState('');
 
-  async function allSettings() {
+  async function allSettings(page?: SettingsPage) {
     setError('');
     try {
-      const response = await openManager('settings', (await browser.windows.getCurrent()).id);
+      const response = await openManager('settings', (await browser.windows.getCurrent()).id, page);
       if (!response.success) setError(response.error.message);
     } catch { setError('LinkShelf could not open the Manager page.'); }
   }
@@ -39,6 +41,9 @@ export function QuickSettings({ theme, changeTheme }: { theme: InterfaceTheme; c
           options={[{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] satisfies { value: InterfaceTheme; label: string }[]} />
       </div>
       {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+      {ACCOUNT_API_BASE_URL && <button type="button" className={buttonClass('secondary', 'mt-2 w-full')} onClick={() => void allSettings('account')}>
+        Account: log in or sign up
+      </button>}
       <button type="button" className={buttonClass('quiet', 'mt-2 w-full')} onClick={() => void allSettings()}>
         <Icon name="manage" className="size-4" />All settings
       </button>

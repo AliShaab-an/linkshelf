@@ -15,6 +15,8 @@ import { buildExport, type ExportFormat } from '@/domain/export';
 import { Dropdown } from './ui/Dropdown';
 import { SnapshotsPanel } from './SnapshotsPanel';
 import { AutoBackupsPanel } from './AutoBackupsPanel';
+import { AccountPanel } from './AccountPanel';
+import { ACCOUNT_API_BASE_URL } from '@/features/account/account-config';
 import { BACKUP_SIZE_LIMIT_LABEL } from '@/domain/constants';
 import { stringifyBackup } from '@/domain/backup';
 import { readImportFile, type ImportFile } from '@/domain/importers';
@@ -26,11 +28,14 @@ import {
   previewImportData,
 } from '@/messaging/contracts';
 
-const groups: readonly { page: SettingsPage; id: string; title: string; description: string }[] = [
-  { page: 'general', id: 'settings-general', title: 'General', description: 'How LinkShelf parks, restores, reminds, and looks.' },
-  { page: 'data', id: 'settings-data', title: 'Your data', description: 'Back up, import, and export your library. Everything stays on this device.' },
-  { page: 'about', id: 'settings-about', title: 'About', description: 'Privacy, permissions, and how to get help.' },
-];
+type SettingsGroupInfo = { page: SettingsPage; id: string; title: string; description: string };
+const general: SettingsGroupInfo = { page: 'general', id: 'settings-general', title: 'General', description: 'How LinkShelf parks, restores, reminds, and looks.' };
+const data: SettingsGroupInfo = { page: 'data', id: 'settings-data', title: 'Your data', description: 'Back up, import, and export your library. Everything stays on this device.' };
+const accountGroup: SettingsGroupInfo = { page: 'account', id: 'settings-account-group', title: 'Account', description: 'Sign in to your LinkShelf account and see your plan. LinkShelf works fully without one.' };
+const about: SettingsGroupInfo = { page: 'about', id: 'settings-about', title: 'About', description: 'Privacy, permissions, and how to get help.' };
+/** Account appears only in builds that know the LinkShelf backend address. */
+const groups: readonly SettingsGroupInfo[] = ACCOUNT_API_BASE_URL ? [general, data, accountGroup, about] : [general, data, about];
+const availablePage = (page: SettingsPage): SettingsPage => groups.some(group => group.page === page) ? page : 'general';
 
 export function SettingsSection() {
   const backupInput = useRef<HTMLInputElement>(null);
@@ -50,14 +55,14 @@ export function SettingsSection() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [shortcuts, setShortcuts] = useState<Record<string, string>>({});
-  const [page, setPage] = useState<SettingsPage>(() => settingsPageFromHash(location.hash));
+  const [page, setPage] = useState<SettingsPage>(() => availablePage(settingsPageFromHash(location.hash)));
   const moved = useRef(false);
 
   // Each group is its own page, named in the address so links such as #settings/data open it directly.
   useEffect(() => {
     const follow = () => {
       moved.current = true;
-      setPage(settingsPageFromHash(location.hash));
+      setPage(availablePage(settingsPageFromHash(location.hash)));
     };
     window.addEventListener('hashchange', follow);
     return () => window.removeEventListener('hashchange', follow);
@@ -192,7 +197,7 @@ export function SettingsSection() {
         </a>)}
       </nav>
 
-      {page === 'general' && <SettingsGroup {...groups[0]}>
+      {page === 'general' && <SettingsGroup {...general}>
         <SettingsPreferences preferences={preferences} disabled={isPreviewing || isImporting || importPreview !== null} />
         <TabGroupsSetting />
         <SidebarSetting />
@@ -207,7 +212,7 @@ export function SettingsSection() {
         </SettingsCard>
       </SettingsGroup>}
 
-      {page === 'data' && <SettingsGroup {...groups[1]}>
+      {page === 'data' && <SettingsGroup {...data}>
         <div className="lg:col-span-2">{feedback}</div>
         <SettingsCard id="settings-backup" title="Backup">
           <p className="mt-2 text-sm text-slate-600">Export projects, sessions, links, reminders, and settings as readable JSON. Chrome bookmarks are not included.</p>
@@ -258,7 +263,11 @@ export function SettingsSection() {
         <SnapshotsPanel />
       </SettingsGroup>}
 
-      {page === 'about' && <SettingsGroup {...groups[2]}>
+      {page === 'account' && <SettingsGroup {...accountGroup}>
+        <AccountPanel />
+      </SettingsGroup>}
+
+      {page === 'about' && <SettingsGroup {...about}>
         <SettingsCard id="settings-privacy" title="Privacy">
           <p className="mt-2 text-sm text-slate-600">LinkShelf stores its own data locally and does not send your links, notes, or bookmarks to a server.</p>
           <p className="mt-2 text-xs text-slate-500">Version {browser.runtime.getManifest().version}</p>
